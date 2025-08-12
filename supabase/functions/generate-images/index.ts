@@ -13,6 +13,7 @@ const corsHeaders = {
 }
 
 const IMAGE_SIZE = 1024; // You can adjust this as needed
+const BATCH_SIZE = 3; // Process 3 images in parallel at a time
 
 // Fetch image as PNG File (adapted from your working code)
 async function fetchImageAsFile(url: string, fileName: string): Promise<File> {
@@ -93,117 +94,131 @@ Deno.serve(async (req) => {
       }
     }
     
-    // Process all combinations in parallel
-    const promises = combinations.map(async ({ photoId, prompt }) => {
-      try {
-        // Get photo details from database
-        const photoResponse = await fetch(`${supabaseUrl}/rest/v1/uploaded_photos?id=eq.${photoId}`, {
-          headers: {
-            'apikey': supabaseServiceKey,
-            'Authorization': `Bearer ${supabaseServiceKey}`,
-            'Content-Type': 'application/json'
+    // Process combinations in batches to avoid overwhelming CPU and hitting rate limits
+    const resultsArray: Array<any> = []
+    
+    for (let i = 0; i < combinations.length; i += BATCH_SIZE) {
+      const batch = combinations.slice(i, i + BATCH_SIZE)
+      console.log(`🔄 Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(combinations.length / BATCH_SIZE)} (${batch.length} items)`)
+      
+      const batchPromises = batch.map(async ({ photoId, prompt }) => {
+        try {
+          // Get photo details from database
+          const photoResponse = await fetch(`${supabaseUrl}/rest/v1/uploaded_photos?id=eq.${photoId}`, {
+            headers: {
+              'apikey': supabaseServiceKey,
+              'Authorization': `Bearer ${supabaseServiceKey}`,
+              'Content-Type': 'application/json'
+            }
+          })
+          
+          if (!photoResponse.ok) {
+            console.error(`❌ Failed to fetch photo ${photoId}:`, {
+              status: photoResponse.status,
+              statusText: photoResponse.statusText
+            })
+            return null
           }
-        })
-        
-        if (!photoResponse.ok) {
-          console.error(`❌ Failed to fetch photo ${photoId}:`, {
-            status: photoResponse.status,
-            statusText: photoResponse.statusText
+          
+          const photoData = await photoResponse.json()
+          if (photoData.length === 0) {
+            console.warn(`⚠️ No photo data found for ID: ${photoId}`)
+            return null
+          }
+          
+          const photo = photoData[0]
+          
+          // Get pet image URL with transformation to ensure proper format and size
+          const petImageUrl = `${supabaseUrl}/storage/v1/object/public/uploaded-photos/${photo.file_path}?width=400&height=400&quality=80&format=webp`
+          
+          console.log(`🎨 Processing prompt: "${prompt}" for photo ${photoId}`)
+          
+          // Fetch pet image as file
+          const petFile = await fetchImageAsFile(petImageUrl, "pet.png")
+          console.log(`📁 Pet image: ${petFile.size} bytes, type: ${petFile.type}`)
+          
+          // Use your exact working API call format, but with just the pet image
+          const form = new FormData();
+          form.append("image", petFile); // Single image instead of image[]
+          form.append("model", "gpt-image-1");
+          form.append("prompt", prompt);
+          form.append("size", `${IMAGE_SIZE}x${IMAGE_SIZE}`);
+          form.append("background", "transparent");
+          
+          console.log('🤖 Calling OpenAI API with your working format...')
+          const openaiResponse = await fetch("https://api.openai.com/v1/images/edits", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${openaiApiKey}`
+            },
+            body: form
+          });
+          
+          if (!openaiResponse.ok) {
+            const errorText = await openaiResponse.text();
+            console.error(`❌ OpenAI API error for prompt "${prompt}":`, {
+              status: openaiResponse.status,
+              statusText: openaiResponse.statusText,
+              error: errorText
+            });
+            return null;
+          }
+          
+          const openaiData = await openaiResponse.json();
+          
+          if (openaiData.usage) {
+            console.log('[EdgeFunction] OpenAI API Usage:', openaiData.usage);
+          }
+          
+          // Get the generated image - check for both b64_json and url formats
+          let openaiImageUrl = null;
+          let b64Image = undefined;
+          
+          if (openaiData.data?.[0]?.url) {
+            openaiImageUrl = openaiData.data[0].url;
+            console.log('✅ Got image URL from OpenAI');
+          } else if (openaiData.data?.[0]?.b64_json) {
+            b64Image = openaiData.data[0].b64_json;
+            console.log('✅ Got base64 image from OpenAI');
+          } else {
+            console.error('❌ No image returned from OpenAI API');
+            return null;
+          }
+          
+          // Process and upload the generated image
+          const result = await processGeneratedImage({
+            b64Image,
+            photoId,
+            prompt,
+            initialPrompt: prompts[0],
+            supabaseUrl,
+            supabaseServiceKey,
+            originalPhotoUrl: petImageUrl
+          });
+          
+          return result;
+          
+        } catch (error) {
+          console.error(`💥 Error processing photo ${photoId} with prompt "${prompt}":`, {
+            error: error.message,
+            stack: error.stack,
+            photoId,
+            prompt
           })
           return null
         }
-        
-        const photoData = await photoResponse.json()
-        if (photoData.length === 0) {
-          console.warn(`⚠️ No photo data found for ID: ${photoId}`)
-          return null
-        }
-        
-        const photo = photoData[0]
-        
-        // Get pet image URL with transformation to ensure proper format and size
-        const petImageUrl = `${supabaseUrl}/storage/v1/object/public/uploaded-photos/${photo.file_path}?width=400&height=400&quality=80&format=webp`
-        
-        console.log(`🎨 Processing prompt: "${prompt}" for photo ${photoId}`)
-        
-        // Fetch pet image as file
-        const petFile = await fetchImageAsFile(petImageUrl, "pet.png")
-        console.log(`📁 Pet image: ${petFile.size} bytes, type: ${petFile.type}`)
-        
-        // Use your exact working API call format, but with just the pet image
-        const form = new FormData();
-        form.append("image", petFile); // Single image instead of image[]
-        form.append("model", "gpt-image-1");
-        form.append("prompt", prompt);
-        form.append("size", `${IMAGE_SIZE}x${IMAGE_SIZE}`);
-        form.append("background", "transparent");
-        
-        console.log('🤖 Calling OpenAI API with your working format...')
-        const openaiResponse = await fetch("https://api.openai.com/v1/images/edits", {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${openaiApiKey}`
-          },
-          body: form
-        });
-        
-        if (!openaiResponse.ok) {
-          const errorText = await openaiResponse.text();
-          console.error(`❌ OpenAI API error for prompt "${prompt}":`, {
-            status: openaiResponse.status,
-            statusText: openaiResponse.statusText,
-            error: errorText
-          });
-          return null;
-        }
-        
-        const openaiData = await openaiResponse.json();
-        
-        if (openaiData.usage) {
-          console.log('[EdgeFunction] OpenAI API Usage:', openaiData.usage);
-        }
-        
-        // Get the generated image - check for both b64_json and url formats
-        let openaiImageUrl = null;
-        let b64Image = undefined;
-        
-        if (openaiData.data?.[0]?.url) {
-          openaiImageUrl = openaiData.data[0].url;
-          console.log('✅ Got image URL from OpenAI');
-        } else if (openaiData.data?.[0]?.b64_json) {
-          b64Image = openaiData.data[0].b64_json;
-          console.log('✅ Got base64 image from OpenAI');
-        } else {
-          console.error('❌ No image returned from OpenAI API');
-          return null;
-        }
-        
-        // Process and upload the generated image
-        const result = await processGeneratedImage({
-          b64Image,
-          photoId,
-          prompt,
-          initialPrompt: prompts[0],
-          supabaseUrl,
-          supabaseServiceKey,
-          originalPhotoUrl: petImageUrl
-        });
-        
-        return result;
-        
-      } catch (error) {
-        console.error(`💥 Error processing photo ${photoId} with prompt "${prompt}":`, {
-          error: error.message,
-          stack: error.stack,
-          photoId,
-          prompt
-        })
-        return null
+      })
+      
+      // Wait for current batch to complete before moving to next batch
+      const batchResults = await Promise.all(batchPromises)
+      resultsArray.push(...batchResults.filter(result => result !== null))
+      
+      // Add a small delay between batches to be respectful to OpenAI API
+      if (i + BATCH_SIZE < combinations.length) {
+        console.log(`⏳ Batch complete. Waiting 1 second before next batch...`)
+        await new Promise(resolve => setTimeout(resolve, 1000))
       }
-    })
-    
-    // Wait for all parallel operations to complete
-    const resultsArray = await Promise.all(promises)
+    }
     
     // Filter out null results and add to results array
     results.push(...resultsArray.filter(result => result !== null))

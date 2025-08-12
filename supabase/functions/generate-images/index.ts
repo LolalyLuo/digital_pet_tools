@@ -136,13 +136,19 @@ Deno.serve(async (req) => {
           // Fetch pet image as file
           const petFile = await fetchImageAsFile(petImageUrl, "pet.png")
           console.log(`📁 Pet image: ${petFile.size} bytes, type: ${petFile.type}`)
+
+          const additionalPrompt = `
+          Requirements:
+          - Background: The pet is isolated on empty background, no background elements, no setting, transparent background, with pet only.
+          - Composition: Clean, centered design that works on different product formats. Ensure some white space around the pet and nothing is cutoff.
+          - Quality: High quality designs that print well on merchandise. `
           
           // Use your exact working API call format, but with just the pet image
           const form = new FormData();
           form.append("image", petFile); // Single image instead of image[]
           form.append("model", "gpt-image-1");
-          form.append("prompt", prompt);
-          form.append("size", `${IMAGE_SIZE}x${IMAGE_SIZE}`);
+          form.append("prompt", prompt + additionalPrompt);
+          form.append("size", `auto`);
           form.append("background", "transparent");
           
           console.log('🤖 Calling OpenAI API with your working format...')

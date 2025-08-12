@@ -62,10 +62,7 @@ Deno.serve(async (req) => {
           
           Requirements:
           - Each prompt should describe the pet in a different artistic style or creative scenario
-          - Style variations: cute, artistic, marketable for pet owners
-          - Background: The pet is isolated on empty background, no background elements, no setting, transparent background, with pet only
-          - Composition: Clean, centered design that works on different product formats
-          - Quality: High-contrast, bold designs that print well on merchandise
+          - Style variations: cute, artistic, popular, marketable for pet owners
           
           IMPORTANT: Return ONLY a valid JSON array of exactly ${count} strings. No additional text, explanations, or formatting. Each string should be a complete, detailed prompt.
           
@@ -79,9 +76,9 @@ Deno.serve(async (req) => {
 
           Result:
           [
-          "Turn the provided dog photo into a high-detail vector-style digital illustration. Preserve the dog's realistic proportions and facial features, but use bold, clean shapes with sharp, well-defined edges for fur and details. Render the fur in layered strokes with visible separation between strands, using a rich, warm color palette and subtle gradients for depth. Eyes should be glossy, expressive, and outlined for emphasis. It should highlight the dog, with a polished, commercial-quality finish suitable for printing on products. The pet is isolated on empty background, no background elements, no setting, transparent background, with pet only. ",
-          "Turn the provided dog photo into a minimalist continuous-line drawing in the style of the reference image. Use clean, smooth, unbroken black lines to outline the dog's head and facial features. Keep details minimal but expressive, with slight line variations to show wrinkles, ear shapes, and eyes. No shading, not areas of black, no color, and no background — just simple, elegant line art that preserves the dog's unique facial proportions and key features. The pet is isolated on empty background, no background elements, no setting, transparent background, with pet only.",
-          "Turn the provided dog photo into a soft, dreamy watercolor painting. Use loose, painterly brushstrokes with delicate blending to capture the fur's texture, while keeping the dog's proportions and facial features accurate. Apply warm, natural lighting with sunlit highlights, as if in a gentle meadow scene. Use a soft, pastel color palette with light yellows, creams, and muted greens. Surround the dog with blurred, painterly wildflowers and foliage to give an impressionistic, serene atmosphere. Maintain a hand-painted look with visible brush textures and natural color bleeding. The pet is isolated on empty background, no background elements, no setting, transparent background, with pet only."
+          "Turn the provided dog photo into a high-detail vector-style digital illustration. Preserve the dog's realistic proportions and facial features, but use bold, clean shapes with sharp, well-defined edges for fur and details. Render the fur in layered strokes with visible separation between strands, using a rich, warm color palette and subtle gradients for depth. Eyes should be glossy, expressive, and outlined for emphasis. It should highlight the dog, with a polished, commercial-quality finish suitable for printing on products. ",
+          "Turn the provided dog photo into a minimalist continuous-line drawing in the style of the reference image. Use clean, smooth, unbroken black lines to outline the dog's head and facial features. Keep details minimal but expressive, with slight line variations to show wrinkles, ear shapes, and eyes. No shading, not areas of black, no color, and no background — just simple, elegant line art that preserves the dog's unique facial proportions and key features.",
+          "Turn the provided dog photo into a soft, dreamy watercolor painting. Use loose, painterly brushstrokes with delicate blending to capture the fur's texture, while keeping the dog's proportions and facial features accurate. Apply warm, natural lighting with sunlit highlights, as if in a gentle meadow scene. Use a soft, pastel color palette with light yellows, creams, and muted greens. Surround the dog with blurred, painterly wildflowers and foliage to give an impressionistic, serene atmosphere. Maintain a hand-painted look with visible brush textures and natural color bleeding."
           ]
 
           Now it is your turn to create ${count} prompts for the theme: "${initialPrompt}".

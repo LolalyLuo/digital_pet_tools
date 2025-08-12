@@ -56,7 +56,7 @@ export default function RightPanel({ results, setResults }) {
     } finally {
       setLoading(false)
     }
-  }, [loading])
+  }, [])
 
   // Load more images when scrolling
   const loadMore = useCallback(async () => {
@@ -77,18 +77,27 @@ export default function RightPanel({ results, setResults }) {
     if (observer.current) observer.current.disconnect()
     
     observer.current = new IntersectionObserver(entries => {
-      if (entries[0].isIntersecting && hasMore) {
+      if (entries[0].isIntersecting && hasMore && !isLoadingMore) {
         loadMore()
       }
     })
     
     if (node) observer.current.observe(node)
-  }, [loading, hasMore, loadMore])
+  }, [loading, hasMore, loadMore, isLoadingMore])
 
   // Initial load
   useEffect(() => {
     loadGeneratedImages(0, false)
   }, [loadGeneratedImages])
+
+  // Cleanup observer on unmount
+  useEffect(() => {
+    return () => {
+      if (observer.current) {
+        observer.current.disconnect()
+      }
+    }
+  }, [])
 
   const clearAllResults = () => {
     setResults([])

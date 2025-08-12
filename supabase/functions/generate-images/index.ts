@@ -73,9 +73,28 @@ Deno.serve(async (req) => {
       )
     }
     
-    const results = []
+    const results: Array<{
+      id: string;
+      photo_id: string;
+      initial_prompt: string;
+      generated_prompt: string;
+      image_url: string;
+      public_url: string;
+      original_photo_url: string;
+      created_at: string;
+      status: string;
+    }> = []
     
+    // Create all photo-prompt combinations for parallel processing
+    const combinations: Array<{ photoId: string; prompt: string }> = []
     for (const photoId of photoIds) {
+      for (const prompt of prompts) {
+        combinations.push({ photoId, prompt })
+      }
+    }
+    
+    // Process all combinations in parallel
+    const promises = combinations.map(async ({ photoId, prompt }) => {
       try {
         // Get photo details from database
         const photoResponse = await fetch(`${supabaseUrl}/rest/v1/uploaded_photos?id=eq.${photoId}`, {
@@ -91,13 +110,13 @@ Deno.serve(async (req) => {
             status: photoResponse.status,
             statusText: photoResponse.statusText
           })
-          continue
+          return null
         }
         
         const photoData = await photoResponse.json()
         if (photoData.length === 0) {
           console.warn(`⚠️ No photo data found for ID: ${photoId}`)
-          continue
+          return null
         }
         
         const photo = photoData[0]
@@ -105,91 +124,89 @@ Deno.serve(async (req) => {
         // Get pet image URL with transformation to ensure proper format and size
         const petImageUrl = `${supabaseUrl}/storage/v1/object/public/uploaded-photos/${photo.file_path}?width=400&height=400&quality=80&format=webp`
         
-        for (const prompt of prompts) {
-          try {
-            console.log(`🎨 Processing prompt: "${prompt}" for photo ${photoId}`)
-            
-            // Fetch pet image as file
-            const petFile = await fetchImageAsFile(petImageUrl, "pet.png")
-            console.log(`📁 Pet image: ${petFile.size} bytes, type: ${petFile.type}`)
-            
-            // Use your exact working API call format, but with just the pet image
-            const form = new FormData();
-            form.append("image", petFile); // Single image instead of image[]
-            form.append("model", "gpt-image-1");
-            form.append("prompt", prompt);
-            form.append("size", `${IMAGE_SIZE}x${IMAGE_SIZE}`);
-            form.append("background", "transparent");
-            
-            console.log('🤖 Calling OpenAI API with your working format...')
-            const openaiResponse = await fetch("https://api.openai.com/v1/images/edits", {
-              method: "POST",
-              headers: {
-                "Authorization": `Bearer ${openaiApiKey}`
-              },
-              body: form
-            });
-            
-            if (!openaiResponse.ok) {
-              const errorText = await openaiResponse.text();
-              console.error(`❌ OpenAI API error for prompt "${prompt}":`, {
-                status: openaiResponse.status,
-                statusText: openaiResponse.statusText,
-                error: errorText
-              });
-              continue;
-            }
-            
-            const openaiData = await openaiResponse.json();
-            
-            if (openaiData.usage) {
-              console.log('[EdgeFunction] OpenAI API Usage:', openaiData.usage);
-            }
-            
-            // Get the generated image - check for both b64_json and url formats
-            let openaiImageUrl = null;
-            let b64Image = undefined;
-            
-            if (openaiData.data?.[0]?.url) {
-              openaiImageUrl = openaiData.data[0].url;
-              console.log('✅ Got image URL from OpenAI');
-            } else if (openaiData.data?.[0]?.b64_json) {
-              b64Image = openaiData.data[0].b64_json;
-              console.log('✅ Got base64 image from OpenAI');
-            } else {
-              console.error('❌ No image returned from OpenAI API');
-              continue;
-            }
-            
-            // Process and upload the generated image
-            await processGeneratedImage({
-              b64Image,
-              photoId,
-              prompt,
-              initialPrompt: prompts[0],
-              supabaseUrl,
-              supabaseServiceKey,
-              results,
-              originalPhotoUrl: petImageUrl
-            });
-            
-          } catch (promptError) {
-            console.error(`💥 Error processing prompt "${prompt}" for photo ${photoId}:`, {
-              error: promptError.message,
-              stack: promptError.stack,
-              prompt,
-              photoId
-            })
-          }
+        console.log(`🎨 Processing prompt: "${prompt}" for photo ${photoId}`)
+        
+        // Fetch pet image as file
+        const petFile = await fetchImageAsFile(petImageUrl, "pet.png")
+        console.log(`📁 Pet image: ${petFile.size} bytes, type: ${petFile.type}`)
+        
+        // Use your exact working API call format, but with just the pet image
+        const form = new FormData();
+        form.append("image", petFile); // Single image instead of image[]
+        form.append("model", "gpt-image-1");
+        form.append("prompt", prompt);
+        form.append("size", `${IMAGE_SIZE}x${IMAGE_SIZE}`);
+        form.append("background", "transparent");
+        
+        console.log('🤖 Calling OpenAI API with your working format...')
+        const openaiResponse = await fetch("https://api.openai.com/v1/images/edits", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${openaiApiKey}`
+          },
+          body: form
+        });
+        
+        if (!openaiResponse.ok) {
+          const errorText = await openaiResponse.text();
+          console.error(`❌ OpenAI API error for prompt "${prompt}":`, {
+            status: openaiResponse.status,
+            statusText: openaiResponse.statusText,
+            error: errorText
+          });
+          return null;
         }
-      } catch (photoError) {
-        console.error(`💥 Error processing photo ${photoId}:`, {
-          error: photoError.message,
-          stack: photoError.stack,
-          photoId
+        
+        const openaiData = await openaiResponse.json();
+        
+        if (openaiData.usage) {
+          console.log('[EdgeFunction] OpenAI API Usage:', openaiData.usage);
+        }
+        
+        // Get the generated image - check for both b64_json and url formats
+        let openaiImageUrl = null;
+        let b64Image = undefined;
+        
+        if (openaiData.data?.[0]?.url) {
+          openaiImageUrl = openaiData.data[0].url;
+          console.log('✅ Got image URL from OpenAI');
+        } else if (openaiData.data?.[0]?.b64_json) {
+          b64Image = openaiData.data[0].b64_json;
+          console.log('✅ Got base64 image from OpenAI');
+        } else {
+          console.error('❌ No image returned from OpenAI API');
+          return null;
+        }
+        
+        // Process and upload the generated image
+        const result = await processGeneratedImage({
+          b64Image,
+          photoId,
+          prompt,
+          initialPrompt: prompts[0],
+          supabaseUrl,
+          supabaseServiceKey,
+          originalPhotoUrl: petImageUrl
+        });
+        
+        return result;
+        
+      } catch (error) {
+        console.error(`💥 Error processing photo ${photoId} with prompt "${prompt}":`, {
+          error: error.message,
+          stack: error.stack,
+          photoId,
+          prompt
         })
+        return null
       }
-    }
+    })
+    
+    // Wait for all parallel operations to complete
+    const resultsArray = await Promise.all(promises)
+    
+    // Filter out null results and add to results array
+    results.push(...resultsArray.filter(result => result !== null))
     
     return new Response(
       JSON.stringify({ 
@@ -236,7 +253,6 @@ async function processGeneratedImage({
   initialPrompt,
   supabaseUrl,
   supabaseServiceKey,
-  results,
   originalPhotoUrl
 }: {
   b64Image?: string;
@@ -245,9 +261,18 @@ async function processGeneratedImage({
   initialPrompt: string;
   supabaseUrl: string;
   supabaseServiceKey: string;
-  results: any[];
   originalPhotoUrl: string;
-}) {
+}): Promise<{
+  id: string;
+  photo_id: string;
+  initial_prompt: string;
+  generated_prompt: string;
+  image_url: string;
+  public_url: string;
+  original_photo_url: string;
+  created_at: string;
+  status: string;
+} | null> {
   try {
     console.log('📥 Processing generated image...')
     
@@ -258,7 +283,7 @@ async function processGeneratedImage({
       imageBuffer = Uint8Array.from(atob(b64Image), (c) => c.charCodeAt(0));
     } else {
       console.error('❌ No image data provided');
-      return;
+      return null; // Return null to indicate failure
     }
     
     // Generate unique filename
@@ -286,7 +311,7 @@ async function processGeneratedImage({
         error: errorText,
         fileName: fileName
       });
-      return;
+      return null; // Return null to indicate failure
     }
     
     console.log(`✅ Successfully uploaded ${fileName} to generated-images bucket`);
@@ -319,7 +344,7 @@ async function processGeneratedImage({
       // Build full public URL for response
       const publicUrl = `${supabaseUrl}/storage/v1/object/public/generated-images/${imageUrl}`;
       
-      results.push({
+      return {
         id: insertData[0].id,
         photo_id: photoId,
         initial_prompt: initialPrompt,
@@ -329,8 +354,7 @@ async function processGeneratedImage({
         original_photo_url: originalPhotoUrl,
         created_at: insertData[0].created_at,
         status: 'success'
-      });
-      console.log(`✅ Successfully saved generated image with ID: ${insertData[0].id}`);
+      };
     } else {
       const errorText = await insertResponse.text();
       console.error(`❌ Failed to store generated image in database:`, {
@@ -344,9 +368,11 @@ async function processGeneratedImage({
           image_url: imageUrl
         }
       });
+      return null; // Return null to indicate failure
     }
     
   } catch (error) {
     console.error('💥 Error processing generated image:', error);
+    return null; // Return null to indicate failure
   }
 }

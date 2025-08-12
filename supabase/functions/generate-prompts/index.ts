@@ -95,7 +95,7 @@ Deno.serve(async (req) => {
     console.log(content)
     
     // Try to parse JSON response
-    let prompts = []
+    let prompts: string[] = []
     try {
       // Clean up the response and extract JSON
       const jsonMatch = content.match(/\[.*\]/s)
@@ -120,6 +120,9 @@ Deno.serve(async (req) => {
     } else {
       prompts = Array.from({ length: count }, (_, i) => `${initialPrompt} variation ${i + 1}`)
     }
+    
+    // Filter out prompts that are too short (less than 10 characters)
+    prompts = prompts.filter(prompt => prompt && prompt.length >= 10)
     
     console.log('Final prompts to return:', prompts)
     

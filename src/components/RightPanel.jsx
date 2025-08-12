@@ -176,11 +176,11 @@ export default function RightPanel({ results, setResults }) {
                 ref={isLast ? lastImageElementRef : null}
               >
                 {/* Generated Image */}
-                <div className="aspect-square overflow-hidden">
+                <div className="aspect-square overflow-hidden bg-gray-100">
                   <img
                     src={image.public_url}
                     alt="Generated"
-                    className="w-full h-full object-cover hover:scale-105 transition-transform duration-200"
+                    className="w-full h-full object-contain hover:scale-105 transition-transform duration-200"
                   />
                 </div>
                 

@@ -12,6 +12,13 @@ export const supabase = (() => {
     
     // Return mock client for development
     return {
+      auth: {
+        getSession: () => Promise.resolve({ data: { session: null }, error: null }),
+        onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+        signInWithPassword: () => Promise.resolve({ data: null, error: new Error('Supabase not configured') }),
+        signUp: () => Promise.resolve({ data: null, error: new Error('Supabase not configured') }),
+        signOut: () => Promise.resolve({ error: null })
+      },
       storage: {
         from: () => ({
           upload: () => Promise.resolve({ data: null, error: new Error('Supabase not configured') }),

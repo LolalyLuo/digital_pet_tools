@@ -13,11 +13,31 @@ function App() {
   const [results, setResults] = useState([])
 
   useEffect(() => {
-    // Check for existing session
+    let isMounted = true
+    
+    // Check for existing session with timeout and error handling
     const getSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      setUser(session?.user ?? null)
-      setLoading(false)
+      try {
+        // Add timeout safety
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Session timeout')), 10000)
+        )
+        
+        const sessionPromise = supabase.auth.getSession()
+        const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise])
+        
+        if (isMounted) {
+          setUser(session?.user ?? null)
+          setLoading(false)
+        }
+      } catch (error) {
+        console.error('Session error:', error)
+        if (isMounted) {
+          // Fallback: assume no user and stop loading
+          setUser(null)
+          setLoading(false)
+        }
+      }
     }
 
     getSession()
@@ -25,12 +45,17 @@ function App() {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        setUser(session?.user ?? null)
-        setLoading(false)
+        if (isMounted) {
+          setUser(session?.user ?? null)
+          setLoading(false)
+        }
       }
     )
 
-    return () => subscription.unsubscribe()
+    return () => {
+      isMounted = false
+      subscription?.unsubscribe()
+    }
   }, [])
 
   const handleSignOut = async () => {
@@ -47,6 +72,16 @@ function App() {
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
           <p className="text-gray-600">Loading...</p>
+          <button
+            onClick={() => {
+              console.log('Manual reset triggered')
+              setLoading(false)
+              setUser(null)
+            }}
+            className="mt-4 px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+          >
+            Reset Loading State
+          </button>
         </div>
       </div>
     )

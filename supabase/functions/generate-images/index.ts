@@ -119,6 +119,7 @@ Deno.serve(async (req) => {
             form.append("model", "gpt-image-1");
             form.append("prompt", prompt);
             form.append("size", `${IMAGE_SIZE}x${IMAGE_SIZE}`);
+            form.append("background", "transparent");
             
             console.log('🤖 Calling OpenAI API with your working format...')
             const openaiResponse = await fetch("https://api.openai.com/v1/images/edits", {
@@ -146,11 +147,11 @@ Deno.serve(async (req) => {
             }
             
             // Get the generated image - check for both b64_json and url formats
-            let imageUrl = null;
-            let b64Image = null;
+            let openaiImageUrl = null;
+            let b64Image = undefined;
             
             if (openaiData.data?.[0]?.url) {
-              imageUrl = openaiData.data[0].url;
+              openaiImageUrl = openaiData.data[0].url;
               console.log('✅ Got image URL from OpenAI');
             } else if (openaiData.data?.[0]?.b64_json) {
               b64Image = openaiData.data[0].b64_json;
@@ -162,7 +163,6 @@ Deno.serve(async (req) => {
             
             // Process and upload the generated image
             await processGeneratedImage({
-              imageUrl,
               b64Image,
               photoId,
               prompt,
@@ -230,7 +230,6 @@ Deno.serve(async (req) => {
 
 // Helper function to process generated image and save to database
 async function processGeneratedImage({
-  imageUrl,
   b64Image,
   photoId,
   prompt,
@@ -240,7 +239,6 @@ async function processGeneratedImage({
   results,
   originalPhotoUrl
 }: {
-  imageUrl?: string;
   b64Image?: string;
   photoId: string;
   prompt: string;
@@ -255,19 +253,7 @@ async function processGeneratedImage({
     
     let imageBuffer: Uint8Array;
     
-    if (imageUrl) {
-      // Download from URL
-      const imageResponse = await fetch(imageUrl);
-      if (!imageResponse.ok) {
-        console.error(`❌ Failed to download image from OpenAI:`, {
-          status: imageResponse.status,
-          statusText: imageResponse.statusText
-        });
-        return;
-      }
-      const arrayBuffer = await imageResponse.arrayBuffer();
-      imageBuffer = new Uint8Array(arrayBuffer);
-    } else if (b64Image) {
+    if (b64Image) {
       // Convert from base64
       imageBuffer = Uint8Array.from(atob(b64Image), (c) => c.charCodeAt(0));
     } else {
@@ -280,13 +266,14 @@ async function processGeneratedImage({
     
     console.log('☁️ Uploading to Supabase storage...')
     
-    // Upload to Supabase Storage
+    // Upload to Supabase Storage bucket 'generated-images'
     const uploadResponse = await fetch(`${supabaseUrl}/storage/v1/object/generated-images/${fileName}`, {
       method: 'POST',
       headers: {
         'apikey': supabaseServiceKey,
         'Authorization': `Bearer ${supabaseServiceKey}`,
-        'Content-Type': 'image/png'
+        'Content-Type': 'image/png',
+        'Cache-Control': '3600'
       },
       body: imageBuffer
     });
@@ -296,16 +283,20 @@ async function processGeneratedImage({
       console.error(`❌ Failed to upload image to Supabase storage:`, {
         status: uploadResponse.status,
         statusText: uploadResponse.statusText,
-        error: errorText
+        error: errorText,
+        fileName: fileName
       });
       return;
     }
     
-    const permanentUrl = `${supabaseUrl}/storage/v1/object/public/generated-images/${fileName}`;
+    console.log(`✅ Successfully uploaded ${fileName} to generated-images bucket`);
+    
+    // The image_url should just be the fileName since it references the generated-images bucket
+    const imageUrl = fileName;
     
     console.log('💾 Saving to database...')
     
-    // Store result in database
+    // Store result in database - matching exact schema
     const insertResponse = await fetch(`${supabaseUrl}/rest/v1/generated_images`, {
       method: 'POST',
       headers: {
@@ -318,32 +309,40 @@ async function processGeneratedImage({
         photo_id: photoId,
         initial_prompt: initialPrompt,
         generated_prompt: prompt,
-        image_url: permanentUrl,
-        openai_image_url: imageUrl || null,
-        created_at: new Date().toISOString()
+        image_url: imageUrl // Just the filename, not full URL
       })
     });
     
     if (insertResponse.ok) {
       const insertData = await insertResponse.json();
+      
+      // Build full public URL for response
+      const publicUrl = `${supabaseUrl}/storage/v1/object/public/generated-images/${imageUrl}`;
+      
       results.push({
         id: insertData[0].id,
         photo_id: photoId,
         initial_prompt: initialPrompt,
         generated_prompt: prompt,
-        image_url: permanentUrl,
-        openai_image_url: imageUrl || null,
+        image_url: imageUrl, // Storage path as stored in DB
+        public_url: publicUrl, // Full URL for client usage
         original_photo_url: originalPhotoUrl,
         created_at: insertData[0].created_at,
         status: 'success'
       });
-      console.log('✅ Successfully saved generated image');
+      console.log(`✅ Successfully saved generated image with ID: ${insertData[0].id}`);
     } else {
       const errorText = await insertResponse.text();
       console.error(`❌ Failed to store generated image in database:`, {
         status: insertResponse.status,
         statusText: insertResponse.statusText,
-        error: errorText
+        error: errorText,
+        payload: {
+          photo_id: photoId,
+          initial_prompt: initialPrompt,
+          generated_prompt: prompt,
+          image_url: imageUrl
+        }
       });
     }
     

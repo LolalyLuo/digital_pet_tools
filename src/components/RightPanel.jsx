@@ -157,7 +157,7 @@ export default function RightPanel({ results, setResults }) {
                           {/* Generated Image */}
                           <div className="flex-1">
                             <img
-                              src={result.image_url}
+                              src={result.public_url}
                               alt="Generated"
                               className="w-full h-24 object-cover rounded mb-2"
                             />
@@ -165,7 +165,7 @@ export default function RightPanel({ results, setResults }) {
                             {/* Download Button */}
                             <button
                               onClick={() => downloadImage(
-                                result.image_url, 
+                                result.public_url, 
                                 `generated-${result.id || index}.png`
                               )}
                               className="w-full px-2 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600 flex items-center justify-center gap-1"

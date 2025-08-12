@@ -82,7 +82,7 @@ export default function MiddlePanel({
   const canGenerateImages = selectedPhotos.length > 0 && generatedPrompts.length > 0
 
   return (
-    <div className="flex-1 bg-white px-3 py-6 flex flex-col">
+    <div className="w-[25%] bg-white px-6 py-6 flex flex-col">
       <h2 className="text-lg font-semibold mb-6">Prompts</h2>
       
       {/* Error Display */}

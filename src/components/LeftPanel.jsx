@@ -218,7 +218,7 @@ export default function LeftPanel({ selectedPhotos, setSelectedPhotos }) {
 
   if (!isConfigured) {
     return (
-      <div className="w-80 bg-gray-50 border-r border-gray-200 px-3 py-4 flex flex-col">
+      <div className="w-[15%] bg-gray-50 border-r border-gray-200 px-6 py-4 flex flex-col">
         <h2 className="text-lg font-semibold mb-4">Photos</h2>
         <div className="text-center text-gray-500 mt-8">
           <p className="mb-2">Supabase not configured</p>
@@ -231,7 +231,7 @@ export default function LeftPanel({ selectedPhotos, setSelectedPhotos }) {
   }
 
   return (
-    <div className="w-80 bg-gray-50 border-r border-gray-200 px-3 py-4 flex flex-col">
+    <div className="w-[15%] bg-gray-50 border-r border-gray-200 px-6 py-4 flex flex-col">
       <h2 className="text-lg font-semibold mb-4">Photos</h2>
       
       {/* Upload Area */}

@@ -1,40 +1,102 @@
-import { useState } from 'react'
-import { Download, ChevronDown, ChevronRight, Trash2 } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { Download, Trash2 } from 'lucide-react'
+import { supabase } from '../utils/supabaseClient'
 
 export default function RightPanel({ results, setResults }) {
-  const [expandedSections, setExpandedSections] = useState(new Set())
-  const [originalPhotos, setOriginalPhotos] = useState({})
+  const [generatedImages, setGeneratedImages] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [hasMore, setHasMore] = useState(true)
+  const [page, setPage] = useState(0)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const observer = useRef()
+  const lastImageRef = useRef()
 
-  // Group results by prompt
-  const groupedResults = results.reduce((acc, result) => {
-    const prompt = result.generated_prompt || result.initial_prompt || 'Unknown Prompt'
-    if (!acc[prompt]) {
-      acc[prompt] = []
+  const ITEMS_PER_PAGE = 30
+
+  // Load generated images from database
+  const loadGeneratedImages = useCallback(async (pageNum = 0, append = false) => {
+    if (loading) return
+    
+    setLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('generated_images')
+        .select(`
+          id,
+          image_url,
+          generated_prompt,
+          initial_prompt,
+          created_at,
+          photo_id
+        `)
+        .order('created_at', { ascending: false })
+        .range(pageNum * ITEMS_PER_PAGE, (pageNum + 1) * ITEMS_PER_PAGE - 1)
+
+      if (error) throw error
+
+      if (data) {
+        const imagesWithUrls = data.map(img => ({
+          ...img,
+          public_url: supabase.storage
+            .from('generated-images')
+            .getPublicUrl(img.image_url).data.publicUrl
+        }))
+
+        if (append) {
+          setGeneratedImages(prev => [...prev, ...imagesWithUrls])
+        } else {
+          setGeneratedImages(imagesWithUrls)
+        }
+
+        setHasMore(data.length === ITEMS_PER_PAGE)
+        setPage(pageNum)
+      }
+    } catch (error) {
+      console.error('Failed to load generated images:', error)
+    } finally {
+      setLoading(false)
     }
-    acc[prompt].push(result)
-    return acc
-  }, {})
+  }, [loading])
 
-  const toggleSection = (prompt) => {
-    const newExpanded = new Set(expandedSections)
-    if (newExpanded.has(prompt)) {
-      newExpanded.delete(prompt)
-    } else {
-      newExpanded.add(prompt)
+  // Load more images when scrolling
+  const loadMore = useCallback(async () => {
+    if (isLoadingMore || !hasMore) return
+    
+    setIsLoadingMore(true)
+    try {
+      const nextPage = page + 1
+      await loadGeneratedImages(nextPage, true)
+    } finally {
+      setIsLoadingMore(false)
     }
-    setExpandedSections(newExpanded)
-  }
+  }, [isLoadingMore, hasMore, page, loadGeneratedImages])
 
-  const expandAll = () => {
-    setExpandedSections(new Set(Object.keys(groupedResults)))
-  }
+  // Intersection observer for infinite scroll
+  const lastImageElementRef = useCallback(node => {
+    if (loading) return
+    if (observer.current) observer.current.disconnect()
+    
+    observer.current = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && hasMore) {
+        loadMore()
+      }
+    })
+    
+    if (node) observer.current.observe(node)
+  }, [loading, hasMore, loadMore])
 
-  const collapseAll = () => {
-    setExpandedSections(new Set())
-  }
+  // Initial load
+  useEffect(() => {
+    loadGeneratedImages(0, false)
+  }, [loadGeneratedImages])
 
   const clearAllResults = () => {
     setResults([])
+    setGeneratedImages([])
+    setPage(0)
+    setHasMore(true)
+    // Reload images from database
+    loadGeneratedImages(0, false)
   }
 
   const downloadImage = async (imageUrl, filename) => {
@@ -54,19 +116,27 @@ export default function RightPanel({ results, setResults }) {
     }
   }
 
-  const getOriginalPhotoUrl = async (photoId) => {
-    if (originalPhotos[photoId]) {
-      return originalPhotos[photoId]
+  const deleteImage = async (imageId) => {
+    try {
+      // Delete from database
+      const { error } = await supabase
+        .from('generated_images')
+        .delete()
+        .eq('id', imageId)
+
+      if (error) throw error
+
+      // Remove from local state
+      setGeneratedImages(prev => prev.filter(img => img.id !== imageId))
+      setResults(prev => prev.filter(result => result.id !== imageId))
+    } catch (error) {
+      console.error('Delete failed:', error)
     }
-    
-    // This would need to be implemented based on your photo storage structure
-    // For now, returning a placeholder
-    return null
   }
 
-  if (results.length === 0) {
+  if (generatedImages.length === 0 && !loading) {
     return (
-      <div className="w-96 bg-gray-50 border-l border-gray-200 px-3 py-6">
+      <div className="w-[60%] bg-gray-50 border-l border-gray-200 px-6 py-6">
         <h2 className="text-lg font-semibold mb-4">Results</h2>
         <div className="text-center text-gray-500 mt-8">
           <p>No images generated yet</p>
@@ -79,115 +149,90 @@ export default function RightPanel({ results, setResults }) {
   }
 
   return (
-    <div className="w-96 bg-gray-50 border-l border-gray-200 px-3 py-6 flex flex-col">
-      <div className="flex items-center justify-between mb-4">
+    <div className="w-[60%] bg-gray-50 border-l border-gray-200 px-6 py-6 flex flex-col">
+      <div className="flex items-center justify-between mb-6">
         <h2 className="text-lg font-semibold">
-          Results ({results.length} images)
+          Results ({generatedImages.length} images)
         </h2>
-        <div className="flex gap-2">
-          <button
-            onClick={expandAll}
-            className="px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600"
-          >
-            Expand All
-          </button>
-          <button
-            onClick={collapseAll}
-            className="px-2 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600"
-          >
-            Collapse All
-          </button>
-        </div>
+        <button
+          onClick={clearAllResults}
+          className="px-3 py-1 text-sm bg-red-500 text-white rounded hover:bg-red-600 flex items-center gap-2"
+        >
+          <Trash2 className="h-4 w-4" />
+          Clear All Results
+        </button>
       </div>
-      
-      <button
-        onClick={clearAllResults}
-        className="mb-4 px-3 py-1 text-sm bg-red-500 text-white rounded hover:bg-red-600 flex items-center gap-2"
-      >
-        <Trash2 className="h-4 w-4" />
-        Clear All Results
-      </button>
 
+      {/* Images Grid */}
       <div className="flex-1 overflow-y-auto">
-        {Object.entries(groupedResults).map(([prompt, promptResults]) => {
-          const isExpanded = expandedSections.has(prompt)
-          
-          return (
-            <div key={prompt} className="mb-4 border border-gray-200 rounded-lg overflow-hidden">
-              {/* Section Header */}
-              <button
-                onClick={() => toggleSection(prompt)}
-                className="w-full p-3 bg-white hover:bg-gray-50 flex items-center justify-between text-left"
+        <div className="grid grid-cols-2 gap-4">
+          {generatedImages.map((image, index) => {
+            const isLast = index === generatedImages.length - 1
+            
+            return (
+              <div 
+                key={image.id} 
+                className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden"
+                ref={isLast ? lastImageElementRef : null}
               >
-                <div className="flex-1">
-                  <div className="font-medium text-gray-900 truncate" title={prompt}>
-                    {prompt}
+                {/* Generated Image */}
+                <div className="aspect-square overflow-hidden">
+                  <img
+                    src={image.public_url}
+                    alt="Generated"
+                    className="w-full h-full object-cover hover:scale-105 transition-transform duration-200"
+                  />
+                </div>
+                
+                {/* Image Info */}
+                <div className="p-3">
+                  {/* Prompt */}
+                  <div className="mb-3">
+                    <p className="text-sm text-gray-600 line-clamp-2" title={image.generated_prompt || image.initial_prompt}>
+                      <strong>Prompt:</strong> {image.generated_prompt || image.initial_prompt}
+                    </p>
                   </div>
-                  <div className="text-sm text-gray-500">
-                    {promptResults.length} image{promptResults.length !== 1 ? 's' : ''}
+                  
+                  {/* Actions */}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => downloadImage(
+                        image.public_url, 
+                        `generated-${image.id}.png`
+                      )}
+                      className="flex-1 px-3 py-2 text-xs bg-green-500 text-white rounded hover:bg-green-600 flex items-center justify-center gap-1"
+                    >
+                      <Download className="h-3 w-3" />
+                      Download
+                    </button>
+                    <button
+                      onClick={() => deleteImage(image.id)}
+                      className="px-3 py-2 text-xs bg-red-500 text-white rounded hover:bg-red-600"
+                      title="Delete image"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
                   </div>
                 </div>
-                {isExpanded ? (
-                  <ChevronDown className="h-4 w-4 text-gray-400" />
-                ) : (
-                  <ChevronRight className="h-4 w-4 text-gray-400" />
-                )}
-              </button>
-              
-              {/* Section Content */}
-              {isExpanded && (
-                <div className="bg-gray-50 p-3">
-                  <div className="grid grid-cols-1 gap-3">
-                    {promptResults.map((result, index) => (
-                      <div key={result.id || index} className="bg-white p-3 rounded border">
-                        <div className="flex gap-3">
-                          {/* Original Photo Thumbnail */}
-                          <div className="w-16 h-16 bg-gray-200 rounded flex-shrink-0 flex items-center justify-center">
-                            {result.original_photo_url ? (
-                              <img
-                                src={result.original_photo_url}
-                                alt="Original"
-                                className="w-full h-full object-cover rounded"
-                              />
-                            ) : (
-                              <span className="text-xs text-gray-500">Original</span>
-                            )}
-                          </div>
-                          
-                          {/* Generated Image */}
-                          <div className="flex-1">
-                            <img
-                              src={result.public_url}
-                              alt="Generated"
-                              className="w-full h-24 object-cover rounded mb-2"
-                            />
-                            
-                            {/* Download Button */}
-                            <button
-                              onClick={() => downloadImage(
-                                result.public_url, 
-                                `generated-${result.id || index}.png`
-                              )}
-                              className="w-full px-2 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600 flex items-center justify-center gap-1"
-                            >
-                              <Download className="h-3 w-3" />
-                              Download
-                            </button>
-                          </div>
-                        </div>
-                        
-                        {/* Prompt Used */}
-                        <div className="mt-2 text-xs text-gray-600">
-                          <strong>Prompt:</strong> {result.generated_prompt || result.initial_prompt}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )
-        })}
+              </div>
+            )
+          })}
+        </div>
+        
+        {/* Loading indicator */}
+        {isLoadingMore && (
+          <div className="text-center py-4">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500 mx-auto"></div>
+            <p className="text-sm text-gray-500 mt-2">Loading more images...</p>
+          </div>
+        )}
+        
+        {/* End of results */}
+        {!hasMore && generatedImages.length > 0 && (
+          <div className="text-center py-4">
+            <p className="text-sm text-gray-500">No more images to load</p>
+          </div>
+        )}
       </div>
     </div>
   )

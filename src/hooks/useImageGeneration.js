@@ -26,20 +26,37 @@ export const useImageGeneration = () => {
       let prompts = []
       try {
         const content = data.prompts
-        // Try to extract JSON from the response
-        const jsonMatch = content.match(/\[.*\]/s)
-        if (jsonMatch) {
-          prompts = JSON.parse(jsonMatch[0])
-        } else {
-          // Fallback: split by newlines and clean up
-          prompts = content.split('\n')
-            .filter(line => line.trim() && !line.includes('```'))
-            .map(line => line.replace(/^\d+\.\s*/, '').trim())
-            .slice(0, count)
+        
+        // If content is already an array, use it directly
+        if (Array.isArray(content)) {
+          prompts = content
+        } else if (typeof content === 'string') {
+          // Clean up the content - remove newlines and extra whitespace
+          const cleanedContent = content.replace(/\\n/g, '').replace(/\\"/g, '"')
+          
+          // Try to extract JSON array from the cleaned content
+          const jsonMatch = cleanedContent.match(/\[.*\]/s)
+          if (jsonMatch) {
+            prompts = JSON.parse(jsonMatch[0])
+          } else {
+            // Fallback: try to parse the entire content as JSON
+            prompts = JSON.parse(cleanedContent)
+          }
         }
+        
+        // Ensure we have an array and limit to requested count
+        if (Array.isArray(prompts)) {
+          prompts = prompts.slice(0, count)
+        } else {
+          throw new Error('Response is not an array')
+        }
+        
+        console.log('Parsed prompts:', prompts)
+        
       } catch (parseError) {
         console.error('Failed to parse prompts:', parseError)
-        // Fallback to simple array
+        console.error('Raw content:', data.prompts)
+        // Fallback to simple variations
         prompts = Array.from({ length: count }, (_, i) => `${initialPrompt} variation ${i + 1}`)
       }
       

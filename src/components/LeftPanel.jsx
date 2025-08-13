@@ -73,14 +73,19 @@ export default function LeftPanel({ selectedPhotos, setSelectedPhotos }) {
       return
     }
     
+    console.log(`Starting upload of ${acceptedFiles.length} files`)
     setIsUploading(true)
     
     try {
       const newPhotos = []
       
-      for (const file of acceptedFiles) {
+      for (let i = 0; i < acceptedFiles.length; i++) {
+        const file = acceptedFiles[i]
+        console.log(`Processing file ${i + 1}/${acceptedFiles.length}:`, file.name, file.size)
+        
         // Optimize and convert image to JPG
         const optimizedFile = await optimizeImage(file)
+        console.log(`Optimized file ${i + 1}:`, optimizedFile.size)
         
         // Generate filename with timestamp and .jpg extension
         const baseName = file.name.replace(/\.[^/.]+$/, '') // Remove original extension
@@ -143,11 +148,15 @@ export default function LeftPanel({ selectedPhotos, setSelectedPhotos }) {
   })
 
   const togglePhotoSelection = (photoId) => {
-    setSelectedPhotos(prev => 
-      prev.includes(photoId) 
+    console.log('togglePhotoSelection called with:', photoId)
+    console.log('Current selectedPhotos:', selectedPhotos)
+    setSelectedPhotos(prev => {
+      const newSelection = prev.includes(photoId) 
         ? prev.filter(id => id !== photoId)
         : [...prev, photoId]
-    )
+      console.log('New selection will be:', newSelection)
+      return newSelection
+    })
   }
 
   const selectAllPhotos = () => {
@@ -279,41 +288,45 @@ export default function LeftPanel({ selectedPhotos, setSelectedPhotos }) {
       <div className="mt-4 flex-1 overflow-y-auto">
         <div className="grid grid-cols-2 gap-3">
           {photos.map((photo) => (
-            <div
+            <button
               key={photo.id}
-              className={`relative group border-2 rounded-lg overflow-hidden ${
+              onClick={() => {
+                console.log('Image clicked:', photo.id, photo.file_name)
+                togglePhotoSelection(photo.id)
+              }}
+              className={`relative group border-2 rounded-lg overflow-hidden transition-all duration-200 w-full text-left ${
                 selectedPhotos.includes(photo.id)
-                  ? 'border-blue-500 bg-blue-50'
-                  : 'border-gray-200 hover:border-gray-300'
+                  ? 'border-blue-500 bg-blue-50 shadow-md'
+                  : 'border-gray-200 hover:border-gray-300 shadow-sm'
               }`}
+              aria-label={`${selectedPhotos.includes(photo.id) ? 'Deselect' : 'Select'} ${photo.file_name}`}
             >
               <img
                 src={photo.url}
                 alt={photo.file_name}
-                className="w-full h-24 object-cover"
+                className="w-full h-24 object-cover pointer-events-none"
               />
               
               {/* Selection Overlay */}
               {selectedPhotos.includes(photo.id) && (
-                <div className="absolute top-2 right-2 bg-blue-500 text-white rounded-full p-1">
-                  <Check className="h-3 w-3" />
+                <div className="absolute inset-0 bg-blue-500 bg-opacity-20 border-2 border-blue-500 pointer-events-none">
+                  <div className="absolute top-2 right-2 bg-blue-500 text-white rounded-full p-1">
+                    <Check className="h-3 w-3" />
+                  </div>
                 </div>
               )}
               
               {/* Delete Button */}
               <button
-                onClick={() => deletePhoto(photo.id)}
-                className="absolute top-2 left-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  deletePhoto(photo.id)
+                }}
+                className="absolute top-2 left-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity z-30"
               >
                 <Trash2 className="h-3 w-3" />
               </button>
-              
-              {/* Click to Select */}
-              <button
-                onClick={() => togglePhotoSelection(photo.id)}
-                className="absolute inset-0 w-full h-full"
-              />
-            </div>
+            </button>
           ))}
         </div>
         

@@ -4,6 +4,7 @@ import Auth from './components/Auth'
 import LeftPanel from './components/LeftPanel'
 import MiddlePanel from './components/MiddlePanel'
 import RightPanel from './components/RightPanel'
+import FinalizeDesigns from './components/FinalizeDesigns'
 
 function App() {
   const [user, setUser] = useState(null)
@@ -11,6 +12,7 @@ function App() {
   const [selectedPhotos, setSelectedPhotos] = useState([])
   const [generatedPrompts, setGeneratedPrompts] = useState([])
   const [results, setResults] = useState([])
+  const [currentApp, setCurrentApp] = useState('explore-ideas')
 
   useEffect(() => {
     let isMounted = true
@@ -66,6 +68,35 @@ function App() {
     setResults([])
   }
 
+  const renderCurrentApp = () => {
+    switch (currentApp) {
+      case 'explore-ideas':
+        return (
+          <>
+            <LeftPanel 
+              selectedPhotos={selectedPhotos}
+              setSelectedPhotos={setSelectedPhotos}
+            />
+            <MiddlePanel 
+              selectedPhotos={selectedPhotos}
+              generatedPrompts={generatedPrompts}
+              setGeneratedPrompts={setGeneratedPrompts}
+              results={results}
+              setResults={setResults}
+            />
+            <RightPanel 
+              results={results} 
+              setResults={setResults}
+            />
+          </>
+        )
+      case 'finalize-designs':
+        return <FinalizeDesigns />
+      default:
+        return null
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
@@ -92,37 +123,55 @@ function App() {
   }
 
   return (
-    <div className="flex h-screen bg-gray-100">
-      {/* Header with user info and sign out */}
-      <div className="absolute top-4 right-4 z-10">
-        <div className="flex items-center gap-3 bg-white rounded-lg shadow-md px-4 py-2">
-          <span className="text-sm text-gray-600">
-            {user.email}
-          </span>
-          <button
-            onClick={handleSignOut}
-            className="px-3 py-1 text-sm bg-red-500 text-white rounded hover:bg-red-600"
-          >
-            Sign Out
-          </button>
+    <div className="flex flex-col h-screen bg-gray-100">
+      {/* Top Navigation Bar */}
+      <div className="bg-white shadow-sm border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            {/* App Navigation */}
+            <div className="flex space-x-1">
+              <button
+                onClick={() => setCurrentApp('explore-ideas')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  currentApp === 'explore-ideas'
+                    ? 'bg-blue-100 text-blue-700 border border-blue-200'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                }`}
+              >
+                Explore Ideas
+              </button>
+              <button
+                onClick={() => setCurrentApp('finalize-designs')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  currentApp === 'finalize-designs'
+                    ? 'bg-blue-100 text-blue-700 border border-blue-200'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                }`}
+              >
+                Finalize Designs
+              </button>
+            </div>
+
+            {/* User Info and Sign Out */}
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-gray-600">
+                {user.email}
+              </span>
+              <button
+                onClick={handleSignOut}
+                className="px-3 py-1 text-sm bg-red-500 text-white rounded hover:bg-red-600"
+              >
+                Sign Out
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
-      <LeftPanel 
-        selectedPhotos={selectedPhotos}
-        setSelectedPhotos={setSelectedPhotos}
-      />
-      <MiddlePanel 
-        selectedPhotos={selectedPhotos}
-        generatedPrompts={generatedPrompts}
-        setGeneratedPrompts={setGeneratedPrompts}
-        results={results}
-        setResults={setResults}
-      />
-      <RightPanel 
-        results={results} 
-        setResults={setResults}
-      />
+      {/* App Content */}
+      <div className="flex flex-1 overflow-hidden">
+        {renderCurrentApp()}
+      </div>
     </div>
   )
 }

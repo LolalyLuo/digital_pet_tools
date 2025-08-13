@@ -12,5 +12,6 @@ CREATE TABLE generated_images (
   initial_prompt TEXT NOT NULL,
   generated_prompt TEXT NOT NULL,
   image_url TEXT NOT NULL,
+  number SERIAL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

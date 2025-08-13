@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Download, Trash2 } from 'lucide-react'
+import { Download, Trash2, Copy, Check } from 'lucide-react'
 import { supabase } from '../utils/supabaseClient'
 
 export default function RightPanel({ results, setResults }) {
@@ -8,6 +8,7 @@ export default function RightPanel({ results, setResults }) {
   const [hasMore, setHasMore] = useState(true)
   const [page, setPage] = useState(0)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [copiedId, setCopiedId] = useState(null)
   const observer = useRef()
   const lastImageRef = useRef()
 
@@ -23,6 +24,7 @@ export default function RightPanel({ results, setResults }) {
         .from('generated_images')
         .select(`
           id,
+          number,
           image_url,
           generated_prompt,
           initial_prompt,
@@ -143,6 +145,16 @@ export default function RightPanel({ results, setResults }) {
     }
   }
 
+  const copyToClipboard = async (text, imageId) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedId(imageId)
+      setTimeout(() => setCopiedId(null), 2000)
+    } catch (err) {
+      console.error('Failed to copy text: ', err)
+    }
+  }
+
   if (generatedImages.length === 0 && !loading) {
     return (
       <div className="w-[60%] bg-gray-50 border-l border-gray-200 px-6 py-6">
@@ -197,9 +209,22 @@ export default function RightPanel({ results, setResults }) {
                 <div className="p-3">
                   {/* Prompt */}
                   <div className="mb-3">
-                    <p className="text-sm text-gray-600 line-clamp-2" title={image.generated_prompt || image.initial_prompt}>
-                      <strong>Prompt:</strong> {image.generated_prompt || image.initial_prompt}
-                    </p>
+                    <div className="flex items-start gap-2">
+                      <p className="flex-1 text-sm text-gray-600 whitespace-pre-wrap break-words" title={image.generated_prompt || image.initial_prompt}>
+                        <strong>#{image.number}:</strong> {image.generated_prompt || image.initial_prompt}
+                      </p>
+                      <button
+                        onClick={() => copyToClipboard(image.generated_prompt || image.initial_prompt, image.id)}
+                        className="p-1 text-gray-400 hover:text-gray-600 flex-shrink-0"
+                        title="Copy prompt"
+                      >
+                        {copiedId === image.id ? (
+                          <Check className="h-3 w-3 text-green-500" />
+                        ) : (
+                          <Copy className="h-3 w-3" />
+                        )}
+                      </button>
+                    </div>
                   </div>
                   
                   {/* Actions */}

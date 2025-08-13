@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Edit3, Sparkles, Image as ImageIcon, Plus, Trash2 } from 'lucide-react'
+import { Edit3, Sparkles, Image as ImageIcon, Plus, Trash2, Copy, Check } from 'lucide-react'
 import { useImageGeneration } from '../hooks/useImageGeneration'
 
 export default function MiddlePanel({ 
@@ -14,6 +14,7 @@ export default function MiddlePanel({
   const [editingPromptId, setEditingPromptId] = useState(null)
   const [editingText, setEditingText] = useState('')
   const [newPromptText, setNewPromptText] = useState('')
+  const [copiedId, setCopiedId] = useState(null)
   
   const { 
     generatePrompts, 
@@ -115,6 +116,16 @@ export default function MiddlePanel({
           : p
       )
     )
+  }
+
+  const copyToClipboard = async (text, promptId) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedId(promptId)
+      setTimeout(() => setCopiedId(null), 2000)
+    } catch (err) {
+      console.error('Failed to copy text: ', err)
+    }
   }
 
   const canGenerateImages = selectedPhotos.length > 0 && generatedPrompts.length > 0
@@ -235,10 +246,21 @@ export default function MiddlePanel({
                   </>
                 ) : (
                   <>
-                    <div className="flex-1 text-sm text-gray-800 leading-relaxed break-words">
+                    <div className="flex-1 text-sm text-gray-800 leading-relaxed break-words whitespace-pre-wrap">
                       {prompt.text}
                     </div>
                     <div className="flex flex-col gap-1 flex-shrink-0">
+                      <button
+                        onClick={() => copyToClipboard(prompt.text, prompt.id)}
+                        className="p-1 text-gray-400 hover:text-gray-600"
+                        title="Copy prompt"
+                      >
+                        {copiedId === prompt.id ? (
+                          <Check className="h-3 w-3 text-green-500" />
+                        ) : (
+                          <Copy className="h-3 w-3" />
+                        )}
+                      </button>
                       <button
                         onClick={() => startEditing(prompt)}
                         className="p-1 text-gray-400 hover:text-gray-600"

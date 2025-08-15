@@ -133,15 +133,17 @@ Deno.serve(async (req) => {
           
           console.log(`🎨 Processing prompt: "${prompt}" for photo ${photoId}`)
           
-          // Fetch pet image as file
-          const petFile = await fetchImageAsFile(petImageUrl, "pet.png")
-          console.log(`📁 Pet image: ${petFile.size} bytes, type: ${petFile.type}`)
+          
 
           const additionalPrompt = `
           Requirements:
-          - Background: The pet is isolated on empty background, no background elements, no setting, transparent background, with pet only.
-          - Composition: Clean, centered design that works on different product formats. Ensure some white space around the pet and nothing is cutoff.
-          - Quality: High quality designs that print well on merchandise. `
+          - Background: background should match the general theme and style..
+          - Composition: Clean, centered design that works on different product formats. 
+          - Quality: High quality designs with beautiful pet and detailed background. `
+          
+          // Fetch pet image as file
+          const petFile = await fetchImageAsFile(petImageUrl, "pet.png")
+          console.log(`📁 Pet image: ${petFile.size} bytes, type: ${petFile.type}`)
           
           // Use your exact working API call format, but with just the pet image
           const form = new FormData();
@@ -149,7 +151,7 @@ Deno.serve(async (req) => {
           form.append("model", "gpt-image-1");
           form.append("prompt", prompt + additionalPrompt);
           form.append("size", `auto`);
-          form.append("background", "transparent");
+          form.append("background", "opaque");
           
           console.log('🤖 Calling OpenAI API with your working format...')
           const openaiResponse = await fetch("https://api.openai.com/v1/images/edits", {

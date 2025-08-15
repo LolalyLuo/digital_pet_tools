@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '../utils/supabaseClient'
-import { Download, Copy, Check } from 'lucide-react'
+import { Download, Copy, Check, Save } from 'lucide-react'
 
 function FinalizeDesigns() {
   const [inputNumbers, setInputNumbers] = useState('')
@@ -8,6 +8,9 @@ function FinalizeDesigns() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [copiedId, setCopiedId] = useState(null)
+  const [imageSelections, setImageSelections] = useState({})
+  const [saving, setSaving] = useState(false)
+  const [saveMessage, setSaveMessage] = useState('')
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -40,6 +43,8 @@ function FinalizeDesigns() {
           image_url,
           generated_prompt,
           initial_prompt,
+          size,
+          background,
           created_at,
           photo_id
         `)
@@ -64,6 +69,16 @@ function FinalizeDesigns() {
         ).filter(Boolean) // Remove any undefined results
 
         setFetchedData(orderedResults)
+        
+        // Initialize selections with current values from database
+        const initialSelections = {}
+        orderedResults.forEach(img => {
+          initialSelections[img.id] = {
+            size: img.size || '',
+            background: img.background || ''
+          }
+        })
+        setImageSelections(initialSelections)
       }
     } catch (err) {
       console.error('Error fetching data:', err)
@@ -104,6 +119,70 @@ function FinalizeDesigns() {
     } catch (error) {
       console.error('Download failed:', error)
     }
+  }
+
+  const handleSelectionChange = (imageId, field, value) => {
+    setImageSelections(prev => ({
+      ...prev,
+      [imageId]: {
+        ...prev[imageId],
+        [field]: value
+      }
+    }))
+  }
+
+  const handleSaveAll = async () => {
+    setSaving(true)
+    setSaveMessage('')
+    
+    try {
+      // Prepare updates for all images
+      const updates = Object.entries(imageSelections).map(([imageId, selections]) => ({
+        id: imageId,
+        size: selections.size || null,
+        background: selections.background || null
+      }))
+
+      // Update each image individually
+      const updatePromises = updates.map(update => 
+        supabase
+          .from('generated_images')
+          .update({
+            size: update.size,
+            background: update.background
+          })
+          .eq('id', update.id)
+      )
+
+      const results = await Promise.all(updatePromises)
+      
+      // Check for errors
+      const errors = results.filter(result => result.error)
+      if (errors.length > 0) {
+        throw new Error(`Failed to update ${errors.length} images`)
+      }
+
+      setSaveMessage('All changes saved successfully!')
+      setTimeout(() => setSaveMessage(''), 3000)
+    } catch (err) {
+      console.error('Error saving changes:', err)
+      setSaveMessage('Error saving changes. Please try again.')
+      setTimeout(() => setSaveMessage(''), 3000)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Helper function to generate the design JSON
+  const generateDesignJSON = () => {
+    if (!fetchedData || fetchedData.length === 0) return []
+    
+    return fetchedData.map(item => ({
+      number: item.number,
+      prompt: item.generated_prompt || item.initial_prompt,
+      size: imageSelections[item.id]?.size || '',
+      background: imageSelections[item.id]?.background || ''
+    }))
   }
 
   return (
@@ -184,6 +263,40 @@ function FinalizeDesigns() {
                         </div>
                       </div>
                       
+                      {/* Size and Background Dropdowns */}
+                      <div className="mb-3 space-y-2">
+                        {/* Size Dropdown */}
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700 mb-1">Size:</label>
+                          <select
+                            value={imageSelections[item.id]?.size || ''}
+                            onChange={(e) => handleSelectionChange(item.id, 'size', e.target.value)}
+                            className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                          >
+                            <option value="">Select size</option>
+                            <option value="auto">Auto</option>
+                            <option value="1024×1024">1024×1024</option>
+                            <option value="1024×1536">1024×1536</option>
+                            <option value="1536×1024">1536×1024</option>
+                          </select>
+                        </div>
+                        
+                        {/* Background Dropdown */}
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700 mb-1">Background:</label>
+                          <select
+                            value={imageSelections[item.id]?.background || ''}
+                            onChange={(e) => handleSelectionChange(item.id, 'background', e.target.value)}
+                            className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                          >
+                            <option value="">Select background</option>
+                            <option value="opaque">Opaque</option>
+                            <option value="transparent">Transparent</option>
+                            <option value="auto">Auto</option>
+                          </select>
+                        </div>
+                      </div>
+                      
                       {/* Actions */}
                       <div className="flex gap-2">
                         <button
@@ -200,6 +313,54 @@ function FinalizeDesigns() {
                     </div>
                   </div>
                 ))}
+              </div>
+              
+              {/* Save Button */}
+              <div className="flex justify-center pt-6">
+                <button
+                  onClick={handleSaveAll}
+                  disabled={saving}
+                  className="px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  <Save className="h-4 w-4" />
+                  {saving ? 'Saving...' : 'Save All Changes'}
+                </button>
+              </div>
+              
+              {/* Save Message */}
+              {saveMessage && (
+                <div className={`text-center py-2 px-4 rounded-lg ${
+                  saveMessage.includes('successfully') 
+                    ? 'bg-green-100 text-green-700' 
+                    : 'bg-red-100 text-red-700'
+                }`}>
+                  {saveMessage}
+                </div>
+              )}
+              
+              {/* Design JSON Section */}
+              <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xl font-semibold text-gray-700">Design JSON</h3>
+                  <button
+                    onClick={() => copyToClipboard(JSON.stringify(generateDesignJSON(), null, 2), 'design-json')}
+                    className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 flex items-center gap-2"
+                    title="Copy Design JSON"
+                  >
+                    {copiedId === 'design-json' ? (
+                      <Check className="h-4 w-4" />
+                    ) : (
+                      <Copy className="h-4 w-4" />
+                    )}
+                    Copy JSON
+                  </button>
+                </div>
+                
+                <div className="bg-gray-50 rounded-lg p-4 overflow-x-auto">
+                  <pre className="text-sm text-gray-800 whitespace-pre-wrap">
+                    {JSON.stringify(generateDesignJSON(), null, 2)}
+                  </pre>
+                </div>
               </div>
             </div>
           )}

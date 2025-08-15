@@ -13,5 +13,7 @@ CREATE TABLE generated_images (
   generated_prompt TEXT NOT NULL,
   image_url TEXT NOT NULL,
   number SERIAL,
+  size TEXT CHECK (size IN ('auto', '1024×1024', '1024×1536', '1536×1024')),
+  background TEXT CHECK (background IN ('opaque', 'transparent', 'auto')),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

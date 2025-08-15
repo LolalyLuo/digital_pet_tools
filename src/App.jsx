@@ -5,6 +5,7 @@ import LeftPanel from './components/LeftPanel'
 import MiddlePanel from './components/MiddlePanel'
 import RightPanel from './components/RightPanel'
 import FinalizeDesigns from './components/FinalizeDesigns'
+import TestDesign from './components/TestDesign'
 
 function App() {
   const [user, setUser] = useState(null)
@@ -92,6 +93,8 @@ function App() {
         )
       case 'finalize-designs':
         return <FinalizeDesigns />
+      case 'test-design':
+        return <TestDesign />
       default:
         return null
     }
@@ -149,6 +152,16 @@ function App() {
                 }`}
               >
                 Finalize Designs
+              </button>
+              <button
+                onClick={() => setCurrentApp('test-design')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  currentApp === 'test-design'
+                    ? 'bg-blue-100 text-blue-700 border border-blue-200'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                }`}
+              >
+                Test Design
               </button>
             </div>
 

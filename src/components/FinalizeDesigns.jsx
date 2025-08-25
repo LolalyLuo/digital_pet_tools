@@ -18,7 +18,7 @@ function FinalizeDesigns() {
 
     setLoading(true)
     setError('')
-    
+
     try {
       // Parse numbers from input (comma or space separated) and preserve order
       const inputOrder = inputNumbers
@@ -64,12 +64,12 @@ function FinalizeDesigns() {
         }))
 
         // Sort results to match the exact order the user entered
-        const orderedResults = inputOrder.map(inputNum => 
+        const orderedResults = inputOrder.map(inputNum =>
           imagesWithUrls.find(img => img.number === inputNum)
         ).filter(Boolean) // Remove any undefined results
 
         setFetchedData(orderedResults)
-        
+
         // Initialize selections with current values from database
         const initialSelections = {}
         orderedResults.forEach(img => {
@@ -134,7 +134,7 @@ function FinalizeDesigns() {
   const handleSaveAll = async () => {
     setSaving(true)
     setSaveMessage('')
-    
+
     try {
       // Prepare updates for all images
       const updates = Object.entries(imageSelections).map(([imageId, selections]) => ({
@@ -144,7 +144,7 @@ function FinalizeDesigns() {
       }))
 
       // Update each image individually
-      const updatePromises = updates.map(update => 
+      const updatePromises = updates.map(update =>
         supabase
           .from('generated_images')
           .update({
@@ -155,7 +155,7 @@ function FinalizeDesigns() {
       )
 
       const results = await Promise.all(updatePromises)
-      
+
       // Check for errors
       const errors = results.filter(result => result.error)
       if (errors.length > 0) {
@@ -176,7 +176,7 @@ function FinalizeDesigns() {
   // Helper function to generate the design JSON
   const generateDesignJSON = () => {
     if (!fetchedData || fetchedData.length === 0) return []
-    
+
     return fetchedData.map(item => ({
       number: item.number,
       prompt: item.generated_prompt || item.initial_prompt,
@@ -190,14 +190,14 @@ function FinalizeDesigns() {
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-7xl mx-auto p-6">
           <h1 className="text-3xl font-bold text-gray-800 mb-8">Finalize Designs</h1>
-          
+
           {/* Input Form */}
           <div className="bg-white rounded-lg p-6 mb-8 shadow-sm border border-gray-200">
             <h2 className="text-xl font-semibold text-gray-700 mb-4">Enter Image Numbers</h2>
             <p className="text-gray-600 mb-4">
               Enter the numbers of the generated images you want to review, separated by commas or spaces
             </p>
-            
+
             <form onSubmit={handleSubmit} className="flex gap-4">
               <input
                 type="text"
@@ -215,7 +215,7 @@ function FinalizeDesigns() {
                 {loading ? 'Fetching...' : 'Fetch Images'}
               </button>
             </form>
-            
+
             {error && (
               <p className="text-red-600 mt-2">{error}</p>
             )}
@@ -227,20 +227,20 @@ function FinalizeDesigns() {
               <h2 className="text-2xl font-semibold text-gray-800">
                 Found {fetchedData.length} image{fetchedData.length !== 1 ? 's' : ''}
               </h2>
-              
+
               {/* 3-column grid like RightPanel */}
               <div className="grid grid-cols-3 gap-4">
                 {fetchedData.map((item, index) => (
                   <div key={item.id} className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
                     {/* Generated Image */}
-                    <div className="aspect-square overflow-hidden bg-gray-100">
+                    <div className="aspect-square overflow-hidden transparency-bg">
                       <img
                         src={item.public_url}
                         alt={`Generated image ${item.number}`}
-                        className="w-full h-full object-contain hover:scale-105 transition-transform duration-200"
+                        className="w-full h-full object-contain"
                       />
                     </div>
-                    
+
                     {/* Image Info - similar to RightPanel */}
                     <div className="p-3">
                       {/* Prompt */}
@@ -262,7 +262,7 @@ function FinalizeDesigns() {
                           </button>
                         </div>
                       </div>
-                      
+
                       {/* Size and Background Dropdowns */}
                       <div className="mb-3 space-y-2">
                         {/* Size Dropdown */}
@@ -280,7 +280,7 @@ function FinalizeDesigns() {
                             <option value="1536×1024">1536×1024</option>
                           </select>
                         </div>
-                        
+
                         {/* Background Dropdown */}
                         <div>
                           <label className="block text-xs font-medium text-gray-700 mb-1">Background:</label>
@@ -296,12 +296,12 @@ function FinalizeDesigns() {
                           </select>
                         </div>
                       </div>
-                      
+
                       {/* Actions */}
                       <div className="flex gap-2">
                         <button
                           onClick={() => downloadImage(
-                            item.public_url, 
+                            item.public_url,
                             `generated-${item.number}.png`
                           )}
                           className="flex-1 px-3 py-2 text-xs bg-green-500 text-white rounded hover:bg-green-600 flex items-center justify-center gap-1"
@@ -314,7 +314,7 @@ function FinalizeDesigns() {
                   </div>
                 ))}
               </div>
-              
+
               {/* Save Button */}
               <div className="flex justify-center pt-6">
                 <button
@@ -326,18 +326,17 @@ function FinalizeDesigns() {
                   {saving ? 'Saving...' : 'Save All Changes'}
                 </button>
               </div>
-              
+
               {/* Save Message */}
               {saveMessage && (
-                <div className={`text-center py-2 px-4 rounded-lg ${
-                  saveMessage.includes('successfully') 
-                    ? 'bg-green-100 text-green-700' 
-                    : 'bg-red-100 text-red-700'
-                }`}>
+                <div className={`text-center py-2 px-4 rounded-lg ${saveMessage.includes('successfully')
+                  ? 'bg-green-100 text-green-700'
+                  : 'bg-red-100 text-red-700'
+                  }`}>
                   {saveMessage}
                 </div>
               )}
-              
+
               {/* Design JSON Section */}
               <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
                 <div className="flex items-center justify-between mb-4">
@@ -355,7 +354,7 @@ function FinalizeDesigns() {
                     Copy JSON
                   </button>
                 </div>
-                
+
                 <div className="bg-gray-50 rounded-lg p-4 overflow-x-auto">
                   <pre className="text-sm text-gray-800 whitespace-pre-wrap">
                     {JSON.stringify(generateDesignJSON(), null, 2)}

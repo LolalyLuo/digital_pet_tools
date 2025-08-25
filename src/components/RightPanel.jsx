@@ -17,7 +17,7 @@ export default function RightPanel({ results, setResults }) {
   // Load generated images from database
   const loadGeneratedImages = useCallback(async (pageNum = 0, append = false) => {
     if (loading) return
-    
+
     setLoading(true)
     try {
       const { data, error } = await supabase
@@ -63,7 +63,7 @@ export default function RightPanel({ results, setResults }) {
   // Load more images when scrolling
   const loadMore = useCallback(async () => {
     if (isLoadingMore || !hasMore) return
-    
+
     setIsLoadingMore(true)
     try {
       const nextPage = page + 1
@@ -77,13 +77,13 @@ export default function RightPanel({ results, setResults }) {
   const lastImageElementRef = useCallback(node => {
     if (loading) return
     if (observer.current) observer.current.disconnect()
-    
+
     observer.current = new IntersectionObserver(entries => {
       if (entries[0].isIntersecting && hasMore && !isLoadingMore) {
         loadMore()
       }
     })
-    
+
     if (node) observer.current.observe(node)
   }, [loading, hasMore, loadMore, isLoadingMore])
 
@@ -189,22 +189,22 @@ export default function RightPanel({ results, setResults }) {
         <div className="grid grid-cols-2 gap-4">
           {generatedImages.map((image, index) => {
             const isLast = index === generatedImages.length - 1
-            
+
             return (
-              <div 
-                key={image.id} 
+              <div
+                key={image.id}
                 className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden"
                 ref={isLast ? lastImageElementRef : null}
               >
                 {/* Generated Image */}
-                <div className="aspect-square overflow-hidden bg-gray-100">
+                <div className="aspect-square overflow-hidden transparency-bg">
                   <img
                     src={image.public_url}
                     alt="Generated"
-                    className="w-full h-full object-contain hover:scale-105 transition-transform duration-200"
+                    className="w-full h-full object-contain"
                   />
                 </div>
-                
+
                 {/* Image Info */}
                 <div className="p-3">
                   {/* Prompt */}
@@ -226,12 +226,12 @@ export default function RightPanel({ results, setResults }) {
                       </button>
                     </div>
                   </div>
-                  
+
                   {/* Actions */}
                   <div className="flex gap-2">
                     <button
                       onClick={() => downloadImage(
-                        image.public_url, 
+                        image.public_url,
                         `generated-${image.id}.png`
                       )}
                       className="flex-1 px-3 py-2 text-xs bg-green-500 text-white rounded hover:bg-green-600 flex items-center justify-center gap-1"
@@ -252,7 +252,7 @@ export default function RightPanel({ results, setResults }) {
             )
           })}
         </div>
-        
+
         {/* Loading indicator */}
         {isLoadingMore && (
           <div className="text-center py-4">
@@ -260,7 +260,7 @@ export default function RightPanel({ results, setResults }) {
             <p className="text-sm text-gray-500 mt-2">Loading more images...</p>
           </div>
         )}
-        
+
         {/* End of results */}
         {!hasMore && generatedImages.length > 0 && (
           <div className="text-center py-4">

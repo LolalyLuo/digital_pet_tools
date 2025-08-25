@@ -345,11 +345,13 @@ export default function TestDesign() {
                         : 'border-gray-200 hover:border-gray-300 shadow-sm'
                         }`}
                     >
-                      <img
-                        src={photo.url}
-                        alt={photo.file_name}
-                        className="w-full h-24 object-cover pointer-events-none"
-                      />
+                      <div className="w-full h-24 transparency-bg">
+                        <img
+                          src={photo.url}
+                          alt={photo.file_name}
+                          className="w-full h-full object-cover pointer-events-none"
+                        />
+                      </div>
 
                       {/* Selection Overlay */}
                       {selectedPhoto === photo.id && (
@@ -508,7 +510,7 @@ export default function TestDesign() {
                   <div className="grid grid-cols-2 gap-3 max-h-64 overflow-y-auto">
                     {generatedResults.map((result, index) => (
                       <div key={result.id || index} className="border border-gray-200 rounded overflow-hidden">
-                        <div className="aspect-square overflow-hidden bg-gray-100">
+                        <div className="aspect-square overflow-hidden transparency-bg">
                           <img
                             src={result.public_url}
                             alt={`Generated image ${index + 1}`}

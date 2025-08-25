@@ -2,12 +2,12 @@ import { useState, useEffect } from 'react'
 import { Edit3, Sparkles, Image as ImageIcon, Plus, Trash2, Copy, Check } from 'lucide-react'
 import { useImageGeneration } from '../hooks/useImageGeneration'
 
-export default function MiddlePanel({ 
-  selectedPhotos, 
-  generatedPrompts, 
+export default function MiddlePanel({
+  selectedPhotos,
+  generatedPrompts,
   setGeneratedPrompts,
   results,
-  setResults 
+  setResults
 }) {
   const [initialPrompt, setInitialPrompt] = useState('')
   const [variationCount, setVariationCount] = useState('') // Allow empty string
@@ -15,11 +15,13 @@ export default function MiddlePanel({
   const [editingText, setEditingText] = useState('')
   const [newPromptText, setNewPromptText] = useState('')
   const [copiedId, setCopiedId] = useState(null)
-  
-  const { 
-    generatePrompts, 
-    generateImages, 
-    isGeneratingPrompts, 
+  const [selectedSize, setSelectedSize] = useState('auto')
+  const [selectedBackground, setSelectedBackground] = useState('opaque')
+
+  const {
+    generatePrompts,
+    generateImages,
+    isGeneratingPrompts,
     isGeneratingImages,
     error,
     clearError,
@@ -33,13 +35,13 @@ export default function MiddlePanel({
 
   const handleGeneratePrompts = async () => {
     if (!initialPrompt.trim()) return
-    
+
     // Clear existing prompts immediately when starting generation
     setGeneratedPrompts([])
-    
+
     // Use 3 as default if variationCount is empty or invalid
     const count = variationCount === '' || isNaN(parseInt(variationCount)) ? 3 : parseInt(variationCount)
-    
+
     const prompts = await generatePrompts(initialPrompt, count)
     if (prompts.length > 0) {
       // Replace all prompts with new ones from backend
@@ -55,14 +57,14 @@ export default function MiddlePanel({
 
   const handleAddPrompt = () => {
     if (!newPromptText.trim()) return
-    
+
     const maxId = generatedPrompts.length > 0 ? Math.max(...generatedPrompts.map(p => p.id)) : 0
     const newPrompt = {
       id: maxId + 1,
       text: newPromptText.trim(),
       original: newPromptText.trim()
     }
-    
+
     setGeneratedPrompts(prev => [...prev, newPrompt])
     setNewPromptText('')
   }
@@ -77,10 +79,12 @@ export default function MiddlePanel({
 
   const handleGenerateImages = async () => {
     if (selectedPhotos.length === 0 || generatedPrompts.length === 0) return
-    
+
     const prompts = generatedPrompts.map(p => p.text)
-    const newResults = await generateImages(selectedPhotos, prompts)
-    
+    // Convert size from '×' to 'x' for API compatibility
+    const apiSize = selectedSize === 'auto' ? 'auto' : selectedSize.replace('×', 'x')
+    const newResults = await generateImages(selectedPhotos, prompts, apiSize, selectedBackground)
+
     if (newResults.length > 0) {
       setResults(prev => [...prev, ...newResults])
     }
@@ -92,9 +96,9 @@ export default function MiddlePanel({
   }
 
   const saveEdit = () => {
-    setGeneratedPrompts(prev => 
-      prev.map(p => 
-        p.id === editingPromptId 
+    setGeneratedPrompts(prev =>
+      prev.map(p =>
+        p.id === editingPromptId
           ? { ...p, text: editingText }
           : p
       )
@@ -109,9 +113,9 @@ export default function MiddlePanel({
   }
 
   const resetToOriginal = (promptId) => {
-    setGeneratedPrompts(prev => 
-      prev.map(p => 
-        p.id === promptId 
+    setGeneratedPrompts(prev =>
+      prev.map(p =>
+        p.id === promptId
           ? { ...p, text: p.original }
           : p
       )
@@ -133,7 +137,7 @@ export default function MiddlePanel({
   return (
     <div className="w-[25%] bg-white px-6 py-6 flex flex-col overflow-y-auto max-h-screen">
       <h2 className="text-lg font-semibold mb-6">Prompts</h2>
-      
+
       {/* Error Display */}
       {error && (
         <div className="mb-4 p-3 bg-red-100 border border-red-300 text-red-700 rounded">
@@ -150,7 +154,7 @@ export default function MiddlePanel({
           </div>
         </div>
       )}
-      
+
       {/* Initial Prompt Input */}
       <div className="mb-6">
         <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -164,7 +168,7 @@ export default function MiddlePanel({
           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
       </div>
-      
+
       {/* Variation Count - Allow empty and any positive number */}
       <div className="mb-6">
         <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -179,7 +183,7 @@ export default function MiddlePanel({
           className="w-32 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
       </div>
-      
+
       {/* Generate Prompts Button */}
       <button
         onClick={handleGeneratePrompts}
@@ -198,7 +202,7 @@ export default function MiddlePanel({
           </>
         )}
       </button>
-      
+
       {/* Generated Prompts List - Scrollable Area */}
       {generatedPrompts.length > 0 && (
         <div className="mb-6 flex-1 flex flex-col min-h-0">
@@ -215,7 +219,7 @@ export default function MiddlePanel({
               Clear All
             </button>
           </div>
-          
+
           {/* Scrollable container for prompts */}
           <div className="flex-1 overflow-y-auto space-y-2 pr-2 min-h-0">
             {generatedPrompts.map((prompt) => (
@@ -292,7 +296,7 @@ export default function MiddlePanel({
           </div>
         </div>
       )}
-      
+
       {/* Add New Prompt Input */}
       <div className="mb-6">
         <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -340,7 +344,43 @@ export default function MiddlePanel({
           </>
         )}
       </button>
-      
+
+      {/* Size and Background Selection */}
+      <div className="mt-4 space-y-3">
+        {/* Size Dropdown */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Image Size
+          </label>
+          <select
+            value={selectedSize}
+            onChange={(e) => setSelectedSize(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+          >
+            <option value="auto">Auto</option>
+            <option value="1024×1024">1024×1024</option>
+            <option value="1024×1536">1024×1536</option>
+            <option value="1536×1024">1536×1024</option>
+          </select>
+        </div>
+
+        {/* Background Dropdown */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Background
+          </label>
+          <select
+            value={selectedBackground}
+            onChange={(e) => setSelectedBackground(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+          >
+            <option value="opaque">Opaque</option>
+            <option value="transparent">Transparent</option>
+            <option value="auto">Auto</option>
+          </select>
+        </div>
+      </div>
+
       {/* Status Info */}
       <div className="mt-4 text-sm text-gray-500">
         <p>Photos selected: {selectedPhotos.length}</p>

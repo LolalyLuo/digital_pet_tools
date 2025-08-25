@@ -14,7 +14,9 @@ export default function TestDesign() {
   const [isConfigured, setIsConfigured] = useState(false)
   const [isGeneratingImages, setIsGeneratingImages] = useState(false)
   const [generatedResults, setGeneratedResults] = useState([])
-  
+  const [selectedSize, setSelectedSize] = useState('auto')
+  const [selectedBackground, setSelectedBackground] = useState('opaque')
+
   const { generateImages, error: generationError, clearError, resetStates } = useImageGeneration()
 
   // Reset states when component mounts
@@ -29,11 +31,11 @@ export default function TestDesign() {
       const canvas = document.createElement('canvas')
       const ctx = canvas.getContext('2d')
       const img = new Image()
-      
+
       img.onload = () => {
         const maxDimension = 1200
         let { width, height } = img
-        
+
         if (width > height) {
           if (width > maxDimension) {
             height = (height * maxDimension) / width
@@ -45,14 +47,14 @@ export default function TestDesign() {
             height = maxDimension
           }
         }
-        
+
         canvas.width = width
         canvas.height = height
-        
+
         ctx.imageSmoothingEnabled = true
         ctx.imageSmoothingQuality = 'high'
         ctx.drawImage(img, 0, 0, width, height)
-        
+
         canvas.toBlob((blob) => {
           const optimizedFile = new File([blob], file.name, {
             type: 'image/jpeg',
@@ -61,12 +63,12 @@ export default function TestDesign() {
           resolve(optimizedFile)
         }, 'image/jpeg', 0.85)
       }
-      
+
       img.onerror = () => {
         console.warn('Failed to optimize image, using original:', file.name)
         resolve(file)
       }
-      
+
       img.src = URL.createObjectURL(file)
     })
   }
@@ -84,16 +86,16 @@ export default function TestDesign() {
         .from('uploaded_photos')
         .select('*')
         .order('created_at', { ascending: false })
-      
+
       if (error) throw error
-      
+
       const photosWithUrls = data.map(photo => ({
         ...photo,
         url: supabase.storage
           .from('uploaded-photos')
           .getPublicUrl(photo.file_path).data.publicUrl
       }))
-      
+
       setPhotos(photosWithUrls)
     } catch (error) {
       console.error('Failed to load photos:', error)
@@ -105,38 +107,38 @@ export default function TestDesign() {
       alert('Please configure Supabase environment variables first.')
       return
     }
-    
+
     console.log(`Starting upload of ${acceptedFiles.length} files`)
     setLoading(true)
-    
+
     try {
       const newPhotos = []
-      
+
       for (let i = 0; i < acceptedFiles.length; i++) {
         const file = acceptedFiles[i]
         console.log(`Processing file ${i + 1}/${acceptedFiles.length}:`, file.name, file.size)
-        
+
         const optimizedFile = await optimizeImage(file)
         console.log(`Optimized file ${i + 1}:`, optimizedFile.size)
-        
+
         const baseName = file.name.replace(/\.[^/.]+$/, '')
         const fileName = `${Date.now()}-${baseName}.jpg`
-        
+
         const { data, error } = await supabase.storage
           .from('uploaded-photos')
           .upload(fileName, optimizedFile, {
             contentType: 'image/jpeg'
           })
-        
+
         if (error) {
           console.error('Upload error:', error)
           continue
         }
-        
+
         const { data: urlData } = supabase.storage
           .from('uploaded-photos')
           .getPublicUrl(fileName)
-        
+
         const { data: dbData, error: dbError } = await supabase
           .from('uploaded_photos')
           .insert({
@@ -144,12 +146,12 @@ export default function TestDesign() {
             file_name: `${baseName}.jpg`
           })
           .select()
-        
+
         if (dbError) {
           console.error('Database error:', dbError)
           continue
         }
-        
+
         newPhotos.push({
           id: dbData[0].id,
           file_path: fileName,
@@ -158,7 +160,7 @@ export default function TestDesign() {
           created_at: dbData[0].created_at
         })
       }
-      
+
       setPhotos(prev => [...prev, ...newPhotos])
     } catch (error) {
       console.error('Upload failed:', error)
@@ -186,7 +188,7 @@ export default function TestDesign() {
     setLoading(true)
     setError('')
     setFetchedPrompts([])
-    
+
     try {
       const inputOrder = inputNumbers
         .split(/[,\s]+/)
@@ -217,7 +219,7 @@ export default function TestDesign() {
       }
 
       if (data) {
-        const orderedResults = inputOrder.map(inputNum => 
+        const orderedResults = inputOrder.map(inputNum =>
           data.find(img => img.number === inputNum)
         ).filter(Boolean)
 
@@ -233,14 +235,16 @@ export default function TestDesign() {
 
   const handleGenerateImages = async () => {
     if (!selectedPhoto || fetchedPrompts.length === 0) return
-    
+
     setIsGeneratingImages(true)
     setError('')
-    
+
     try {
       const prompts = fetchedPrompts.map(p => p.generated_prompt || p.initial_prompt)
-      const newResults = await generateImages([selectedPhoto], prompts)
-      
+      // Convert size from '×' to 'x' for API compatibility
+      const apiSize = selectedSize === 'auto' ? 'auto' : selectedSize.replace('×', 'x')
+      const newResults = await generateImages([selectedPhoto], prompts, apiSize, selectedBackground)
+
       if (newResults.length > 0) {
         setGeneratedResults(prev => [...prev, ...newResults])
       }
@@ -257,20 +261,20 @@ export default function TestDesign() {
       alert('Please configure Supabase environment variables first.')
       return
     }
-    
+
     try {
       const photo = photos.find(p => p.id === photoId)
       if (!photo) return
-      
+
       await supabase.storage
         .from('uploaded-photos')
         .remove([photo.file_path])
-      
+
       await supabase
         .from('uploaded_photos')
         .delete()
         .eq('id', photoId)
-      
+
       setPhotos(prev => prev.filter(p => p.id !== photoId))
       if (selectedPhoto === photoId) {
         setSelectedPhoto(null)
@@ -303,18 +307,17 @@ export default function TestDesign() {
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-7xl mx-auto p-6">
           <h1 className="text-3xl font-bold text-gray-800 mb-8">Test Design</h1>
-          
+
           <div className="grid grid-cols-2 gap-8">
             {/* Left Column - Photo Selection */}
             <div className="space-y-6">
               <h2 className="text-xl font-semibold text-gray-700">Select Photo</h2>
-              
+
               {/* Upload Area */}
               <div
                 {...getRootProps()}
-                className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
-                  isDragActive ? 'border-blue-400 bg-blue-50' : 'border-gray-300 hover:border-gray-400'
-                }`}
+                className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${isDragActive ? 'border-blue-400 bg-blue-50' : 'border-gray-300 hover:border-gray-400'
+                  }`}
               >
                 <input {...getInputProps()} />
                 <Upload className="mx-auto h-8 w-8 text-gray-400 mb-2" />
@@ -337,18 +340,17 @@ export default function TestDesign() {
                     <button
                       key={photo.id}
                       onClick={() => handlePhotoSelection(photo.id)}
-                      className={`relative group border-2 rounded-lg overflow-hidden transition-all duration-200 w-full text-left ${
-                        selectedPhoto === photo.id
-                          ? 'border-blue-500 bg-blue-50 shadow-md'
-                          : 'border-gray-200 hover:border-gray-300 shadow-sm'
-                      }`}
+                      className={`relative group border-2 rounded-lg overflow-hidden transition-all duration-200 w-full text-left ${selectedPhoto === photo.id
+                        ? 'border-blue-500 bg-blue-50 shadow-md'
+                        : 'border-gray-200 hover:border-gray-300 shadow-sm'
+                        }`}
                     >
                       <img
                         src={photo.url}
                         alt={photo.file_name}
                         className="w-full h-24 object-cover pointer-events-none"
                       />
-                      
+
                       {/* Selection Overlay */}
                       {selectedPhoto === photo.id && (
                         <div className="absolute inset-0 bg-blue-500 bg-opacity-20 border-2 border-blue-500 pointer-events-none">
@@ -357,7 +359,7 @@ export default function TestDesign() {
                           </div>
                         </div>
                       )}
-                      
+
                       {/* Delete Button */}
                       <button
                         onClick={(e) => {
@@ -370,7 +372,7 @@ export default function TestDesign() {
                       </button>
                     </button>
                   ))}
-                  
+
                   {photos.length === 0 && (
                     <p className="text-center text-gray-500 text-sm col-span-2 py-8">
                       No photos uploaded yet
@@ -383,13 +385,13 @@ export default function TestDesign() {
             {/* Right Column - Number Input and Generation */}
             <div className="space-y-6">
               <h2 className="text-xl font-semibold text-gray-700">Enter Image Numbers</h2>
-              
+
               {/* Input Form */}
               <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
                 <p className="text-gray-600 mb-4">
                   Enter the numbers of the generated images you want to test with, separated by commas or spaces
                 </p>
-                
+
                 <form onSubmit={handleSubmit} className="space-y-4">
                   <input
                     type="text"
@@ -416,7 +418,7 @@ export default function TestDesign() {
                     )}
                   </button>
                 </form>
-                
+
                 {error && (
                   <p className="text-red-600 mt-2">{error}</p>
                 )}
@@ -428,7 +430,7 @@ export default function TestDesign() {
                   <h3 className="text-lg font-medium text-gray-700 mb-4">
                     Found {fetchedPrompts.length} prompt{fetchedPrompts.length !== 1 ? 's' : ''}
                   </h3>
-                  
+
                   <div className="space-y-3 max-h-64 overflow-y-auto">
                     {fetchedPrompts.map((prompt, index) => (
                       <div key={prompt.id} className="p-3 border border-gray-200 rounded bg-gray-50">
@@ -438,7 +440,7 @@ export default function TestDesign() {
                       </div>
                     ))}
                   </div>
-                  
+
                   {/* Generate Images Button */}
                   <button
                     onClick={handleGenerateImages}
@@ -457,6 +459,42 @@ export default function TestDesign() {
                       </>
                     )}
                   </button>
+
+                  {/* Size and Background Selection */}
+                  <div className="mt-4 space-y-3">
+                    {/* Size Dropdown */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Image Size
+                      </label>
+                      <select
+                        value={selectedSize}
+                        onChange={(e) => setSelectedSize(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                      >
+                        <option value="auto">Auto</option>
+                        <option value="1024×1024">1024×1024</option>
+                        <option value="1024×1536">1024×1536</option>
+                        <option value="1536×1024">1536×1024</option>
+                      </select>
+                    </div>
+
+                    {/* Background Dropdown */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Background
+                      </label>
+                      <select
+                        value={selectedBackground}
+                        onChange={(e) => setSelectedBackground(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                      >
+                        <option value="opaque">Opaque</option>
+                        <option value="transparent">Transparent</option>
+                        <option value="auto">Auto</option>
+                      </select>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -466,7 +504,7 @@ export default function TestDesign() {
                   <h3 className="text-lg font-medium text-gray-700 mb-4">
                     Generated Images ({generatedResults.length})
                   </h3>
-                  
+
                   <div className="grid grid-cols-2 gap-3 max-h-64 overflow-y-auto">
                     {generatedResults.map((result, index) => (
                       <div key={result.id || index} className="border border-gray-200 rounded overflow-hidden">

@@ -17,6 +17,7 @@ export default function MiddlePanel({
   const [copiedId, setCopiedId] = useState(null)
   const [selectedSize, setSelectedSize] = useState('auto')
   const [selectedBackground, setSelectedBackground] = useState('opaque')
+  const [selectedModel, setSelectedModel] = useState('gemini')
 
   const {
     generatePrompts,
@@ -83,7 +84,7 @@ export default function MiddlePanel({
     const prompts = generatedPrompts.map(p => p.text)
     // Convert size from '×' to 'x' for API compatibility
     const apiSize = selectedSize === 'auto' ? 'auto' : selectedSize.replace('×', 'x')
-    const newResults = await generateImages(selectedPhotos, prompts, apiSize, selectedBackground)
+    const newResults = await generateImages(selectedPhotos, prompts, apiSize, selectedBackground, selectedModel)
 
     if (newResults.length > 0) {
       setResults(prev => [...prev, ...newResults])
@@ -345,8 +346,23 @@ export default function MiddlePanel({
         )}
       </button>
 
-      {/* Size and Background Selection */}
+      {/* Size, Background, and Model Selection */}
       <div className="mt-4 space-y-3">
+        {/* Model Dropdown */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            AI Model
+          </label>
+          <select
+            value={selectedModel}
+            onChange={(e) => setSelectedModel(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+          >
+            <option value="openai">OpenAI</option>
+            <option value="gemini">Google Gemini</option>
+          </select>
+        </div>
+
         {/* Size Dropdown */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">

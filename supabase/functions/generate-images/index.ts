@@ -4,6 +4,7 @@
 
 // Setup type definitions for built-in Supabase Runtime APIs
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { GoogleGenerativeAI } from "npm:@google/generative-ai";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -24,6 +25,116 @@ async function fetchImageAsFile(url: string, fileName: string): Promise<File> {
   return new File([blob], fileName, { type: "image/png" });
 }
 
+// Convert File to base64 for Gemini API
+async function fileToBase64(file: File): Promise<string> {
+  const arrayBuffer = await file.arrayBuffer();
+  const uint8Array = new Uint8Array(arrayBuffer);
+
+  // Convert in chunks to avoid call stack overflow
+  let binaryString = "";
+  const chunkSize = 1024; // Smaller chunks to be safe
+
+  for (let i = 0; i < uint8Array.length; i += chunkSize) {
+    const chunk = uint8Array.slice(i, i + chunkSize);
+    // Convert chunk to string without spread operator
+    for (let j = 0; j < chunk.length; j++) {
+      binaryString += String.fromCharCode(chunk[j]);
+    }
+  }
+
+  return btoa(binaryString);
+}
+
+// Generate image using Gemini API
+async function generateWithGemini(
+  petFile: File,
+  prompt: string,
+  background: string,
+  size: string,
+  geminiApiKey: string
+): Promise<{ imageBase64: string; mimeType: string }> {
+  console.log("🤖 Using Gemini for image generation...");
+
+  const genAI = new GoogleGenerativeAI(geminiApiKey);
+  const model = genAI.getGenerativeModel({
+    model: "gemini-2.5-flash-image-preview",
+    generationConfig: {
+      temperature: 0.4,
+      topP: 0.9,
+      topK: 50,
+      candidateCount: 1,
+    },
+  });
+
+  // Build editing prompt for Gemini
+  let editingPrompt = `Using the provided image of the pet, please ${prompt}.`;
+  editingPrompt += ` IMPORTANT: Frame the pet as the main subject filling most of the image area. Use a medium close-up shot that captures the pet's full body or portrait with the pet taking up 60-80% of the frame. Avoid distant or wide shots that make the pet appear small.`;
+
+  if (background === "transparent") {
+    editingPrompt += `
+          Requirements:
+          - Use the pet only and no other elements from the photo.
+          - Background: The pet is isolated on empty background, no background elements, no setting, transparent background, with pet only.
+          - Composition: Clean, centered design that works on different product formats. Ensure some empty space around the pet and nothing is cutoff.
+          - Quality: High quality designs that print well on merchandise. `;
+  } else if (background === "opaque") {
+    editingPrompt += `
+          Requirements:
+          - Use the pet only and no other elements from the photo.
+          - Background: background should match the general theme and style..
+          - Composition: Clean, centered design that works on different product formats. 
+          - Quality: High quality designs with beautiful pet and detailed background. `;
+  }
+
+  // Add aspect ratio guidance
+  const aspectInstructions = {
+    auto: "Compose the image in a square format",
+    "1024x1024": "Compose the image in a square format",
+    "1024x1536": "Compose the image in a vertical portrait format",
+    "1536x1024": "Compose the image in a horizontal landscape format",
+  };
+
+  editingPrompt += ` ${
+    aspectInstructions[size] || aspectInstructions["auto"]
+  }.`;
+  editingPrompt += ` Technical requirements: High-resolution output, sharp details, vibrant colors, professional quality. Ensure clean composition with the pet properly centered and sized within the frame. Nothing should be cut off at the edges. THE MOST IMPROTANT THING IS TO PRESERVE THE UNIQUE CHARACTER OF THE PET. Pay close attention to the color and texture of the fur, the eyes, nose, face, tail, ears and body. It should look just like the pet in the photo but with different styles depending on the prompt!`;
+
+  // Convert image to base64
+  const imageBase64 = await fileToBase64(petFile);
+
+  const imageData = {
+    inlineData: {
+      data: imageBase64,
+      mimeType: petFile.type,
+    },
+  };
+
+  const result = await model.generateContent([editingPrompt, imageData]);
+  const response = result.response;
+
+  if (response.candidates && response.candidates[0]) {
+    const candidate = response.candidates[0];
+
+    if (candidate.content && candidate.content.parts) {
+      for (const part of candidate.content.parts) {
+        if (part.inlineData && part.inlineData.data) {
+          console.log(
+            `✅ Gemini image generation completed (${Math.round(
+              part.inlineData.data.length / 1000
+            )}KB)`
+          );
+          return {
+            imageBase64: part.inlineData.data,
+            mimeType: part.inlineData.mimeType,
+          };
+        }
+      }
+    }
+  }
+
+  throw new Error("Gemini failed to return edited image");
+}
+
 Deno.serve(async (req) => {
   console.log("🚀 Image generation function started");
 
@@ -41,11 +152,12 @@ Deno.serve(async (req) => {
       prompts,
       size = "auto",
       background = "opaque",
+      model = "openai",
     } = await req.json();
     console.log(
       `📸 Processing ${photoIds?.length || 0} photos with ${
         prompts?.length || 0
-      } prompts, size: ${size}, background: ${background}`
+      } prompts, size: ${size}, background: ${background}, model: ${model}`
     );
 
     if (
@@ -73,12 +185,12 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const openaiApiKey = Deno.env.get("OPENAI_API_KEY");
+    const geminiApiKey = Deno.env.get("GEMINI_API_KEY");
 
-    if (!supabaseUrl || !supabaseServiceKey || !openaiApiKey) {
-      console.error("❌ Missing environment variables:", {
+    if (!supabaseUrl || !supabaseServiceKey) {
+      console.error("❌ Missing required environment variables:", {
         hasUrl: !!supabaseUrl,
         hasServiceKey: !!supabaseServiceKey,
-        hasOpenAI: !!openaiApiKey,
       });
       return new Response(
         JSON.stringify({ error: "Missing required environment variables" }),
@@ -90,6 +202,29 @@ Deno.serve(async (req) => {
           },
         }
       );
+    }
+
+    // Check for API keys based on selected model
+    if (model === "openai" && !openaiApiKey) {
+      console.error("❌ Missing OpenAI API key for OpenAI model");
+      return new Response(JSON.stringify({ error: "Missing OpenAI API key" }), {
+        status: 500,
+        headers: {
+          "Content-Type": "application/json",
+          ...corsHeaders,
+        },
+      });
+    }
+
+    if (model === "gemini" && !geminiApiKey) {
+      console.error("❌ Missing Gemini API key for Gemini model");
+      return new Response(JSON.stringify({ error: "Missing Gemini API key" }), {
+        status: 500,
+        headers: {
+          "Content-Type": "application/json",
+          ...corsHeaders,
+        },
+      });
     }
 
     const results: Array<{
@@ -110,10 +245,11 @@ Deno.serve(async (req) => {
       prompt: string;
       size: string;
       background: string;
+      model: string;
     }> = [];
     for (const photoId of photoIds) {
       for (const prompt of prompts) {
-        combinations.push({ photoId, prompt, size, background });
+        combinations.push({ photoId, prompt, size, background, model });
       }
     }
 
@@ -129,7 +265,7 @@ Deno.serve(async (req) => {
       );
 
       const batchPromises = batch.map(
-        async ({ photoId, prompt, size, background }) => {
+        async ({ photoId, prompt, size, background, model }) => {
           try {
             // Get photo details from database
             const photoResponse = await fetch(
@@ -186,61 +322,84 @@ Deno.serve(async (req) => {
               `📁 Pet image: ${petFile.size} bytes, type: ${petFile.type}`
             );
 
-            // Use your exact working API call format, but with just the pet image
-            const form = new FormData();
-            form.append("image", petFile); // Single image instead of image[]
-            form.append("model", "gpt-image-1");
-            form.append(
-              "prompt",
-              prompt +
-                (background === "opaque"
-                  ? additionalPromptOpaque
-                  : additionalPromptTransparent)
-            );
-            form.append("size", size);
-            form.append("background", background);
+            let b64Image: string | undefined;
+            let mimeType = "image/png";
 
-            console.log("🤖 Calling OpenAI API with your working format...");
-            const openaiResponse = await fetch(
-              "https://api.openai.com/v1/images/edits",
-              {
-                method: "POST",
-                headers: {
-                  Authorization: `Bearer ${openaiApiKey}`,
-                },
-                body: form,
-              }
-            );
-
-            if (!openaiResponse.ok) {
-              const errorText = await openaiResponse.text();
-              console.error(`❌ OpenAI API error for prompt "${prompt}":`, {
-                status: openaiResponse.status,
-                statusText: openaiResponse.statusText,
-                error: errorText,
-              });
-              return null;
-            }
-
-            const openaiData = await openaiResponse.json();
-
-            if (openaiData.usage) {
-              console.log("[EdgeFunction] OpenAI API Usage:", openaiData.usage);
-            }
-
-            // Get the generated image - check for both b64_json and url formats
-            let openaiImageUrl = null;
-            let b64Image = undefined;
-
-            if (openaiData.data?.[0]?.url) {
-              openaiImageUrl = openaiData.data[0].url;
-              console.log("✅ Got image URL from OpenAI");
-            } else if (openaiData.data?.[0]?.b64_json) {
-              b64Image = openaiData.data[0].b64_json;
-              console.log("✅ Got base64 image from OpenAI");
+            if (model === "gemini") {
+              // Use Gemini API
+              console.log("🤖 Using Gemini API for image generation...");
+              const geminiResult = await generateWithGemini(
+                petFile,
+                prompt,
+                background,
+                size,
+                geminiApiKey!
+              );
+              b64Image = geminiResult.imageBase64;
+              mimeType = geminiResult.mimeType;
             } else {
-              console.error("❌ No image returned from OpenAI API");
-              return null;
+              // Use OpenAI API (default)
+              console.log("🤖 Using OpenAI API for image generation...");
+
+              const form = new FormData();
+              form.append("image", petFile);
+              form.append("model", "gpt-image-1");
+              form.append(
+                "prompt",
+                prompt +
+                  (background === "opaque"
+                    ? additionalPromptOpaque
+                    : additionalPromptTransparent)
+              );
+              form.append("size", size);
+              form.append("background", background);
+
+              const openaiResponse = await fetch(
+                "https://api.openai.com/v1/images/edits",
+                {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Bearer ${openaiApiKey}`,
+                  },
+                  body: form,
+                }
+              );
+
+              if (!openaiResponse.ok) {
+                const errorText = await openaiResponse.text();
+                console.error(`❌ OpenAI API error for prompt "${prompt}":`, {
+                  status: openaiResponse.status,
+                  statusText: openaiResponse.statusText,
+                  error: errorText,
+                });
+                return null;
+              }
+
+              const openaiData = await openaiResponse.json();
+
+              if (openaiData.usage) {
+                console.log(
+                  "[EdgeFunction] OpenAI API Usage:",
+                  openaiData.usage
+                );
+              }
+
+              // Get the generated image - check for both b64_json and url formats
+              if (openaiData.data?.[0]?.url) {
+                console.log("✅ Got image URL from OpenAI");
+                // For URL responses, we'd need to fetch and convert to base64
+                // For now, we'll handle base64 responses
+                console.error(
+                  "❌ URL responses not yet supported, need base64"
+                );
+                return null;
+              } else if (openaiData.data?.[0]?.b64_json) {
+                b64Image = openaiData.data[0].b64_json;
+                console.log("✅ Got base64 image from OpenAI");
+              } else {
+                console.error("❌ No image returned from OpenAI API");
+                return null;
+              }
             }
 
             // Process and upload the generated image
@@ -252,6 +411,7 @@ Deno.serve(async (req) => {
               // Convert size from API format (1024x1024) to database format (1024×1024)
               size: size === "auto" ? "auto" : size.replace("x", "×"),
               background,
+              model,
               supabaseUrl,
               supabaseServiceKey,
               originalPhotoUrl: petImageUrl,
@@ -337,6 +497,7 @@ async function processGeneratedImage({
   initialPrompt,
   size,
   background,
+  model,
   supabaseUrl,
   supabaseServiceKey,
   originalPhotoUrl,
@@ -347,6 +508,7 @@ async function processGeneratedImage({
   initialPrompt: string;
   size: string;
   background: string;
+  model: string;
   supabaseUrl: string;
   supabaseServiceKey: string;
   originalPhotoUrl: string;
@@ -437,6 +599,7 @@ async function processGeneratedImage({
           image_url: imageUrl, // Just the filename, not full URL
           size: size,
           background: background,
+          model: model,
         }),
       }
     );

@@ -168,7 +168,8 @@ export const useImageGeneration = () => {
     prompts,
     size = "auto",
     background = "opaque",
-    model = "openai"
+    model = "openai",
+    additionalParams = {}
   ) => {
     setIsGeneratingImages(true);
     setError(null);
@@ -185,9 +186,9 @@ export const useImageGeneration = () => {
         `Generating images for ${photoIds.length} photos with ${prompts.length} prompts, size: ${size}, background: ${background}, model: ${model}`
       );
 
-      // Calculate timeout based on number of combinations
+      // Calculate timeout based on number of combinations - reduced for img2img
       const totalCombinations = photoIds.length * prompts.length;
-      const timeoutDuration = Math.max(60000, totalCombinations * 10000); // 10s per combination minimum
+      const timeoutDuration = Math.max(30000, totalCombinations * 5000); // 5s per combination minimum
 
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(
@@ -202,7 +203,14 @@ export const useImageGeneration = () => {
       );
 
       const functionPromise = supabase.functions.invoke("generate-images", {
-        body: { photoIds, prompts, size, background, model },
+        body: {
+          photoIds,
+          prompts,
+          size,
+          background,
+          model,
+          ...additionalParams,
+        },
       });
 
       const { data, error } = await Promise.race([

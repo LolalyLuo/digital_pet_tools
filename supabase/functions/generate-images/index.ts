@@ -135,6 +135,126 @@ async function generateWithGemini(
   throw new Error("Gemini failed to return edited image");
 }
 
+// Generate image using Gemini API with image-to-image (template swapping)
+async function generateWithGeminiImg2Img(
+  petFile: File,
+  templateFile: File,
+  prompt: string,
+  background: string,
+  size: string,
+  geminiApiKey: string
+): Promise<{ imageBase64: string; mimeType: string }> {
+  console.log("🤖 Using Gemini for image-to-image generation...");
+
+  const genAI = new GoogleGenerativeAI(geminiApiKey);
+  const model = genAI.getGenerativeModel({
+    model: "gemini-2.5-flash-image-preview",
+    generationConfig: {
+      temperature: 0.4,
+      topP: 0.9,
+      topK: 50,
+      candidateCount: 1,
+    },
+  });
+
+  // Build img2img prompt for Gemini with explicit image identification
+  let img2imgPrompt = `Task: Replace the pet in the template image with the pet from the user photo.
+
+Instructions:
+- The first image is the user's pet photo (source pet)
+- The second image is the template with a different pet (target template)
+- Replace the pet in the template while preserving the template's style, pose, and setting
+- Keep the user's pet's unique features (color, markings, breed characteristics)
+- The result should look like the user's pet but in the style and setting of the template image.`;
+
+  if (background === "transparent") {
+    img2imgPrompt += `
+          Additional Requirements:
+          - Replace the pet in the template (second image) with the user's pet (first image)
+          - Background: Keep the template's background style but ensure the pet is properly integrated
+          - Composition: Maintain the template's composition and framing
+          - Quality: High quality result that preserves both the pet's unique features and the template's artistic style. `;
+  } else if (background === "opaque") {
+    img2imgPrompt += `
+          Additional Requirements:
+          - Replace the pet in the template (second image) with the user's pet (first image)
+          - Background: Keep the template's background and setting
+          - Composition: Maintain the template's composition and artistic style
+          - Quality: High quality result that seamlessly blends the user's pet into the template's style. `;
+  }
+
+  // Add aspect ratio guidance
+  const aspectInstructions = {
+    auto: "Maintain the template image's aspect ratio and composition",
+    "1024x1024": "Maintain a square format like the template",
+    "1024x1536": "Maintain a vertical portrait format like the template",
+    "1536x1024": "Maintain a horizontal landscape format like the template",
+  };
+
+  img2imgPrompt += ` ${
+    aspectInstructions[size] || aspectInstructions["auto"]
+  }.`;
+  img2imgPrompt += ` 
+
+Technical requirements: High-resolution output, sharp details, vibrant colors, professional quality. 
+
+CRITICAL: Remember that the first image is the user's pet (source) and the second image is the template (target). The most important thing is to preserve the unique character and features of the user's pet while adopting the style, pose, and artistic elements from the template image.`;
+
+  // Convert both images to base64
+  const petImageBase64 = await fileToBase64(petFile);
+  const templateImageBase64 = await fileToBase64(templateFile);
+
+  console.log(
+    `📸 Pet image (source): ${petFile.size} bytes, type: ${petFile.type}`
+  );
+  console.log(
+    `🎨 Template image (target): ${templateFile.size} bytes, type: ${templateFile.type}`
+  );
+
+  const petImageData = {
+    inlineData: {
+      data: petImageBase64,
+      mimeType: petFile.type,
+    },
+  };
+
+  const templateImageData = {
+    inlineData: {
+      data: templateImageBase64,
+      mimeType: templateFile.type,
+    },
+  };
+
+  const result = await model.generateContent([
+    img2imgPrompt,
+    petImageData,
+    templateImageData,
+  ]);
+  const response = result.response;
+
+  if (response.candidates && response.candidates[0]) {
+    const candidate = response.candidates[0];
+
+    if (candidate.content && candidate.content.parts) {
+      for (const part of candidate.content.parts) {
+        if (part.inlineData && part.inlineData.data) {
+          console.log(
+            `✅ Gemini img2img generation completed (${Math.round(
+              part.inlineData.data.length / 1000
+            )}KB)`
+          );
+          return {
+            imageBase64: part.inlineData.data,
+            mimeType: part.inlineData.mimeType,
+          };
+        }
+      }
+    }
+  }
+
+  throw new Error("Gemini failed to return img2img result");
+}
+
 Deno.serve(async (req) => {
   console.log("🚀 Image generation function started");
 
@@ -153,11 +273,16 @@ Deno.serve(async (req) => {
       size = "auto",
       background = "opaque",
       model = "openai",
+      templateNumbers = [],
     } = await req.json();
     console.log(
       `📸 Processing ${photoIds?.length || 0} photos with ${
         prompts?.length || 0
-      } prompts, size: ${size}, background: ${background}, model: ${model}`
+      } prompts, size: ${size}, background: ${background}, model: ${model}${
+        templateNumbers?.length > 0
+          ? `, template numbers: ${templateNumbers.join(", ")}`
+          : ""
+      }`
     );
 
     if (
@@ -216,7 +341,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (model === "gemini" && !geminiApiKey) {
+    if ((model === "gemini" || model === "gemini-img2img") && !geminiApiKey) {
       console.error("❌ Missing Gemini API key for Gemini model");
       return new Response(JSON.stringify({ error: "Missing Gemini API key" }), {
         status: 500,
@@ -225,6 +350,77 @@ Deno.serve(async (req) => {
           ...corsHeaders,
         },
       });
+    }
+
+    // Validate template numbers for img2img model
+    if (model === "gemini-img2img") {
+      if (!templateNumbers || templateNumbers.length === 0) {
+        console.error("❌ Missing template numbers for Gemini img2img model");
+        return new Response(
+          JSON.stringify({
+            error:
+              "Template numbers are required for Gemini Image-to-Image mode",
+          }),
+          {
+            status: 400,
+            headers: {
+              "Content-Type": "application/json",
+              ...corsHeaders,
+            },
+          }
+        );
+      }
+    }
+
+    // Fetch template images for img2img model
+    let templateImages: Array<{
+      id: number;
+      image_url: string;
+      public_url: string;
+    }> = [];
+    if (model === "gemini-img2img") {
+      console.log(
+        `🔍 Fetching template images for numbers: ${templateNumbers.join(", ")}`
+      );
+
+      const templateResponse = await fetch(
+        `${supabaseUrl}/rest/v1/generated_images?number=in.(${templateNumbers.join(
+          ","
+        )})&select=number,image_url`,
+        {
+          headers: {
+            apikey: supabaseServiceKey,
+            Authorization: `Bearer ${supabaseServiceKey}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      if (!templateResponse.ok) {
+        console.error(`❌ Failed to fetch template images:`, {
+          status: templateResponse.status,
+          statusText: templateResponse.statusText,
+        });
+        return new Response(
+          JSON.stringify({ error: "Failed to fetch template images" }),
+          {
+            status: 500,
+            headers: {
+              "Content-Type": "application/json",
+              ...corsHeaders,
+            },
+          }
+        );
+      }
+
+      const templateData = await templateResponse.json();
+      templateImages = templateData.map((img: any) => ({
+        id: img.number,
+        image_url: img.image_url,
+        public_url: `${supabaseUrl}/storage/v1/object/public/generated-images/${img.image_url}`,
+      }));
+
+      console.log(`✅ Found ${templateImages.length} template images`);
     }
 
     const results: Array<{
@@ -246,10 +442,29 @@ Deno.serve(async (req) => {
       size: string;
       background: string;
       model: string;
+      templateImage?: { id: number; image_url: string; public_url: string };
     }> = [];
-    for (const photoId of photoIds) {
-      for (const prompt of prompts) {
-        combinations.push({ photoId, prompt, size, background, model });
+
+    if (model === "gemini-img2img") {
+      // For img2img: combine each pet photo with each template image
+      for (const photoId of photoIds) {
+        for (const templateImage of templateImages) {
+          combinations.push({
+            photoId,
+            prompt: prompts[0], // Use first prompt for img2img
+            size,
+            background,
+            model,
+            templateImage,
+          });
+        }
+      }
+    } else {
+      // For regular generation: combine each pet photo with each prompt
+      for (const photoId of photoIds) {
+        for (const prompt of prompts) {
+          combinations.push({ photoId, prompt, size, background, model });
+        }
       }
     }
 
@@ -265,7 +480,7 @@ Deno.serve(async (req) => {
       );
 
       const batchPromises = batch.map(
-        async ({ photoId, prompt, size, background, model }) => {
+        async ({ photoId, prompt, size, background, model, templateImage }) => {
           try {
             // Get photo details from database
             const photoResponse = await fetch(
@@ -325,7 +540,39 @@ Deno.serve(async (req) => {
             let b64Image: string | undefined;
             let mimeType = "image/png";
 
-            if (model === "gemini") {
+            if (model === "gemini-img2img") {
+              // Use Gemini API for image-to-image generation
+              console.log(
+                "🤖 Using Gemini API for image-to-image generation..."
+              );
+
+              if (!templateImage) {
+                console.error(
+                  "❌ No template image provided for img2img generation"
+                );
+                return null;
+              }
+
+              // Fetch template image as file
+              const templateFile = await fetchImageAsFile(
+                templateImage.public_url,
+                "template.png"
+              );
+              console.log(
+                `📁 Template image: ${templateFile.size} bytes, type: ${templateFile.type}`
+              );
+
+              const geminiResult = await generateWithGeminiImg2Img(
+                petFile,
+                templateFile,
+                prompt,
+                background,
+                size,
+                geminiApiKey!
+              );
+              b64Image = geminiResult.imageBase64;
+              mimeType = geminiResult.mimeType;
+            } else if (model === "gemini") {
               // Use Gemini API
               console.log("🤖 Using Gemini API for image generation...");
               const geminiResult = await generateWithGemini(
@@ -406,7 +653,10 @@ Deno.serve(async (req) => {
             const result = await processGeneratedImage({
               b64Image,
               photoId,
-              prompt,
+              prompt:
+                model === "gemini-img2img" && templateImage
+                  ? `(Template: #${templateImage.id}) ${prompt}`
+                  : prompt,
               initialPrompt: prompts[0],
               // Convert size from API format (1024x1024) to database format (1024×1024)
               size: size === "auto" ? "auto" : size.replace("x", "×"),

@@ -175,13 +175,6 @@ export const useImageGeneration = () => {
     setError(null);
 
     try {
-      // Check if Supabase is properly configured
-      if (!import.meta.env.VITE_SUPABASE_URL) {
-        throw new Error(
-          "Supabase not configured. Please set up your environment variables."
-        );
-      }
-
       console.log(
         `Generating images for ${photoIds.length} photos with ${prompts.length} prompts, size: ${size}, background: ${background}, model: ${model}`
       );
@@ -202,26 +195,33 @@ export const useImageGeneration = () => {
         )
       );
 
-      const functionPromise = supabase.functions.invoke("generate-images", {
-        body: {
+      // Call local API server instead of Supabase edge function
+      const localApiUrl =
+        import.meta.env.VITE_LOCAL_API_URL || "http://localhost:3001";
+      const functionPromise = fetch(`${localApiUrl}/api/generate-images`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
           photoIds,
           prompts,
           size,
           background,
           model,
           ...additionalParams,
-        },
+        }),
+      }).then(async (response) => {
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(
+            errorData.error || `HTTP ${response.status}: ${response.statusText}`
+          );
+        }
+        return response.json();
       });
 
-      const { data, error } = await Promise.race([
-        functionPromise,
-        timeoutPromise,
-      ]);
-
-      if (error) {
-        console.error("Image generation error:", error);
-        throw error;
-      }
+      const data = await Promise.race([functionPromise, timeoutPromise]);
 
       console.log("Image generation response:", data);
 

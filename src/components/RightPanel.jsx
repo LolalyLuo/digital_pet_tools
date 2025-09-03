@@ -210,7 +210,7 @@ export default function RightPanel({ results, setResults }) {
                   {/* Prompt */}
                   <div className="mb-3">
                     <div className="flex items-start gap-2">
-                      <p className="flex-1 text-sm text-gray-600 whitespace-pre-wrap break-words" title={image.generated_prompt || image.initial_prompt}>
+                      <p className="flex-1 text-sm text-gray-600 line-clamp-3 overflow-hidden" title={image.generated_prompt || image.initial_prompt}>
                         <strong>#{image.number}:</strong> {image.generated_prompt || image.initial_prompt}
                       </p>
                       <button

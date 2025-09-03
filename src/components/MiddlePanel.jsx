@@ -67,7 +67,7 @@ export default function MiddlePanel({
       original: newPromptText.trim()
     }
 
-    setGeneratedPrompts(prev => [...prev, newPrompt])
+    setGeneratedPrompts(prev => [newPrompt, ...prev])
     setNewPromptText('')
   }
 
@@ -240,6 +240,35 @@ export default function MiddlePanel({
             )}
           </button>
 
+          {/* Add New Prompt Input */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Add New Prompt
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newPromptText}
+                onChange={(e) => setNewPromptText(e.target.value)}
+                placeholder="e.g., surrealism, hyper-realism, abstract"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter' && newPromptText.trim()) {
+                    handleAddPrompt()
+                  }
+                }}
+              />
+              <button
+                onClick={handleAddPrompt}
+                disabled={!newPromptText.trim()}
+                className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                <Plus className="h-4 w-4" />
+                Add
+              </button>
+            </div>
+          </div>
+
           {/* Generated Prompts List - Scrollable Area */}
           {generatedPrompts.length > 0 && (
             <div className="mb-6 flex-1 flex flex-col min-h-0">
@@ -262,29 +291,29 @@ export default function MiddlePanel({
                 {generatedPrompts.map((prompt) => (
                   <div key={prompt.id} className="flex items-start gap-2 p-3 border border-gray-200 rounded bg-gray-50">
                     {editingPromptId === prompt.id ? (
-                      <>
+                      <div className="w-full">
                         <textarea
                           value={editingText}
                           onChange={(e) => setEditingText(e.target.value)}
-                          className="flex-1 px-2 py-2 border border-gray-300 rounded text-sm bg-white resize-none"
-                          rows={3}
+                          className="w-full px-2 py-2 border border-gray-300 rounded text-sm bg-white resize-none mb-2"
+                          rows={Math.max(3, Math.ceil(editingText.length / 50))}
                           autoFocus
                         />
-                        <div className="flex flex-col gap-1">
+                        <div className="flex gap-2">
                           <button
                             onClick={saveEdit}
-                            className="px-2 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600"
+                            className="px-3 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600"
                           >
                             Save
                           </button>
                           <button
                             onClick={cancelEdit}
-                            className="px-2 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600"
+                            className="px-3 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600"
                           >
                             Cancel
                           </button>
                         </div>
-                      </>
+                      </div>
                     ) : (
                       <>
                         <div className="flex-1 text-sm text-gray-800 leading-relaxed break-words whitespace-pre-wrap">
@@ -333,35 +362,6 @@ export default function MiddlePanel({
               </div>
             </div>
           )}
-
-          {/* Add New Prompt Input */}
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Add New Prompt
-            </label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={newPromptText}
-                onChange={(e) => setNewPromptText(e.target.value)}
-                placeholder="e.g., surrealism, hyper-realism, abstract"
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                onKeyPress={(e) => {
-                  if (e.key === 'Enter' && newPromptText.trim()) {
-                    handleAddPrompt()
-                  }
-                }}
-              />
-              <button
-                onClick={handleAddPrompt}
-                disabled={!newPromptText.trim()}
-                className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                <Plus className="h-4 w-4" />
-                Add
-              </button>
-            </div>
-          </div>
         </>
       )}
 

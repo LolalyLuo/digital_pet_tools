@@ -282,7 +282,6 @@ export default function LeftPanel({ selectedPhotos, setSelectedPhotos }) {
           </span>
         </div>
       )}
-
       {/* Photo Grid */}
       <div className="mt-4 flex-1 overflow-y-auto">
         <div className="grid grid-cols-2 gap-3">
@@ -293,39 +292,35 @@ export default function LeftPanel({ selectedPhotos, setSelectedPhotos }) {
                 console.log('Image clicked:', photo.id, photo.file_name)
                 togglePhotoSelection(photo.id)
               }}
-              className={`relative group border-2 rounded-lg overflow-hidden transition-all duration-200 w-full text-left ${selectedPhotos.includes(photo.id)
-                  ? 'border-blue-500 bg-blue-50 shadow-md'
-                  : 'border-gray-200 hover:border-gray-300 shadow-sm'
-                }`}
+              className={`
+          relative block w-full aspect-square rounded-lg overflow-hidden
+          transition-all duration-200 transform
+          ${selectedPhotos.includes(photo.id)
+                  ? 'ring-2 ring-black ring-offset-2 scale-70'
+                  : 'hover:opacity-90'
+                }
+        `}
               aria-label={`${selectedPhotos.includes(photo.id) ? 'Deselect' : 'Select'} ${photo.file_name}`}
             >
-              <div className="w-full h-24 transparency-bg">
-                <img
-                  src={photo.url}
-                  alt={photo.file_name}
-                  className="w-full h-full object-cover pointer-events-none"
-                />
-              </div>
+              {/* Image */}
+              <img
+                src={photo.url}
+                alt={photo.file_name}
+                className="w-full h-full object-cover"
+              />
 
-              {/* Selection Overlay */}
+              {/* Selection Overlay with Checkmark */}
               {selectedPhotos.includes(photo.id) && (
-                <div className="absolute inset-0 bg-blue-500 bg-opacity-20 border-2 border-blue-500 pointer-events-none">
-                  <div className="absolute top-2 right-2 bg-blue-500 text-white rounded-full p-1">
-                    <Check className="h-3 w-3" />
-                  </div>
-                </div>
-              )}
+                <>
+                  {/* Semi-transparent overlay */}
+                  <div className="absolute inset-0 bg-black bg-opacity-20 pointer-events-none" />
 
-              {/* Delete Button */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  deletePhoto(photo.id)
-                }}
-                className="absolute top-2 left-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity z-30"
-              >
-                <Trash2 className="h-3 w-3" />
-              </button>
+                  {/* Checkmark Badge */}
+                  <div className="absolute top-2 right-2 bg-black text-white rounded-full p-1.5 shadow-lg pointer-events-none">
+                    <Check className="h-4 w-4" />
+                  </div>
+                </>
+              )}
             </button>
           ))}
         </div>

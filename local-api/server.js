@@ -61,8 +61,6 @@ async function generateWithGemini(
   size,
   geminiApiKey
 ) {
-  console.log("🤖 Using Gemini for image generation...");
-
   const model = genAI.getGenerativeModel({
     model: "gemini-2.5-flash-image-preview",
     generationConfig: {
@@ -125,11 +123,7 @@ async function generateWithGemini(
     if (candidate.content && candidate.content.parts) {
       for (const part of candidate.content.parts) {
         if (part.inlineData && part.inlineData.data) {
-          console.log(
-            `✅ Gemini image generation completed (${Math.round(
-              part.inlineData.data.length / 1000
-            )}KB)`
-          );
+          console.log("✅ Image generated successfully");
           return {
             imageBase64: part.inlineData.data,
             mimeType: part.inlineData.mimeType,
@@ -151,8 +145,6 @@ async function generateWithGeminiImg2Img(
   size,
   geminiApiKey
 ) {
-  console.log("🤖 Using Gemini for image-to-image generation...");
-
   const model = genAI.getGenerativeModel({
     model: "gemini-2.5-flash-image-preview",
     generationConfig: {
@@ -210,9 +202,6 @@ CRITICAL: Remember that the first image is the user's pet (source) and the secon
   const petImageBase64 = bufferToBase64(petBuffer);
   const templateImageBase64 = bufferToBase64(templateBuffer);
 
-  console.log(`📸 Pet image (source): ${petBuffer.length} bytes`);
-  console.log(`🎨 Template image (target): ${templateBuffer.length} bytes`);
-
   const petImageData = {
     inlineData: {
       data: petImageBase64,
@@ -240,11 +229,7 @@ CRITICAL: Remember that the first image is the user's pet (source) and the secon
     if (candidate.content && candidate.content.parts) {
       for (const part of candidate.content.parts) {
         if (part.inlineData && part.inlineData.data) {
-          console.log(
-            `✅ Gemini img2img generation completed (${Math.round(
-              part.inlineData.data.length / 1000
-            )}KB)`
-          );
+          console.log("✅ Image generated successfully");
           return {
             imageBase64: part.inlineData.data,
             mimeType: part.inlineData.mimeType,
@@ -269,10 +254,8 @@ async function processGeneratedImage({
   originalPhotoUrl,
 }) {
   try {
-    console.log("📥 Processing generated image...");
-
     if (!b64Image) {
-      console.error("❌ No image data provided");
+      console.error("❌ Error: No image data provided");
       return null;
     }
 
@@ -284,8 +267,6 @@ async function processGeneratedImage({
       .toString(36)
       .substr(2, 9)}.png`;
 
-    console.log("☁️ Uploading to Supabase storage...");
-
     // Upload to Supabase Storage bucket 'generated-images'
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from("generated-images")
@@ -296,20 +277,13 @@ async function processGeneratedImage({
 
     if (uploadError) {
       console.error(
-        `❌ Failed to upload image to Supabase storage:`,
-        uploadError
+        "❌ Error: Failed to upload image to storage:",
+        uploadError.message
       );
       return null;
     }
 
-    console.log(
-      `✅ Successfully uploaded ${fileName} to generated-images bucket`
-    );
-
-    console.log("💾 Saving to database...");
-    console.log(
-      `📊 Database insertion payload - size: "${size}", background: "${background}"`
-    );
+    console.log("✅ Image stored successfully");
 
     // Store result in database
     const { data: insertData, error: insertError } = await supabase
@@ -328,8 +302,8 @@ async function processGeneratedImage({
 
     if (insertError) {
       console.error(
-        `❌ Failed to store generated image in database:`,
-        insertError
+        "❌ Error: Failed to store image in database:",
+        insertError.message
       );
       return null;
     }
@@ -349,15 +323,13 @@ async function processGeneratedImage({
       status: "success",
     };
   } catch (error) {
-    console.error("💥 Error processing generated image:", error);
+    console.error("❌ Error processing generated image:", error.message);
     return null;
   }
 }
 
 // Generate images endpoint
 app.post("/api/generate-images", async (req, res) => {
-  console.log("🚀 Image generation endpoint started");
-
   try {
     const {
       photoIds,
@@ -369,11 +341,11 @@ app.post("/api/generate-images", async (req, res) => {
     } = req.body;
 
     console.log(
-      `📸 Processing ${photoIds?.length || 0} photos with ${
+      `Input: ${photoIds?.length || 0} photos, ${
         prompts?.length || 0
-      } prompts, size: ${size}, background: ${background}, model: ${model}${
+      } prompts, model: ${model}, size: ${size}, background: ${background}${
         templateNumbers?.length > 0
-          ? `, template numbers: ${templateNumbers.join(", ")}`
+          ? `, templates: ${templateNumbers.join(", ")}`
           : ""
       }`
     );
@@ -384,7 +356,7 @@ app.post("/api/generate-images", async (req, res) => {
       photoIds.length === 0 ||
       prompts.length === 0
     ) {
-      console.error("❌ Missing required parameters:", { photoIds, prompts });
+      console.error("❌ Error: Missing required parameters");
       return res.status(400).json({
         error: "Missing required parameters: photoIds and prompts are required",
       });
@@ -392,7 +364,7 @@ app.post("/api/generate-images", async (req, res) => {
 
     // Check for API keys based on selected model
     if (model === "openai" && !process.env.OPENAI_API_KEY) {
-      console.error("❌ Missing OpenAI API key for OpenAI model");
+      console.error("❌ Error: Missing OpenAI API key");
       return res.status(500).json({ error: "Missing OpenAI API key" });
     }
 
@@ -400,14 +372,14 @@ app.post("/api/generate-images", async (req, res) => {
       (model === "gemini" || model === "gemini-img2img") &&
       !process.env.GEMINI_API_KEY
     ) {
-      console.error("❌ Missing Gemini API key for Gemini model");
+      console.error("❌ Error: Missing Gemini API key");
       return res.status(500).json({ error: "Missing Gemini API key" });
     }
 
     // Validate template numbers for img2img model
     if (model === "gemini-img2img") {
       if (!templateNumbers || templateNumbers.length === 0) {
-        console.error("❌ Missing template numbers for Gemini img2img model");
+        console.error("❌ Error: Missing template numbers for img2img model");
         return res.status(400).json({
           error: "Template numbers are required for Gemini Image-to-Image mode",
         });
@@ -417,17 +389,16 @@ app.post("/api/generate-images", async (req, res) => {
     // Fetch template images for img2img model
     let templateImages = [];
     if (model === "gemini-img2img") {
-      console.log(
-        `🔍 Fetching template images for numbers: ${templateNumbers.join(", ")}`
-      );
-
       const { data: templateData, error: templateError } = await supabase
         .from("generated_images")
         .select("number, image_url")
         .in("number", templateNumbers);
 
       if (templateError) {
-        console.error(`❌ Failed to fetch template images:`, templateError);
+        console.error(
+          "❌ Error: Failed to fetch template images:",
+          templateError.message
+        );
         return res
           .status(500)
           .json({ error: "Failed to fetch template images" });
@@ -438,8 +409,6 @@ app.post("/api/generate-images", async (req, res) => {
         image_url: img.image_url,
         public_url: `${process.env.SUPABASE_URL}/storage/v1/object/public/generated-images/${img.image_url}`,
       }));
-
-      console.log(`✅ Found ${templateImages.length} template images`);
     }
 
     const results = [];
@@ -475,11 +444,6 @@ app.post("/api/generate-images", async (req, res) => {
 
     for (let i = 0; i < combinations.length; i += BATCH_SIZE) {
       const batch = combinations.slice(i, i + BATCH_SIZE);
-      console.log(
-        `🔄 Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(
-          combinations.length / BATCH_SIZE
-        )} (${batch.length} items)`
-      );
 
       const batchPromises = batch.map(
         async ({ photoId, prompt, size, background, model, templateImage }) => {
@@ -492,33 +456,25 @@ app.post("/api/generate-images", async (req, res) => {
               .single();
 
             if (photoError || !photoData) {
-              console.warn(`⚠️ No photo data found for ID: ${photoId}`);
+              console.error(`❌ Error: No photo data found for ID: ${photoId}`);
               return null;
             }
 
             // Get pet image URL with transformation to ensure proper format and size
             const petImageUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/uploaded-photos/${photoData.file_path}?width=400&height=400&quality=80&format=webp`;
 
-            console.log(
-              `🎨 Processing prompt: "${prompt}" for photo ${photoId}`
-            );
-
             // Fetch pet image as buffer
             const petBuffer = await fetchImageAsBuffer(petImageUrl);
-            console.log(`📁 Pet image: ${petBuffer.length} bytes`);
 
             let b64Image;
             let mimeType = "image/png";
 
             if (model === "gemini-img2img") {
               // Use Gemini API for image-to-image generation
-              console.log(
-                "🤖 Using Gemini API for image-to-image generation..."
-              );
 
               if (!templateImage) {
                 console.error(
-                  "❌ No template image provided for img2img generation"
+                  "❌ Error: No template image provided for img2img generation"
                 );
                 return null;
               }
@@ -527,7 +483,6 @@ app.post("/api/generate-images", async (req, res) => {
               const templateBuffer = await fetchImageAsBuffer(
                 templateImage.public_url
               );
-              console.log(`📁 Template image: ${templateBuffer.length} bytes`);
 
               const geminiResult = await generateWithGeminiImg2Img(
                 petBuffer,
@@ -541,7 +496,7 @@ app.post("/api/generate-images", async (req, res) => {
               mimeType = geminiResult.mimeType;
             } else if (model === "gemini") {
               // Use Gemini API
-              console.log("🤖 Using Gemini API for image generation...");
+
               const geminiResult = await generateWithGemini(
                 petBuffer,
                 prompt,
@@ -553,7 +508,6 @@ app.post("/api/generate-images", async (req, res) => {
               mimeType = geminiResult.mimeType;
             } else {
               // Use OpenAI API (default)
-              console.log("🤖 Using OpenAI API for image generation...");
 
               // Convert buffer to File-like object for OpenAI
               const petFile = new File([petBuffer], "pet.png", {
@@ -589,9 +543,8 @@ app.post("/api/generate-images", async (req, res) => {
 
               if (openaiResponse.data?.[0]?.b64_json) {
                 b64Image = openaiResponse.data[0].b64_json;
-                console.log("✅ Got base64 image from OpenAI");
               } else {
-                console.error("❌ No image returned from OpenAI API");
+                console.error("❌ Error: No image returned from OpenAI API");
                 return null;
               }
             }
@@ -611,22 +564,11 @@ app.post("/api/generate-images", async (req, res) => {
               originalPhotoUrl: petImageUrl,
             });
 
-            console.log(
-              `🔧 Size conversion: API received "${size}" -> Database will store "${
-                size === "auto" ? "auto" : size.replace("x", "×")
-              }"`
-            );
-
             return result;
           } catch (error) {
             console.error(
-              `💥 Error processing photo ${photoId} with prompt "${prompt}":`,
-              {
-                error: error.message,
-                stack: error.stack,
-                photoId,
-                prompt,
-              }
+              `❌ Error processing photo ${photoId}:`,
+              error.message
             );
             return null;
           }
@@ -639,7 +581,6 @@ app.post("/api/generate-images", async (req, res) => {
 
       // Add a small delay between batches to be respectful to APIs
       if (i + BATCH_SIZE < combinations.length) {
-        console.log(`⏳ Batch complete. Waiting 1 second before next batch...`);
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
@@ -647,6 +588,9 @@ app.post("/api/generate-images", async (req, res) => {
     // Filter out null results and add to results array
     results.push(...resultsArray.filter((result) => result !== null));
 
+    console.log(
+      `✅ Completed: ${results.length} images processed successfully`
+    );
     res.json({
       success: true,
       results,
@@ -654,11 +598,7 @@ app.post("/api/generate-images", async (req, res) => {
       message: `Successfully processed ${results.length} images`,
     });
   } catch (error) {
-    console.error("💥 Function error:", {
-      message: error.message,
-      stack: error.stack,
-      name: error.name,
-    });
+    console.error("❌ Error:", error.message);
     res.status(500).json({
       error: error.message,
       details: "Check server logs for more information",

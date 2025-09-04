@@ -123,7 +123,7 @@ async function generateWithGemini(
     if (candidate.content && candidate.content.parts) {
       for (const part of candidate.content.parts) {
         if (part.inlineData && part.inlineData.data) {
-          console.log("✅ Image generated successfully");
+          console.log("Image generated successfully");
           return {
             imageBase64: part.inlineData.data,
             mimeType: part.inlineData.mimeType,
@@ -143,7 +143,8 @@ async function generateWithGeminiImg2Img(
   prompt,
   background,
   size,
-  geminiApiKey
+  geminiApiKey,
+  templatePrompt
 ) {
   const model = genAI.getGenerativeModel({
     model: "gemini-2.5-flash-image-preview",
@@ -156,30 +157,36 @@ async function generateWithGeminiImg2Img(
   });
 
   // Build img2img prompt for Gemini with explicit image identification
-  let img2imgPrompt = `Task: Replace the pet in the template image with the pet from the user photo.
+  let img2imgPrompt = `You are a master artist creating an original portrait. Study the pet photo carefully and paint this specific animal from scratch in the artistic style shown. Do NOT copy or paste any elements.
+CRITICAL: Paint the pet completely in the same artistic technique as the template - matching brushstrokes, texture, and painterly quality throughout the entire animal.
 
-Instructions:
-- The first image is the user's pet photo (source pet)
-- The second image is the template with a different pet (target template)
-- Replace the pet in the template while preserving the template's style, pose, and setting
-- Keep the user's pet's unique features (color, markings, breed characteristics)
-- The result should look like the user's pet but in the style and setting of the template image.`;
+Pet to Paint:
+Study these specific characteristics and recreate them artistically:
+Exact fur colors and markings (capture every spot, stripe, or pattern)
+Eye and nose color and shape
+Close attention to ear details, the color, the shape, the position and the size.
+Facial expression and personality
+Body proportions and size
 
-  if (background === "transparent") {
-    img2imgPrompt += `
-          Additional Requirements:
-          - Replace the pet in the template (second image) with the user's pet (first image)
-          - Background: Keep the template's background style but ensure the pet is properly integrated
-          - Composition: Maintain the template's composition and framing
-          - Quality: High quality result that preserves both the pet's unique features and the template's artistic style. `;
-  } else if (background === "opaque") {
-    img2imgPrompt += `
-          Additional Requirements:
-          - Replace the pet in the template (second image) with the user's pet (first image)
-          - Background: Keep the template's background and setting
-          - Composition: Maintain the template's composition and artistic style
-          - Quality: High quality result that seamlessly blends the user's pet into the template's style. `;
-  }
+Artistic Technique Requirements:
+Paint the pet with the same style and technique as the template
+Use brushstrokes and texture that match the template's artistic quality
+Apply colors and blending that harmonize with the template
+Create depth and dimension using the template's artistic approach
+Match the painterly treatment shown in the template
+
+Composition:
+Center the pet portrait appropriately within the frame
+Size the pet to fill the space naturally and proportionally
+Maintain the background and framing elements from the template
+Keep existing decorative elements unchanged
+
+The result must look like you painted this specific pet directly in the template's artistic style. Every part of the pet should have the same artistic treatment as the other painted elements.
+
+Style Application:
+Apply ${
+    templatePrompt || "the template's artistic style"
+  } while preserving the pet's individual identity. `;
 
   // Add aspect ratio guidance
   const aspectInstructions = {
@@ -192,11 +199,6 @@ Instructions:
   img2imgPrompt += ` ${
     aspectInstructions[size] || aspectInstructions["auto"]
   }.`;
-  img2imgPrompt += ` 
-
-Technical requirements: High-resolution output, sharp details, vibrant colors, professional quality. 
-
-CRITICAL: Remember that the first image is the user's pet (source) and the second image is the template (target). The most important thing is to preserve the unique character and features of the user's pet while adopting the style, pose, and artistic elements from the template image.`;
 
   // Convert both images to base64
   const petImageBase64 = bufferToBase64(petBuffer);
@@ -229,7 +231,7 @@ CRITICAL: Remember that the first image is the user's pet (source) and the secon
     if (candidate.content && candidate.content.parts) {
       for (const part of candidate.content.parts) {
         if (part.inlineData && part.inlineData.data) {
-          console.log("✅ Image generated successfully");
+          console.log("Image generated successfully");
           return {
             imageBase64: part.inlineData.data,
             mimeType: part.inlineData.mimeType,
@@ -283,7 +285,7 @@ async function processGeneratedImage({
       return null;
     }
 
-    console.log("✅ Image stored successfully");
+    console.log("Image stored successfully");
 
     // Store result in database
     const { data: insertData, error: insertError } = await supabase
@@ -336,6 +338,8 @@ app.post("/api/generate-images", async (req, res) => {
       prompts,
       size = "auto",
       background = "opaque",
+      sizes = [],
+      backgrounds = [],
       model = "openai",
       templateNumbers = [],
     } = req.body;
@@ -391,7 +395,7 @@ app.post("/api/generate-images", async (req, res) => {
     if (model === "gemini-img2img") {
       const { data: templateData, error: templateError } = await supabase
         .from("generated_images")
-        .select("number, image_url")
+        .select("number, image_url, generated_prompt")
         .in("number", templateNumbers);
 
       if (templateError) {
@@ -407,6 +411,7 @@ app.post("/api/generate-images", async (req, res) => {
       templateImages = templateData.map((img) => ({
         id: img.number,
         image_url: img.image_url,
+        generated_prompt: img.generated_prompt,
         public_url: `${process.env.SUPABASE_URL}/storage/v1/object/public/generated-images/${img.image_url}`,
       }));
     }
@@ -433,8 +438,20 @@ app.post("/api/generate-images", async (req, res) => {
     } else {
       // For regular generation: combine each pet photo with each prompt
       for (const photoId of photoIds) {
-        for (const prompt of prompts) {
-          combinations.push({ photoId, prompt, size, background, model });
+        for (let i = 0; i < prompts.length; i++) {
+          const prompt = prompts[i];
+          // Use individual size/background if arrays are provided and match length
+          const promptSize = sizes.length === prompts.length ? sizes[i] : size;
+          const promptBackground =
+            backgrounds.length === prompts.length ? backgrounds[i] : background;
+
+          combinations.push({
+            photoId,
+            prompt,
+            size: promptSize,
+            background: promptBackground,
+            model,
+          });
         }
       }
     }
@@ -490,7 +507,8 @@ app.post("/api/generate-images", async (req, res) => {
                 prompt,
                 background,
                 size,
-                process.env.GEMINI_API_KEY
+                process.env.GEMINI_API_KEY,
+                templateImage.generated_prompt
               );
               b64Image = geminiResult.imageBase64;
               mimeType = geminiResult.mimeType;
@@ -528,21 +546,44 @@ app.post("/api/generate-images", async (req, res) => {
           - Composition: Clean, centered design that works on different product formats. Ensure some empty space around the pet and nothing is cutoff.
           - Quality: High quality designs that print well on merchandise. `;
 
-              const openaiResponse = await openai.images.edit({
-                image: petFile,
-                model: "dall-e-2",
-                prompt:
-                  prompt +
+              const form = new FormData();
+              form.append("image", petFile);
+              form.append("model", "gpt-image-1");
+              form.append(
+                "prompt",
+                prompt +
                   (background === "opaque"
                     ? additionalPromptOpaque
-                    : additionalPromptTransparent),
-                size: size === "auto" ? "1024x1024" : size,
-                n: 1,
-                response_format: "b64_json",
-              });
+                    : additionalPromptTransparent)
+              );
+              form.append("size", size.replace("×", "x"));
+              form.append("background", background);
 
-              if (openaiResponse.data?.[0]?.b64_json) {
-                b64Image = openaiResponse.data[0].b64_json;
+              const openaiResponse = await fetch(
+                "https://api.openai.com/v1/images/edits",
+                {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+                  },
+                  body: form,
+                }
+              );
+
+              if (!openaiResponse.ok) {
+                const errorText = await openaiResponse.text();
+                console.error(`❌ OpenAI API error for prompt "${prompt}":`, {
+                  status: openaiResponse.status,
+                  statusText: openaiResponse.statusText,
+                  error: errorText,
+                });
+                return null;
+              }
+
+              const openaiData = await openaiResponse.json();
+
+              if (openaiData.data?.[0]?.b64_json) {
+                b64Image = openaiData.data[0].b64_json;
               } else {
                 console.error("❌ Error: No image returned from OpenAI API");
                 return null;
@@ -555,7 +596,7 @@ app.post("/api/generate-images", async (req, res) => {
               photoId,
               prompt:
                 model === "gemini-img2img" && templateImage
-                  ? `(Template: #${templateImage.id}) ${prompt}`
+                  ? `(V4 Template: #${templateImage.id}) ${prompt}`
                   : prompt,
               initialPrompt: prompts[0],
               size: size === "auto" ? "auto" : size.replace("x", "×"),

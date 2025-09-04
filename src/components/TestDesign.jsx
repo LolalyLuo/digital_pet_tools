@@ -14,8 +14,7 @@ export default function TestDesign() {
   const [isConfigured, setIsConfigured] = useState(false)
   const [isGeneratingImages, setIsGeneratingImages] = useState(false)
   const [generatedResults, setGeneratedResults] = useState([])
-  const [selectedSize, setSelectedSize] = useState('auto')
-  const [selectedBackground, setSelectedBackground] = useState('opaque')
+  const [selectedModel, setSelectedModel] = useState('openai')
 
   const { generateImages, error: generationError, clearError, resetStates } = useImageGeneration()
 
@@ -210,7 +209,9 @@ export default function TestDesign() {
           id,
           number,
           generated_prompt,
-          initial_prompt
+          initial_prompt,
+          size,
+          background
         `)
         .in('number', inputOrder)
 
@@ -219,10 +220,12 @@ export default function TestDesign() {
       }
 
       if (data) {
+        console.log('Fetched data from database:', data)
         const orderedResults = inputOrder.map(inputNum =>
           data.find(img => img.number === inputNum)
         ).filter(Boolean)
 
+        console.log('Ordered results:', orderedResults)
         setFetchedPrompts(orderedResults)
       }
     } catch (err) {
@@ -240,13 +243,46 @@ export default function TestDesign() {
     setError('')
 
     try {
-      const prompts = fetchedPrompts.map(p => p.generated_prompt || p.initial_prompt)
-      // Convert size from '×' to 'x' for API compatibility
-      const apiSize = selectedSize === 'auto' ? 'auto' : selectedSize.replace('×', 'x')
-      const newResults = await generateImages([selectedPhoto], prompts, apiSize, selectedBackground)
+      const prompts = fetchedPrompts.map(p => "#" + p.number + ': ' + (p.generated_prompt || p.initial_prompt))
 
-      if (newResults.length > 0) {
-        setGeneratedResults(prev => [...prev, ...newResults])
+      // Extract sizes and backgrounds for each prompt
+      const sizes = fetchedPrompts.map(p => p.size || 'auto')
+      const backgrounds = fetchedPrompts.map(p => p.background || 'opaque')
+
+      // Convert sizes from '×' to 'x' for API compatibility
+      const apiSizes = sizes.map(size => size === 'auto' ? 'auto' : size.replace('×', 'x'))
+
+      console.log('Using size and background from database:', {
+        sizes: apiSizes,
+        backgrounds: backgrounds,
+        model: selectedModel,
+        prompts: prompts.length
+      })
+
+      // Call local API server
+      const response = await fetch('http://localhost:3001/api/generate-images', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          photoIds: [selectedPhoto],
+          prompts: prompts,
+          sizes: apiSizes,
+          backgrounds: backgrounds,
+          model: selectedModel
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to generate images')
+      }
+
+      const data = await response.json()
+
+      if (data.results && data.results.length > 0) {
+        setGeneratedResults(prev => [...prev, ...data.results])
       }
     } catch (error) {
       console.error('Image generation failed:', error)
@@ -349,7 +385,8 @@ export default function TestDesign() {
                         <img
                           src={photo.url}
                           alt={photo.file_name}
-                          className="w-full h-full object-cover pointer-events-none"
+                          className={`w-full h-full object-cover pointer-events-none transition-transform duration-200 ${selectedPhoto === photo.id ? 'scale-70' : ''
+                            }`}
                         />
                       </div>
 
@@ -404,7 +441,7 @@ export default function TestDesign() {
                   />
                   <button
                     type="submit"
-                    disabled={loading || !selectedPhoto}
+                    disabled={loading}
                     className="w-full px-6 py-3 bg-purple-500 text-white rounded-lg hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
                     {loading ? (
@@ -439,6 +476,9 @@ export default function TestDesign() {
                         <div className="text-sm text-gray-800">
                           <strong>#{prompt.number}:</strong> {prompt.generated_prompt || prompt.initial_prompt}
                         </div>
+                        <div className="text-xs text-gray-500 mt-1">
+                          Size: {prompt.size || 'N/A'} | Background: {prompt.background || 'N/A'}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -462,40 +502,20 @@ export default function TestDesign() {
                     )}
                   </button>
 
-                  {/* Size and Background Selection */}
-                  <div className="mt-4 space-y-3">
-                    {/* Size Dropdown */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Image Size
-                      </label>
-                      <select
-                        value={selectedSize}
-                        onChange={(e) => setSelectedSize(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                      >
-                        <option value="auto">Auto</option>
-                        <option value="1024×1024">1024×1024</option>
-                        <option value="1024×1536">1024×1536</option>
-                        <option value="1536×1024">1536×1024</option>
-                      </select>
-                    </div>
-
-                    {/* Background Dropdown */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Background
-                      </label>
-                      <select
-                        value={selectedBackground}
-                        onChange={(e) => setSelectedBackground(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                      >
-                        <option value="opaque">Opaque</option>
-                        <option value="transparent">Transparent</option>
-                        <option value="auto">Auto</option>
-                      </select>
-                    </div>
+                  {/* Model Selection */}
+                  <div className="mt-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      AI Model
+                    </label>
+                    <select
+                      value={selectedModel}
+                      onChange={(e) => setSelectedModel(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    >
+                      <option value="openai">OpenAI</option>
+                      <option value="gemini">Google Gemini</option>
+                      <option value="gemini-img2img">Gemini Image-to-Image</option>
+                    </select>
                   </div>
                 </div>
               )}

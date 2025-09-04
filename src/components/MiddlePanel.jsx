@@ -17,8 +17,8 @@ export default function MiddlePanel({
   const [copiedId, setCopiedId] = useState(null)
   const [selectedSize, setSelectedSize] = useState('auto')
   const [selectedBackground, setSelectedBackground] = useState('opaque')
-  const [selectedModel, setSelectedModel] = useState('gemini')
-  const [templateNumbers, setTemplateNumbers] = useState('')
+  const [selectedModel, setSelectedModel] = useState('gemini-img2img')
+  const [templateNumbers, setTemplateNumbers] = useState('113, 202, 193, 303, 139, 205, 17, 280, 169, 212, 124, 266, 64, 307, 293, 157, 286, 61, 290, 294')
 
   const {
     generatePrompts,
@@ -110,12 +110,16 @@ export default function MiddlePanel({
     // Convert size from '×' to 'x' for API compatibility
     const apiSize = selectedSize === 'auto' ? 'auto' : selectedSize.replace('×', 'x')
 
+    // Create arrays for sizes and backgrounds (same value for all prompts)
+    const sizes = prompts.map(() => apiSize)
+    const backgrounds = prompts.map(() => selectedBackground)
+
     // Prepare additional parameters for img2img
     const additionalParams = selectedModel === 'gemini-img2img' ? {
       templateNumbers: templateNumbers.split(/[,\s]+/).map(n => n.trim()).filter(n => n !== '').map(n => parseInt(n))
     } : {}
 
-    const newResults = await generateImages(selectedPhotos, prompts, apiSize, selectedBackground, selectedModel, additionalParams)
+    const newResults = await generateImages(selectedPhotos, prompts, apiSize, selectedBackground, selectedModel, additionalParams, sizes, backgrounds)
 
     if (newResults.length > 0) {
       setResults(prev => [...prev, ...newResults])

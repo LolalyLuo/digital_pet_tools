@@ -169,7 +169,9 @@ export const useImageGeneration = () => {
     size = "auto",
     background = "opaque",
     model = "openai",
-    additionalParams = {}
+    additionalParams = {},
+    sizes = [],
+    backgrounds = []
   ) => {
     setIsGeneratingImages(true);
     setError(null);
@@ -208,6 +210,8 @@ export const useImageGeneration = () => {
           prompts,
           size,
           background,
+          sizes,
+          backgrounds,
           model,
           ...additionalParams,
         }),

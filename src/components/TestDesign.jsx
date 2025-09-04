@@ -6,7 +6,7 @@ import { useImageGeneration } from '../hooks/useImageGeneration'
 
 export default function TestDesign() {
   const [photos, setPhotos] = useState([])
-  const [selectedPhoto, setSelectedPhoto] = useState(null)
+  const [selectedPhotos, setSelectedPhotos] = useState([])
   const [inputNumbers, setInputNumbers] = useState('')
   const [fetchedPrompts, setFetchedPrompts] = useState([])
   const [loading, setLoading] = useState(false)
@@ -177,12 +177,20 @@ export default function TestDesign() {
   })
 
   const handlePhotoSelection = (photoId) => {
-    setSelectedPhoto(photoId)
+    setSelectedPhotos(prev => {
+      if (prev.includes(photoId)) {
+        // Remove if already selected
+        return prev.filter(id => id !== photoId)
+      } else {
+        // Add if not selected
+        return [...prev, photoId]
+      }
+    })
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!inputNumbers.trim() || !selectedPhoto) return
+    if (!inputNumbers.trim()) return
 
     setLoading(true)
     setError('')
@@ -237,7 +245,7 @@ export default function TestDesign() {
   }
 
   const handleGenerateImages = async () => {
-    if (!selectedPhoto || fetchedPrompts.length === 0) return
+    if (selectedPhotos.length === 0 || fetchedPrompts.length === 0) return
 
     setIsGeneratingImages(true)
     setError('')
@@ -266,7 +274,7 @@ export default function TestDesign() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          photoIds: [selectedPhoto],
+          photoIds: selectedPhotos,
           prompts: prompts,
           sizes: apiSizes,
           backgrounds: backgrounds,
@@ -312,9 +320,7 @@ export default function TestDesign() {
         .eq('id', photoId)
 
       setPhotos(prev => prev.filter(p => p.id !== photoId))
-      if (selectedPhoto === photoId) {
-        setSelectedPhoto(null)
-      }
+      setSelectedPhotos(prev => prev.filter(id => id !== photoId))
     } catch (error) {
       console.error('Delete failed:', error)
     }
@@ -347,7 +353,9 @@ export default function TestDesign() {
           <div className="grid grid-cols-2 gap-8">
             {/* Left Column - Photo Selection */}
             <div className="space-y-6">
-              <h2 className="text-xl font-semibold text-gray-700">Select Photo</h2>
+              <h2 className="text-xl font-semibold text-gray-700">
+                Select Photos ({selectedPhotos.length} selected)
+              </h2>
 
               {/* Upload Area */}
               <div
@@ -376,7 +384,7 @@ export default function TestDesign() {
                     <button
                       key={photo.id}
                       onClick={() => handlePhotoSelection(photo.id)}
-                      className={`relative group border-2 rounded-lg overflow-hidden transition-all duration-200 w-full text-left ${selectedPhoto === photo.id
+                      className={`relative group border-2 rounded-lg overflow-hidden transition-all duration-200 w-full text-left ${selectedPhotos.includes(photo.id)
                         ? 'border-blue-500 bg-blue-50 shadow-md'
                         : 'border-gray-200 hover:border-gray-300 shadow-sm'
                         }`}
@@ -385,13 +393,13 @@ export default function TestDesign() {
                         <img
                           src={photo.url}
                           alt={photo.file_name}
-                          className={`w-full h-full object-cover pointer-events-none transition-transform duration-200 ${selectedPhoto === photo.id ? 'scale-70' : ''
+                          className={`w-full h-full object-cover pointer-events-none transition-transform duration-200 ${selectedPhotos.includes(photo.id) ? 'scale-70' : ''
                             }`}
                         />
                       </div>
 
                       {/* Selection Overlay */}
-                      {selectedPhoto === photo.id && (
+                      {selectedPhotos.includes(photo.id) && (
                         <div className="absolute inset-0 bg-blue-500 bg-opacity-20 border-2 border-blue-500 pointer-events-none">
                           <div className="absolute top-2 right-2 bg-blue-500 text-white rounded-full p-1">
                             <Check className="h-3 w-3" />
@@ -468,6 +476,11 @@ export default function TestDesign() {
                 <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
                   <h3 className="text-lg font-medium text-gray-700 mb-4">
                     Found {fetchedPrompts.length} prompt{fetchedPrompts.length !== 1 ? 's' : ''}
+                    {selectedPhotos.length > 0 && (
+                      <span className="text-sm text-gray-500 ml-2">
+                        ({selectedPhotos.length} photos × {fetchedPrompts.length} prompts = {selectedPhotos.length * fetchedPrompts.length} images)
+                      </span>
+                    )}
                   </h3>
 
                   <div className="space-y-3 max-h-64 overflow-y-auto">
@@ -486,7 +499,7 @@ export default function TestDesign() {
                   {/* Generate Images Button */}
                   <button
                     onClick={handleGenerateImages}
-                    disabled={isGeneratingImages}
+                    disabled={isGeneratingImages || selectedPhotos.length === 0}
                     className="w-full mt-4 px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
                     {isGeneratingImages ? (

@@ -39,6 +39,16 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const IMAGE_SIZE = 1024;
 const BATCH_SIZE = 3;
 
+// Template selection modes
+const TEMPLATE_MODE = {
+  BASE: "BASE",
+  EXAMPLE_ONE: "EXAMPLE_ONE",
+  ALL_EXAMPLES: "ALL_EXAMPLES",
+};
+
+// Current template mode - change this to switch between modes
+const CURRENT_TEMPLATE_MODE = TEMPLATE_MODE.EXAMPLE_ONE;
+
 // Helper function to fetch image as buffer
 async function fetchImageAsBuffer(url) {
   const response = await fetch(url);
@@ -53,6 +63,88 @@ function bufferToBase64(buffer) {
   return buffer.toString("base64");
 }
 
+// Helper function to fetch template images with similar examples
+async function fetchTemplateImagesWithSimilar(templateNumbers) {
+  // First get the base template to extract similar_examples
+  const { data: baseTemplateData, error: baseTemplateError } = await supabase
+    .from("generated_images")
+    .select("number, image_url, generated_prompt, similar_examples")
+    .in("number", templateNumbers);
+
+  if (baseTemplateError) {
+    console.error(
+      "❌ Error: Failed to fetch base template images:",
+      baseTemplateError.message
+    );
+    throw new Error("Failed to fetch base template images");
+  }
+
+  const templateGroups = [];
+
+  // Process each base template to get its similar examples
+  for (const baseTemplate of baseTemplateData) {
+    if (baseTemplate.similar_examples) {
+      // Parse the similar_examples string (e.g., "467,561,566,485")
+      const similarNumbers = baseTemplate.similar_examples
+        .split(",")
+        .map((num) => parseInt(num.trim()))
+        .filter((num) => !isNaN(num));
+
+      // Fetch the similar example images
+      const { data: similarData, error: similarError } = await supabase
+        .from("generated_images")
+        .select("number, image_url, generated_prompt")
+        .in("number", similarNumbers);
+
+      if (similarError) {
+        console.error(
+          "❌ Error: Failed to fetch similar example images:",
+          similarError.message
+        );
+        throw new Error("Failed to fetch similar example images");
+      }
+
+      // Add the similar examples to templateGroups with buffer data
+      const similarImagesWithBuffers = await Promise.all(
+        similarData.map(async (img) => {
+          const publicUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/generated-images/${img.image_url}`;
+          const buffer = await fetchImageAsBuffer(publicUrl);
+          return {
+            id: img.number,
+            image_url: img.image_url,
+            generated_prompt: img.generated_prompt,
+            public_url: publicUrl,
+            buffer: buffer,
+          };
+        })
+      );
+
+      templateGroups.push({
+        baseTemplate: {
+          id: baseTemplate.number,
+          image_url: baseTemplate.image_url,
+          generated_prompt: baseTemplate.generated_prompt,
+          public_url: `${process.env.SUPABASE_URL}/storage/v1/object/public/generated-images/${baseTemplate.image_url}`,
+        },
+        similarExamples: similarImagesWithBuffers,
+      });
+    } else {
+      // Fallback to original behavior if no similar_examples
+      templateGroups.push({
+        baseTemplate: {
+          id: baseTemplate.number,
+          image_url: baseTemplate.image_url,
+          generated_prompt: baseTemplate.generated_prompt,
+          public_url: `${process.env.SUPABASE_URL}/storage/v1/object/public/generated-images/${baseTemplate.image_url}`,
+        },
+        similarExamples: [],
+      });
+    }
+  }
+
+  return templateGroups;
+}
+
 // Generate image using Gemini API
 async function generateWithGemini(
   petBuffer,
@@ -64,8 +156,8 @@ async function generateWithGemini(
   const model = genAI.getGenerativeModel({
     model: "gemini-2.5-flash-image-preview",
     generationConfig: {
-      temperature: 0.4,
-      topP: 0.9,
+      temperature: 1.0,
+      topP: 0.99,
       topK: 50,
       candidateCount: 1,
     },
@@ -139,7 +231,7 @@ async function generateWithGemini(
 // Generate image using Gemini API with image-to-image (template swapping)
 async function generateWithGeminiImg2Img(
   petBuffer,
-  templateBuffer,
+  templateImages,
   prompt,
   background,
   size,
@@ -149,7 +241,7 @@ async function generateWithGeminiImg2Img(
   const model = genAI.getGenerativeModel({
     model: "gemini-2.5-flash-image-preview",
     generationConfig: {
-      temperature: 0.4,
+      temperature: 0.9,
       topP: 0.9,
       topK: 50,
       candidateCount: 1,
@@ -181,28 +273,12 @@ Size the pet to fill the space naturally and proportionally
 Maintain the background and framing elements from the template
 Keep existing decorative elements unchanged
 
-The result must look like you painted this specific pet directly in the template's artistic style. Every part of the pet should have the same artistic treatment as the other painted elements.
+CRITICAL: Paint the pet in the same artistic technique as the template - matching brushstrokes, texture, and painterly quality throughout the entire animal. The pet should completely blend in and has the same style.
 
-Style Application:
-Apply ${
-    templatePrompt || "the template's artistic style"
-  } while preserving the pet's individual identity. `;
+Here is the style we want to transform the pet into: ${templatePrompt}`;
 
-  // Add aspect ratio guidance
-  const aspectInstructions = {
-    auto: "Maintain the template image's aspect ratio and composition",
-    "1024x1024": "Maintain a square format like the template",
-    "1024x1536": "Maintain a vertical portrait format like the template",
-    "1536x1024": "Maintain a horizontal landscape format like the template",
-  };
-
-  img2imgPrompt += ` ${
-    aspectInstructions[size] || aspectInstructions["auto"]
-  }.`;
-
-  // Convert both images to base64
+  // Convert pet image to base64
   const petImageBase64 = bufferToBase64(petBuffer);
-  const templateImageBase64 = bufferToBase64(templateBuffer);
 
   const petImageData = {
     inlineData: {
@@ -211,18 +287,42 @@ Apply ${
     },
   };
 
-  const templateImageData = {
-    inlineData: {
-      data: templateImageBase64,
-      mimeType: "image/png",
-    },
-  };
+  // Handle different template modes
+  let templateImageDataArray = [];
 
-  const result = await model.generateContent([
-    img2imgPrompt,
-    petImageData,
-    templateImageData,
-  ]);
+  if (CURRENT_TEMPLATE_MODE === TEMPLATE_MODE.ALL_EXAMPLES) {
+    // Use all template images
+    if (templateImages.length === 0) {
+      throw new Error("No template images provided");
+    }
+
+    templateImageDataArray = templateImages.map((templateImage) => ({
+      inlineData: {
+        data: bufferToBase64(templateImage.buffer),
+        mimeType: "image/png",
+      },
+    }));
+  } else {
+    // Use only the first template image (BASE or EXAMPLE_ONE)
+    const firstTemplate = templateImages[0];
+    if (!firstTemplate) {
+      throw new Error("No template images provided");
+    }
+
+    templateImageDataArray = [
+      {
+        inlineData: {
+          data: bufferToBase64(firstTemplate.buffer),
+          mimeType: "image/png",
+        },
+      },
+    ];
+  }
+
+  // Build content array with prompt, pet image, and template image(s)
+  const contentArray = [img2imgPrompt, petImageData, ...templateImageDataArray];
+
+  const result = await model.generateContent(contentArray);
   const response = result.response;
 
   if (response.candidates && response.candidates[0]) {
@@ -235,6 +335,7 @@ Apply ${
           return {
             imageBase64: part.inlineData.data,
             mimeType: part.inlineData.mimeType,
+            img2imgPrompt: img2imgPrompt,
           };
         }
       }
@@ -254,6 +355,7 @@ async function processGeneratedImage({
   background,
   model,
   originalPhotoUrl,
+  templatePrompt,
 }) {
   try {
     if (!b64Image) {
@@ -293,7 +395,7 @@ async function processGeneratedImage({
       .insert({
         photo_id: photoId,
         initial_prompt: initialPrompt,
-        generated_prompt: prompt,
+        generated_prompt: templatePrompt || prompt, // Use template prompt if available, otherwise use regular prompt
         image_url: fileName,
         size: size,
         background: background,
@@ -393,27 +495,15 @@ app.post("/api/generate-images", async (req, res) => {
     // Fetch template images for img2img model
     let templateImages = [];
     if (model === "gemini-img2img") {
-      const { data: templateData, error: templateError } = await supabase
-        .from("generated_images")
-        .select("number, image_url, generated_prompt")
-        .in("number", templateNumbers);
-
-      if (templateError) {
-        console.error(
-          "❌ Error: Failed to fetch template images:",
-          templateError.message
+      try {
+        const templateGroups = await fetchTemplateImagesWithSimilar(
+          templateNumbers
         );
-        return res
-          .status(500)
-          .json({ error: "Failed to fetch template images" });
+        templateImages = templateGroups;
+      } catch (error) {
+        console.error("❌ Error fetching template images:", error.message);
+        return res.status(500).json({ error: error.message });
       }
-
-      templateImages = templateData.map((img) => ({
-        id: img.number,
-        image_url: img.image_url,
-        generated_prompt: img.generated_prompt,
-        public_url: `${process.env.SUPABASE_URL}/storage/v1/object/public/generated-images/${img.image_url}`,
-      }));
     }
 
     const results = [];
@@ -422,16 +512,16 @@ app.post("/api/generate-images", async (req, res) => {
     const combinations = [];
 
     if (model === "gemini-img2img") {
-      // For img2img: combine each pet photo with each template image
+      // For img2img: combine each pet photo with each template group
       for (const photoId of photoIds) {
-        for (const templateImage of templateImages) {
+        for (const templateGroup of templateImages) {
           combinations.push({
             photoId,
             prompt: prompts[0], // Use first prompt for img2img
             size,
             background,
             model,
-            templateImage,
+            templateGroup,
           });
         }
       }
@@ -463,7 +553,7 @@ app.post("/api/generate-images", async (req, res) => {
       const batch = combinations.slice(i, i + BATCH_SIZE);
 
       const batchPromises = batch.map(
-        async ({ photoId, prompt, size, background, model, templateImage }) => {
+        async ({ photoId, prompt, size, background, model, templateGroup }) => {
           try {
             // Get photo details from database
             const { data: photoData, error: photoError } = await supabase
@@ -485,33 +575,74 @@ app.post("/api/generate-images", async (req, res) => {
 
             let b64Image;
             let mimeType = "image/png";
+            let img2imgPrompt = undefined;
 
             if (model === "gemini-img2img") {
               // Use Gemini API for image-to-image generation
 
-              if (!templateImage) {
+              if (!templateGroup) {
                 console.error(
-                  "❌ Error: No template image provided for img2img generation"
+                  "❌ Error: No template group provided for img2img generation"
                 );
                 return null;
               }
 
-              // Fetch template image as buffer
-              const templateBuffer = await fetchImageAsBuffer(
-                templateImage.public_url
-              );
+              let templateImages = [];
+              // Always use base template prompt for AI generation since similar examples have corrupted prompts
+              const templatePrompt =
+                templateGroup.baseTemplate.generated_prompt;
+
+              if (CURRENT_TEMPLATE_MODE === TEMPLATE_MODE.BASE) {
+                // Use the base template image directly
+                const baseTemplateBuffer = await fetchImageAsBuffer(
+                  templateGroup.baseTemplate.public_url
+                );
+                console.log(
+                  "Using BASE template:",
+                  templateGroup.baseTemplate.public_url
+                );
+                templateImages = [{ buffer: baseTemplateBuffer }];
+              } else if (CURRENT_TEMPLATE_MODE === TEMPLATE_MODE.EXAMPLE_ONE) {
+                // Use the first similar example
+                if (templateGroup.similarExamples.length === 0) {
+                  console.error(
+                    "❌ Error: No similar examples found for EXAMPLE_ONE mode"
+                  );
+                  return null;
+                }
+                console.log(
+                  "Using EXAMPLE_ONE:",
+                  templateGroup.similarExamples[0].public_url
+                );
+                templateImages = [templateGroup.similarExamples[0]];
+              } else if (CURRENT_TEMPLATE_MODE === TEMPLATE_MODE.ALL_EXAMPLES) {
+                // Use all similar examples
+                if (templateGroup.similarExamples.length === 0) {
+                  console.error(
+                    "❌ Error: No similar examples found for ALL_EXAMPLES mode"
+                  );
+                  return null;
+                }
+                console.log(
+                  `Using ALL_EXAMPLES: ${templateGroup.similarExamples.length} templates`
+                );
+                templateImages = templateGroup.similarExamples;
+              }
 
               const geminiResult = await generateWithGeminiImg2Img(
                 petBuffer,
-                templateBuffer,
+                templateImages,
                 prompt,
                 background,
                 size,
                 process.env.GEMINI_API_KEY,
-                templateImage.generated_prompt
+                templatePrompt
               );
               b64Image = geminiResult.imageBase64;
               mimeType = geminiResult.mimeType;
+
+              // Store the actual img2img prompt that was used for generation
+              img2imgPrompt = geminiResult.img2imgPrompt;
             } else if (model === "gemini") {
               // Use Gemini API
 
@@ -595,14 +726,18 @@ app.post("/api/generate-images", async (req, res) => {
               b64Image,
               photoId,
               prompt:
-                model === "gemini-img2img" && templateImage
-                  ? `(V4 Template: #${templateImage.id}) ${prompt}`
+                model === "gemini-img2img" && templateGroup
+                  ? `(V7 ${CURRENT_TEMPLATE_MODE} mode: #${templateGroup.baseTemplate.id}) ${prompt}`
                   : prompt,
               initialPrompt: prompts[0],
               size: size === "auto" ? "auto" : size.replace("x", "×"),
               background,
               model,
               originalPhotoUrl: petImageUrl,
+              templatePrompt:
+                model === "gemini-img2img" && templateGroup
+                  ? img2imgPrompt
+                  : undefined,
             });
 
             return result;

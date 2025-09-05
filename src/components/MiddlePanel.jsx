@@ -18,7 +18,7 @@ export default function MiddlePanel({
   const [selectedSize, setSelectedSize] = useState('auto')
   const [selectedBackground, setSelectedBackground] = useState('opaque')
   const [selectedModel, setSelectedModel] = useState('gemini-img2img')
-  const [templateNumbers, setTemplateNumbers] = useState('113, 202, 193, 303, 139, 205, 17, 280, 169, 212, 124, 266, 64, 307, 293, 157, 286, 61, 290, 294')
+  const [templateNumbers, setTemplateNumbers] = useState('113, 202, 193, 303, 139, 205, 17, 280, 169, 543, 449, 266, 64, 307, 293, 157, 286, 61, 290, 294')
 
   const {
     generatePrompts,

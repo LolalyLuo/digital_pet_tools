@@ -17,5 +17,6 @@ CREATE TABLE generated_images (
   size TEXT CHECK (size IN ('auto', '1024×1024', '1024×1536', '1536×1024')),
   background TEXT CHECK (background IN ('opaque', 'transparent', 'auto')),
   model TEXT CHECK (model IN ('openai', 'gemini', 'gemini-img2img')) DEFAULT NULL,
+  model_config JSONB,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

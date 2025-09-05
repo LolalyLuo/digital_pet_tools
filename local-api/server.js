@@ -39,6 +39,26 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const IMAGE_SIZE = 1024;
 const BATCH_SIZE = 3;
 
+// Default model configurations
+const DEFAULT_MODEL_CONFIGS = {
+  gemini: {
+    temperature: 1.0,
+    topP: 0.99,
+    topK: 50,
+    candidateCount: 1,
+  },
+  "gemini-img2img": {
+    temperature: 0.9,
+    topP: 0.9,
+    topK: 50,
+    candidateCount: 1,
+  },
+  openai: {
+    // OpenAI doesn't use these parameters, but we can store other config here
+    model: "gpt-image-1",
+  },
+};
+
 // Template selection modes
 const TEMPLATE_MODE = {
   BASE: "BASE",
@@ -151,15 +171,16 @@ async function generateWithGemini(
   prompt,
   background,
   size,
-  geminiApiKey
+  geminiApiKey,
+  modelConfig = DEFAULT_MODEL_CONFIGS.gemini
 ) {
   const model = genAI.getGenerativeModel({
     model: "gemini-2.5-flash-image-preview",
     generationConfig: {
-      temperature: 1.0,
-      topP: 0.99,
-      topK: 50,
-      candidateCount: 1,
+      temperature: modelConfig.temperature,
+      topP: modelConfig.topP,
+      topK: modelConfig.topK,
+      candidateCount: modelConfig.candidateCount,
     },
   });
 
@@ -236,15 +257,16 @@ async function generateWithGeminiImg2Img(
   background,
   size,
   geminiApiKey,
-  templatePrompt
+  templatePrompt,
+  modelConfig = DEFAULT_MODEL_CONFIGS["gemini-img2img"]
 ) {
   const model = genAI.getGenerativeModel({
     model: "gemini-2.5-flash-image-preview",
     generationConfig: {
-      temperature: 0.9,
-      topP: 0.9,
-      topK: 50,
-      candidateCount: 1,
+      temperature: modelConfig.temperature,
+      topP: modelConfig.topP,
+      topK: modelConfig.topK,
+      candidateCount: modelConfig.candidateCount,
     },
   });
 
@@ -356,6 +378,7 @@ async function processGeneratedImage({
   model,
   originalPhotoUrl,
   templatePrompt,
+  modelConfig,
 }) {
   try {
     if (!b64Image) {
@@ -400,6 +423,7 @@ async function processGeneratedImage({
         size: size,
         background: background,
         model: model,
+        model_config: modelConfig,
       })
       .select()
       .single();
@@ -444,7 +468,13 @@ app.post("/api/generate-images", async (req, res) => {
       backgrounds = [],
       model = "openai",
       templateNumbers = [],
+      modelConfig = null,
     } = req.body;
+
+    // Merge provided modelConfig with defaults
+    const finalModelConfig = modelConfig
+      ? { ...DEFAULT_MODEL_CONFIGS[model], ...modelConfig }
+      : DEFAULT_MODEL_CONFIGS[model];
 
     console.log(
       `Input: ${photoIds?.length || 0} photos, ${
@@ -453,7 +483,7 @@ app.post("/api/generate-images", async (req, res) => {
         templateNumbers?.length > 0
           ? `, templates: ${templateNumbers.join(", ")}`
           : ""
-      }`
+      }${modelConfig ? `, modelConfig: ${JSON.stringify(modelConfig)}` : ""}`
     );
 
     if (
@@ -522,6 +552,7 @@ app.post("/api/generate-images", async (req, res) => {
             background,
             model,
             templateGroup,
+            modelConfig: finalModelConfig,
           });
         }
       }
@@ -541,6 +572,7 @@ app.post("/api/generate-images", async (req, res) => {
             size: promptSize,
             background: promptBackground,
             model,
+            modelConfig: finalModelConfig,
           });
         }
       }
@@ -553,7 +585,15 @@ app.post("/api/generate-images", async (req, res) => {
       const batch = combinations.slice(i, i + BATCH_SIZE);
 
       const batchPromises = batch.map(
-        async ({ photoId, prompt, size, background, model, templateGroup }) => {
+        async ({
+          photoId,
+          prompt,
+          size,
+          background,
+          model,
+          templateGroup,
+          modelConfig,
+        }) => {
           try {
             // Get photo details from database
             const { data: photoData, error: photoError } = await supabase
@@ -636,7 +676,8 @@ app.post("/api/generate-images", async (req, res) => {
                 background,
                 size,
                 process.env.GEMINI_API_KEY,
-                templatePrompt
+                templatePrompt,
+                modelConfig
               );
               b64Image = geminiResult.imageBase64;
               mimeType = geminiResult.mimeType;
@@ -651,7 +692,8 @@ app.post("/api/generate-images", async (req, res) => {
                 prompt,
                 background,
                 size,
-                process.env.GEMINI_API_KEY
+                process.env.GEMINI_API_KEY,
+                modelConfig
               );
               b64Image = geminiResult.imageBase64;
               mimeType = geminiResult.mimeType;
@@ -738,6 +780,7 @@ app.post("/api/generate-images", async (req, res) => {
                 model === "gemini-img2img" && templateGroup
                   ? img2imgPrompt
                   : undefined,
+              modelConfig,
             });
 
             return result;

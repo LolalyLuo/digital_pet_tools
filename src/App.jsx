@@ -6,6 +6,7 @@ import MiddlePanel from './components/MiddlePanel'
 import RightPanel from './components/RightPanel'
 import FinalizeDesigns from './components/FinalizeDesigns'
 import TestDesign from './components/TestDesign'
+import IteratePage from './components/iterate/IteratePage'
 
 function App() {
   const [user, setUser] = useState(null)
@@ -95,6 +96,8 @@ function App() {
         return <FinalizeDesigns />
       case 'test-design':
         return <TestDesign />
+      case 'iterate':
+        return <IteratePage />
       default:
         return null
     }
@@ -162,6 +165,16 @@ function App() {
                 }`}
               >
                 Test Design
+              </button>
+              <button
+                onClick={() => setCurrentApp('iterate')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  currentApp === 'iterate'
+                    ? 'bg-blue-100 text-blue-700 border border-blue-200'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                }`}
+              >
+                Iterate
               </button>
             </div>
 

@@ -92,6 +92,14 @@ export default function RightPanel({ results, setResults }) {
     loadGeneratedImages(0, false)
   }, [loadGeneratedImages])
 
+  // Auto-reload when new results are added (after image generation)
+  useEffect(() => {
+    if (results.length > 0) {
+      // Reload images from database to show newly generated ones
+      loadGeneratedImages(0, false)
+    }
+  }, [results.length, loadGeneratedImages])
+
   // Cleanup observer on unmount
   useEffect(() => {
     return () => {

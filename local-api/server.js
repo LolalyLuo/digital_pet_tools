@@ -67,7 +67,7 @@ const TEMPLATE_MODE = {
 };
 
 // Current template mode - change this to switch between modes
-const CURRENT_TEMPLATE_MODE = TEMPLATE_MODE.EXAMPLE_ONE;
+const CURRENT_TEMPLATE_MODE = TEMPLATE_MODE.BASE;
 
 // Helper function to fetch image as buffer
 async function fetchImageAsBuffer(url) {

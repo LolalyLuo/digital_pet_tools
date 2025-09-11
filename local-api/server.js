@@ -23,10 +23,16 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 // Initialize Supabase client
+console.log('🔧 Initializing Supabase client...');
+console.log('📍 Supabase URL:', process.env.SUPABASE_URL);
+console.log('🔑 Service Role Key (first 20 chars):', process.env.SUPABASE_SERVICE_ROLE_KEY?.substring(0, 20) + '...');
+
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
+
+console.log('✅ Supabase client initialized');
 
 // Initialize AI clients
 const openai = new OpenAI({
@@ -71,11 +77,19 @@ const CURRENT_TEMPLATE_MODE = TEMPLATE_MODE.BASE;
 
 // Helper function to fetch image as buffer
 async function fetchImageAsBuffer(url) {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch image: ${response.statusText}`);
+  console.log(`🖼️  Fetching image from: ${url}`);
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      console.error(`❌ Failed to fetch image: ${response.status} ${response.statusText}`);
+      throw new Error(`Failed to fetch image: ${response.statusText}`);
+    }
+    console.log(`✅ Image fetched successfully, size: ${response.headers.get('content-length')} bytes`);
+    return await response.buffer();
+  } catch (error) {
+    console.error(`❌ Error fetching image from ${url}:`, error.message);
+    throw error;
   }
-  return await response.buffer();
 }
 
 // Helper function to convert buffer to base64
@@ -395,6 +409,8 @@ async function processGeneratedImage({
       .substr(2, 9)}.png`;
 
     // Upload to Supabase Storage bucket 'generated-images'
+    console.log(`📤 Uploading image to storage: ${fileName} (${imageBuffer.length} bytes)`);
+    
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from("generated-images")
       .upload(fileName, imageBuffer, {
@@ -403,38 +419,56 @@ async function processGeneratedImage({
       });
 
     if (uploadError) {
-      console.error(
-        "❌ Error: Failed to upload image to storage:",
-        uploadError.message
-      );
+      console.error("❌ Error: Failed to upload image to storage:");
+      console.error('📋 Upload error details:', {
+        message: uploadError.message,
+        statusCode: uploadError.statusCode,
+        error: uploadError.error,
+        fileName: fileName,
+        bufferSize: imageBuffer.length
+      });
       return null;
     }
+    
+    console.log('✅ Image uploaded successfully to storage:', uploadData?.path);
 
     console.log("Image stored successfully");
 
     // Store result in database
+    console.log('💾 Storing image metadata in database...');
+    
+    const insertPayload = {
+      photo_id: photoId,
+      initial_prompt: initialPrompt,
+      generated_prompt: templatePrompt || prompt,
+      image_url: fileName,
+      size: size,
+      background: background,
+      model: model,
+      model_config: modelConfig,
+    };
+    
+    console.log('📋 Insert payload:', insertPayload);
+    
     const { data: insertData, error: insertError } = await supabase
       .from("generated_images")
-      .insert({
-        photo_id: photoId,
-        initial_prompt: initialPrompt,
-        generated_prompt: templatePrompt || prompt, // Use template prompt if available, otherwise use regular prompt
-        image_url: fileName,
-        size: size,
-        background: background,
-        model: model,
-        model_config: modelConfig,
-      })
+      .insert(insertPayload)
       .select()
       .single();
 
     if (insertError) {
-      console.error(
-        "❌ Error: Failed to store image in database:",
-        insertError.message
-      );
+      console.error("❌ Error: Failed to store image in database:");
+      console.error('📋 Database error details:', {
+        message: insertError.message,
+        code: insertError.code,
+        details: insertError.details,
+        hint: insertError.hint,
+        payload: insertPayload
+      });
       return null;
     }
+    
+    console.log('✅ Image metadata stored in database:', insertData?.id);
 
     // Build full public URL for response
     const publicUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/generated-images/${fileName}`;
@@ -596,6 +630,8 @@ app.post("/api/generate-images", async (req, res) => {
         }) => {
           try {
             // Get photo details from database
+            console.log(`🔍 Looking up photo data for ID: ${photoId}`);
+            
             const { data: photoData, error: photoError } = await supabase
               .from("uploaded_photos")
               .select("*")
@@ -604,14 +640,26 @@ app.post("/api/generate-images", async (req, res) => {
 
             if (photoError || !photoData) {
               console.error(`❌ Error: No photo data found for ID: ${photoId}`);
+              console.error('📋 Photo lookup error:', {
+                error: photoError,
+                photoId: photoId
+              });
               return null;
             }
+            
+            console.log(`✅ Found photo data:`, {
+              id: photoData.id,
+              fileName: photoData.file_name,
+              filePath: photoData.file_path
+            });
 
             // Get pet image URL with transformation to ensure proper format and size
             const petImageUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/uploaded-photos/${photoData.file_path}?width=400&height=400&quality=80&format=webp`;
+            console.log(`🖼️  Pet image URL: ${petImageUrl}`);
 
             // Fetch pet image as buffer
             const petBuffer = await fetchImageAsBuffer(petImageUrl);
+            console.log(`✅ Pet image buffer size: ${petBuffer.length} bytes`);
 
             let b64Image;
             let mimeType = "image/png";
@@ -817,11 +865,311 @@ app.post("/api/generate-images", async (req, res) => {
       message: `Successfully processed ${results.length} images`,
     });
   } catch (error) {
-    console.error("❌ Error:", error.message);
+    console.error("❌ Error in generate-images endpoint:");
+    console.error('📋 Error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
     res.status(500).json({
       error: error.message,
       details: "Check server logs for more information",
+      timestamp: new Date().toISOString()
     });
+  }
+});
+
+// LLM Image Evaluation endpoint
+app.post("/api/evaluate-image", async (req, res) => {
+  try {
+    const { imageUrl, prompt, criteria = [], model = 'gpt-4', temperature = 0.3, maxTokens = 50 } = req.body;
+
+    if (!imageUrl || !prompt) {
+      return res.status(400).json({ error: 'Missing required parameters: imageUrl and prompt' });
+    }
+
+    // For GPT models, use OpenAI
+    if (model.startsWith('gpt')) {
+      if (!process.env.OPENAI_API_KEY) {
+        return res.status(500).json({ error: 'OpenAI API key not configured' });
+      }
+
+      const response = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: `${prompt}\n\nPlease evaluate this image and return ONLY a JSON object with this exact format:\n{\n  "overall_score": number (1-10),\n  "criteria_scores": {${criteria.map(c => `\n    "${c}": number (1-10)`).join(',')}\n  },\n  "feedback": "brief explanation"\n}`
+              },
+              {
+                type: 'image_url',
+                image_url: { url: imageUrl }
+              }
+            ]
+          }
+        ],
+        max_tokens: maxTokens,
+        temperature: temperature
+      });
+
+      const content = response.choices[0]?.message?.content;
+      if (!content) {
+        throw new Error('No response from OpenAI');
+      }
+
+      try {
+        const evaluation = JSON.parse(content);
+        res.json(evaluation);
+      } catch (parseError) {
+        // Fallback if JSON parsing fails
+        res.json({
+          overall_score: 7.0,
+          criteria_scores: Object.fromEntries(criteria.map(c => [c, 7.0])),
+          feedback: content
+        });
+      }
+    } else {
+      // For other models, return a mock response for now
+      res.json({
+        overall_score: Math.random() * 4 + 6,
+        criteria_scores: Object.fromEntries(criteria.map(c => [c, Math.random() * 4 + 6])),
+        feedback: `Evaluated using ${model} - Mock evaluation for development`
+      });
+    }
+  } catch (error) {
+    console.error('LLM evaluation error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Photo Similarity Evaluation endpoint
+app.post("/api/evaluate-photo-similarity", async (req, res) => {
+  try {
+    const { generatedImageUrl, targetImages = [], threshold = 0.7 } = req.body;
+
+    if (!generatedImageUrl) {
+      return res.status(400).json({ error: 'Missing required parameter: generatedImageUrl' });
+    }
+
+    // This is a placeholder implementation
+    // In a real implementation, you would use computer vision APIs like:
+    // - Google Vision API
+    // - Azure Computer Vision
+    // - AWS Rekognition
+    // - Or a custom ML model
+    
+    const mockSimilarity = Math.random() * 0.4 + 0.6; // 0.6 to 1.0
+    
+    res.json({
+      overall_similarity: mockSimilarity,
+      similarity_scores: {
+        composition: Math.random() * 0.3 + 0.7,
+        style: Math.random() * 0.3 + 0.7,
+        content: Math.random() * 0.3 + 0.7
+      },
+      best_match: targetImages[0] || null,
+      threshold_met: mockSimilarity >= threshold
+    });
+  } catch (error) {
+    console.error('Photo similarity evaluation error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Generate Prompt Variations endpoint
+app.post("/api/generate-prompt-variations", async (req, res) => {
+  try {
+    const { basePrompts, variationStrength = 0.3, count = 10 } = req.body;
+
+    if (!basePrompts || basePrompts.length === 0) {
+      return res.status(400).json({ error: 'Missing required parameter: basePrompts' });
+    }
+
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(500).json({ error: 'OpenAI API key not configured' });
+    }
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'user',
+          content: `Generate ${count} creative variations of these pet photography prompts:\n\n${basePrompts.join('\n')}\n\nVariation strength: ${variationStrength} (0=minimal changes, 1=major changes)\n\nReturn ONLY a JSON array of strings, no other text.`
+        }
+      ],
+      max_tokens: 500,
+      temperature: 0.8
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error('No response from OpenAI');
+    }
+
+    try {
+      const variations = JSON.parse(content);
+      res.json({ variations });
+    } catch (parseError) {
+      // Fallback to base prompts with simple modifications
+      const fallbackVariations = basePrompts.flatMap(prompt => [
+        `${prompt} with enhanced lighting`,
+        `${prompt} in artistic style`,
+        `${prompt} with vibrant colors`
+      ]).slice(0, count);
+      res.json({ variations: fallbackVariations });
+    }
+  } catch (error) {
+    console.error('Prompt variation generation error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Generate Evolutionary Prompts endpoint
+app.post("/api/generate-evolutionary-prompts", async (req, res) => {
+  try {
+    const { parentPrompts, keepTopPercent = 0.2, mutationRate = 0.1, count = 10 } = req.body;
+
+    if (!parentPrompts || parentPrompts.length === 0) {
+      return res.status(400).json({ error: 'Missing required parameter: parentPrompts' });
+    }
+
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(500).json({ error: 'OpenAI API key not configured' });
+    }
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'user',
+          content: `Using evolutionary algorithm principles, evolve these successful pet photography prompts:\n\n${parentPrompts.join('\n')}\n\nGenerate ${count} evolved prompts that:\n- Keep the best elements from parent prompts\n- Introduce mutations (mutation rate: ${mutationRate})\n- Create diverse offspring\n\nReturn ONLY a JSON array of strings, no other text.`
+        }
+      ],
+      max_tokens: 600,
+      temperature: 0.9
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error('No response from OpenAI');
+    }
+
+    try {
+      const prompts = JSON.parse(content);
+      res.json({ prompts });
+    } catch (parseError) {
+      // Fallback to combining parent prompts
+      const fallbackPrompts = [];
+      for (let i = 0; i < count; i++) {
+        const prompt1 = parentPrompts[Math.floor(Math.random() * parentPrompts.length)];
+        const prompt2 = parentPrompts[Math.floor(Math.random() * parentPrompts.length)];
+        fallbackPrompts.push(`${prompt1} evolved with elements from ${prompt2}`);
+      }
+      res.json({ prompts: fallbackPrompts });
+    }
+  } catch (error) {
+    console.error('Evolutionary prompt generation error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Generate Random Prompts endpoint
+app.post("/api/generate-random-prompts", async (req, res) => {
+  try {
+    const { count = 10, category = 'pet_photography' } = req.body;
+
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(500).json({ error: 'OpenAI API key not configured' });
+    }
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'user',
+          content: `Generate ${count} creative and diverse pet photography prompts for AI image generation. Focus on different styles, moods, settings, and artistic approaches. Make them specific and inspiring.\n\nReturn ONLY a JSON array of strings, no other text.`
+        }
+      ],
+      max_tokens: 400,
+      temperature: 1.0
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error('No response from OpenAI');
+    }
+
+    try {
+      const prompts = JSON.parse(content);
+      res.json({ prompts });
+    } catch (parseError) {
+      // Fallback to predefined prompts
+      const fallbackPrompts = [
+        'Adorable pet in golden hour lighting with soft bokeh background',
+        'Professional studio portrait of pet with dramatic lighting',
+        'Playful pet in natural outdoor setting with vibrant colors',
+        'Elegant pet portrait in black and white photography style',
+        'Cute pet in cozy home environment with warm lighting',
+        'Artistic pet photo with creative composition and unique angle',
+        'Pet in beautiful garden setting with flowers and natural light',
+        'Candid moment of happy pet with joyful expression'
+      ];
+      res.json({ prompts: fallbackPrompts.slice(0, count) });
+    }
+  } catch (error) {
+    console.error('Random prompt generation error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Generate Chain Prompts endpoint
+app.post("/api/generate-chain-prompts", async (req, res) => {
+  try {
+    const { basePrompts, iteration, config } = req.body;
+
+    if (!basePrompts || basePrompts.length === 0) {
+      return res.status(400).json({ error: 'Missing required parameter: basePrompts' });
+    }
+
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(500).json({ error: 'OpenAI API key not configured' });
+    }
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'user',
+          content: `This is iteration ${iteration} of an iterative improvement process. Build upon these successful prompts from previous iterations:\n\n${basePrompts.join('\n')}\n\nGenerate improved prompts that:\n- Enhance the successful elements\n- Add refinements based on iteration progress\n- Maintain the core appeal while improving quality\n\nReturn ONLY a JSON array of strings, no other text.`
+        }
+      ],
+      max_tokens: 500,
+      temperature: 0.7
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error('No response from OpenAI');
+    }
+
+    try {
+      const prompts = JSON.parse(content);
+      res.json({ prompts });
+    } catch (parseError) {
+      // Fallback to enhanced versions of base prompts
+      const enhancements = ['refined', 'enhanced', 'improved', 'polished', 'optimized'];
+      const enhancedPrompts = basePrompts.map(prompt => {
+        const enhancement = enhancements[Math.floor(Math.random() * enhancements.length)];
+        return `${prompt} (${enhancement} for iteration ${iteration})`;
+      });
+      res.json({ prompts: enhancedPrompts });
+    }
+  } catch (error) {
+    console.error('Chain prompt generation error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

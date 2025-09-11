@@ -11,6 +11,7 @@ export function useIterationEngine() {
   
   const runRef = useRef(null)
   const abortController = useRef(null)
+  const sourcePhotosCache = useRef(new Map())
 
   useEffect(() => {
     return () => {
@@ -113,11 +114,12 @@ export function useIterationEngine() {
     const { max_iterations, batch_size } = iteration_settings
 
     try {
-      // Load source photos from bundles
+      // Load and cache source photos from bundles once
       const sourcePhotos = await loadSourcePhotos(source_photo_bundles)
       if (sourcePhotos.length === 0) {
         throw new Error('No source photos found in selected bundles')
       }
+      console.log(`Loaded and cached ${sourcePhotos.length} source photos for entire iteration run`)
 
       let bestPrompts = [
         'A cute pet sitting in natural lighting',
@@ -125,63 +127,88 @@ export function useIterationEngine() {
         'A playful pet in a beautiful setting'
       ] // Initial seed prompts
 
+      let currentIterationNum = 0
       for (let iteration = 1; iteration <= max_iterations; iteration++) {
         if (abortController.current?.signal.aborted) {
+          console.log('Iteration aborted by user')
           break
         }
 
+        currentIterationNum = iteration
         setCurrentIteration(iteration)
         
-        // Update database
-        await supabase
-          .from('iteration_runs')
-          .update({ current_iteration: iteration })
-          .eq('id', run.id)
-
-        // Generate new prompts based on previous results
-        const prompts = await generatePrompts(bestPrompts, config, iteration)
-        
-        // Generate images in batches
-        const batchResults = await generateImageBatch(
-          sourcePhotos, 
-          prompts.slice(0, batch_size), 
-          config
-        )
-
-        // Evaluate results
-        const evaluatedResults = await evaluateResults(batchResults, config)
-
-        // Save results to database
-        await saveIterationResults(run.id, iteration, evaluatedResults)
-
-        // Update local state
-        setResults(prev => [...prev, ...evaluatedResults])
-        setProgress(prev => ({
-          completed: prev.completed + evaluatedResults.length,
-          total: max_iterations * batch_size,
-          currentBatch: evaluatedResults
-        }))
-
-        // Select best prompts for next iteration
-        bestPrompts = selectBestPrompts(evaluatedResults, config)
-
-        // Handle manual rating pause
-        if (config.evaluation_criteria.type === 'manual_rating' && 
-            config.evaluation_criteria.config.auto_pause) {
-          setIsRunning(false)
+        try {
+          // Update database
           await supabase
             .from('iteration_runs')
-            .update({ status: 'paused' })
+            .update({ current_iteration: iteration })
             .eq('id', run.id)
-          break
-        }
 
-        // Small delay between iterations
-        await new Promise(resolve => setTimeout(resolve, 1000))
+          console.log(`Starting iteration ${iteration}/${max_iterations}...`)
+          
+          // Generate new prompts based on previous results
+          const prompts = await generatePrompts(bestPrompts, config, iteration)
+          console.log(`Generated ${prompts.length} prompts for iteration ${iteration}`)
+          
+          // Generate images in batches
+          const batchResults = await generateImageBatch(
+            sourcePhotos, 
+            prompts.slice(0, batch_size), 
+            config
+          )
+          console.log(`Generated ${batchResults.length} images for iteration ${iteration}`)
+
+          // Evaluate results
+          const evaluatedResults = await evaluateResults(batchResults, config)
+          console.log(`Evaluated ${evaluatedResults.length} results for iteration ${iteration}`)
+
+          // Save results to database
+          await saveIterationResults(run.id, iteration, evaluatedResults)
+
+          // Update local state
+          setResults(prev => [...prev, ...evaluatedResults])
+          setProgress(prev => ({
+            completed: prev.completed + evaluatedResults.length,
+            total: max_iterations * batch_size,
+            currentBatch: evaluatedResults
+          }))
+
+          // Select best prompts for next iteration
+          const newBestPrompts = selectBestPrompts(evaluatedResults, config)
+          if (newBestPrompts.length > 0) {
+            bestPrompts = newBestPrompts
+            console.log(`Selected ${bestPrompts.length} best prompts for next iteration`)
+          }
+
+          // Handle manual rating pause
+          if (config.evaluation_criteria.type === 'manual_rating' && 
+              config.evaluation_criteria.config?.auto_pause) {
+            console.log('Pausing for manual rating')
+            setIsRunning(false)
+            await supabase
+              .from('iteration_runs')
+              .update({ status: 'paused' })
+              .eq('id', run.id)
+            setCurrentRun(prev => prev ? { ...prev, status: 'paused' } : null)
+            break
+          }
+
+          // Progress update and small delay between iterations
+          console.log(`Completed iteration ${iteration}/${max_iterations}`)
+          if (iteration < max_iterations) {
+            await new Promise(resolve => setTimeout(resolve, 2000))
+          }
+        } catch (iterationError) {
+          console.error(`Error in iteration ${iteration}:`, iterationError)
+          setError(`Iteration ${iteration} failed: ${iterationError.message}`)
+          // Continue to next iteration instead of stopping completely
+          continue
+        }
       }
 
       // Mark as completed if we finished all iterations
-      if (iteration >= max_iterations) {
+      if (currentIterationNum >= max_iterations && !abortController.current?.signal.aborted) {
+        console.log('All iterations completed successfully')
         await supabase
           .from('iteration_runs')
           .update({ 
@@ -195,6 +222,13 @@ export function useIterationEngine() {
           status: 'completed',
           completed_at: new Date().toISOString()
         } : null)
+      } else if (abortController.current?.signal.aborted) {
+        console.log('Iteration run was aborted')
+        await supabase
+          .from('iteration_runs')
+          .update({ status: 'paused' })
+          .eq('id', run.id)
+        setCurrentRun(prev => prev ? { ...prev, status: 'paused' } : null)
       }
 
     } catch (error) {
@@ -214,15 +248,35 @@ export function useIterationEngine() {
 
   const loadSourcePhotos = async (bundleNames) => {
     try {
+      if (!bundleNames || bundleNames.length === 0) {
+        throw new Error('No photo bundles selected')
+      }
+
+      // Create cache key from bundle names
+      const cacheKey = JSON.stringify(bundleNames.sort())
+      
+      // Check if already cached
+      if (sourcePhotosCache.current.has(cacheKey)) {
+        console.log(`Using cached source photos for bundles: ${bundleNames.join(', ')}`)
+        return sourcePhotosCache.current.get(cacheKey)
+      }
+
       const { data: bundles, error } = await supabase
         .from('photo_bundles')
         .select('photo_ids')
         .in('name', bundleNames)
 
       if (error) throw error
+      if (!bundles || bundles.length === 0) {
+        throw new Error('Selected photo bundles not found')
+      }
 
-      const allPhotoIds = bundles.flatMap(bundle => bundle.photo_ids)
+      const allPhotoIds = bundles.flatMap(bundle => bundle.photo_ids || [])
       const uniquePhotoIds = [...new Set(allPhotoIds)]
+
+      if (uniquePhotoIds.length === 0) {
+        throw new Error('No photos found in selected bundles')
+      }
 
       const { data: photos, error: photosError } = await supabase
         .from('uploaded_photos')
@@ -230,16 +284,25 @@ export function useIterationEngine() {
         .in('id', uniquePhotoIds)
 
       if (photosError) throw photosError
+      if (!photos || photos.length === 0) {
+        throw new Error('Photo files not found')
+      }
 
-      return photos.map(photo => ({
+      const sourcePhotos = photos.map(photo => ({
         ...photo,
         url: supabase.storage
           .from('uploaded-photos')
           .getPublicUrl(photo.file_path).data.publicUrl
       }))
+
+      // Cache the results
+      sourcePhotosCache.current.set(cacheKey, sourcePhotos)
+      console.log(`Cached ${sourcePhotos.length} source photos for bundles: ${bundleNames.join(', ')}`)
+
+      return sourcePhotos
     } catch (error) {
       console.error('Failed to load source photos:', error)
-      return []
+      throw error
     }
   }
 
@@ -249,62 +312,162 @@ export function useIterationEngine() {
 
     switch (method) {
       case 'variation':
-        return generateVariationPrompts(basePrompts, methodConfig)
+        return await generateVariationPrompts(basePrompts, methodConfig)
       case 'evolutionary':
-        return generateEvolutionaryPrompts(basePrompts, methodConfig)
+        return await generateEvolutionaryPrompts(basePrompts, methodConfig)
       case 'random':
-        return generateRandomPrompts(methodConfig)
+        return await generateRandomPrompts(methodConfig)
       case 'chain':
-        return generateChainPrompts(basePrompts, methodConfig, iteration)
+        return await generateChainPrompts(basePrompts, methodConfig, iteration)
       default:
         return basePrompts
     }
   }
 
-  const generateVariationPrompts = (basePrompts, config) => {
-    const variations = []
-    const { variation_strength = 0.3 } = config
+  const generateVariationPrompts = async (basePrompts, config) => {
+    try {
+      const { variation_strength = 0.3 } = config
+      
+      // Call AI service to generate prompt variations
+      const response = await fetch('http://localhost:3001/api/generate-prompt-variations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          basePrompts,
+          variationStrength: variation_strength,
+          count: 10
+        })
+      })
 
-    // Simple variation logic - in a real implementation, this would use AI
-    const modifiers = [
-      'with soft lighting', 'in golden hour', 'with bokeh background',
-      'portrait style', 'candid shot', 'professional photo',
-      'with natural colors', 'artistic composition', 'high detail'
-    ]
-
-    basePrompts.forEach(prompt => {
-      for (let i = 0; i < 3; i++) {
-        const modifier = modifiers[Math.floor(Math.random() * modifiers.length)]
-        variations.push(`${prompt} ${modifier}`)
+      if (!response.ok) {
+        throw new Error('Failed to generate prompt variations')
       }
-    })
 
-    return variations.slice(0, 10) // Limit variations
-  }
+      const data = await response.json()
+      return data.variations || basePrompts
+    } catch (error) {
+      console.error('Failed to generate variations, using fallback:', error)
+      
+      // Fallback to simple variation logic
+      const variations = []
+      const modifiers = [
+        'with soft lighting', 'in golden hour', 'with bokeh background',
+        'portrait style', 'candid shot', 'professional photo',
+        'with natural colors', 'artistic composition', 'high detail',
+        'vibrant colors', 'shallow depth of field', 'cinematic lighting'
+      ]
 
-  const generateEvolutionaryPrompts = (basePrompts, config) => {
-    // Placeholder for evolutionary algorithm
-    return generateVariationPrompts(basePrompts, config)
-  }
+      basePrompts.forEach(prompt => {
+        for (let i = 0; i < 3; i++) {
+          const modifier = modifiers[Math.floor(Math.random() * modifiers.length)]
+          variations.push(`${prompt} ${modifier}`)
+        }
+      })
 
-  const generateRandomPrompts = (config) => {
-    const themes = ['cute', 'playful', 'elegant', 'funny', 'majestic']
-    const subjects = ['puppy', 'kitten', 'dog', 'cat', 'pet']
-    const settings = ['garden', 'park', 'home', 'studio', 'outdoor']
-
-    const prompts = []
-    for (let i = 0; i < 5; i++) {
-      const theme = themes[Math.floor(Math.random() * themes.length)]
-      const subject = subjects[Math.floor(Math.random() * subjects.length)]
-      const setting = settings[Math.floor(Math.random() * settings.length)]
-      prompts.push(`${theme} ${subject} in ${setting}`)
+      return variations.slice(0, 10)
     }
-    return prompts
   }
 
-  const generateChainPrompts = (basePrompts, config, iteration) => {
-    // Build on previous iteration results
-    return basePrompts.map(prompt => `${prompt}, iteration ${iteration} enhancement`)
+  const generateEvolutionaryPrompts = async (basePrompts, config) => {
+    try {
+      const { keep_top_percent = 0.2, mutation_rate = 0.1 } = config
+      
+      // Call AI service for evolutionary prompt generation
+      const response = await fetch('http://localhost:3001/api/generate-evolutionary-prompts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          parentPrompts: basePrompts,
+          keepTopPercent: keep_top_percent,
+          mutationRate: mutation_rate,
+          count: 10
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to generate evolutionary prompts')
+      }
+
+      const data = await response.json()
+      return data.prompts || basePrompts
+    } catch (error) {
+      console.error('Failed to generate evolutionary prompts, using variations:', error)
+      return await generateVariationPrompts(basePrompts, config)
+    }
+  }
+
+  const generateRandomPrompts = async (config) => {
+    try {
+      // Call AI service for creative random prompts
+      const response = await fetch('http://localhost:3001/api/generate-random-prompts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          count: 10,
+          category: 'pet_photography'
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to generate random prompts')
+      }
+
+      const data = await response.json()
+      return data.prompts || []
+    } catch (error) {
+      console.error('Failed to generate random prompts, using fallback:', error)
+      
+      // Fallback to local generation
+      const themes = ['cute', 'playful', 'elegant', 'funny', 'majestic', 'adorable', 'charming']
+      const subjects = ['puppy', 'kitten', 'dog', 'cat', 'pet', 'furry friend']
+      const settings = ['garden', 'park', 'home', 'studio', 'outdoor', 'cozy room', 'sunny field']
+      const styles = ['portrait', 'candid', 'artistic', 'professional', 'natural']
+
+      const prompts = []
+      for (let i = 0; i < 8; i++) {
+        const theme = themes[Math.floor(Math.random() * themes.length)]
+        const subject = subjects[Math.floor(Math.random() * subjects.length)]
+        const setting = settings[Math.floor(Math.random() * settings.length)]
+        const style = styles[Math.floor(Math.random() * styles.length)]
+        prompts.push(`${theme} ${subject} in ${setting}, ${style} photography`)
+      }
+      return prompts
+    }
+  }
+
+  const generateChainPrompts = async (basePrompts, config, iteration) => {
+    try {
+      // Call AI service for chained prompt generation
+      const response = await fetch('http://localhost:3001/api/generate-chain-prompts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          basePrompts,
+          iteration,
+          config
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to generate chain prompts')
+      }
+
+      const data = await response.json()
+      return data.prompts || basePrompts
+    } catch (error) {
+      console.error('Failed to generate chain prompts, using enhancement:', error)
+      
+      // Fallback logic
+      const enhancements = [
+        'enhanced detail', 'improved composition', 'better lighting',
+        'refined style', 'optimized appeal', 'artistic refinement'
+      ]
+      
+      return basePrompts.map(prompt => {
+        const enhancement = enhancements[Math.floor(Math.random() * enhancements.length)]
+        return `${prompt}, ${enhancement} (iteration ${iteration})`
+      })
+    }
   }
 
   const generateImageBatch = async (sourcePhotos, prompts, config) => {
@@ -354,34 +517,134 @@ export function useIterationEngine() {
   }
 
   const evaluateWithLLM = async (results, config) => {
-    // Placeholder for LLM evaluation
-    return results.map(result => ({
-      ...result,
-      evaluation_score: Math.random() * 4 + 6, // Mock score between 6-10
-      evaluation_details: {
-        criteria: {
-          cuteness: Math.random() * 3 + 7,
-          photo_quality: Math.random() * 3 + 7,
-          overall_appeal: Math.random() * 3 + 7
-        },
-        feedback: 'AI-generated feedback would go here'
+    try {
+      const { model = 'gpt-4', scoring_prompt, criteria = [] } = config
+      const evaluatedResults = []
+
+      for (const result of results) {
+        try {
+          // Call LLM evaluation API
+          const response = await fetch('http://localhost:3001/api/evaluate-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              imageUrl: result.image_url,
+              prompt: scoring_prompt,
+              criteria: criteria,
+              model: model,
+              temperature: config.temperature || 0.3,
+              maxTokens: config.max_tokens || 50
+            })
+          })
+
+          if (!response.ok) {
+            throw new Error(`LLM evaluation failed: ${response.statusText}`)
+          }
+
+          const evaluation = await response.json()
+          
+          evaluatedResults.push({
+            ...result,
+            evaluation_score: evaluation.overall_score,
+            evaluation_details: {
+              criteria: evaluation.criteria_scores || {},
+              feedback: evaluation.feedback || 'No feedback provided',
+              model_used: model,
+              timestamp: new Date().toISOString()
+            }
+          })
+        } catch (error) {
+          console.error(`Failed to evaluate result ${result.id}:`, error)
+          // Fallback to a neutral score if evaluation fails
+          evaluatedResults.push({
+            ...result,
+            evaluation_score: 5.0,
+            evaluation_details: {
+              error: error.message,
+              fallback: true,
+              timestamp: new Date().toISOString()
+            }
+          })
+        }
       }
-    }))
+
+      return evaluatedResults
+    } catch (error) {
+      console.error('LLM evaluation failed:', error)
+      // Return results with fallback scores
+      return results.map(result => ({
+        ...result,
+        evaluation_score: 5.0,
+        evaluation_details: {
+          error: error.message,
+          fallback: true
+        }
+      }))
+    }
   }
 
   const evaluateWithPhotoMatching = async (results, config) => {
-    // Placeholder for photo matching evaluation
-    return results.map(result => ({
-      ...result,
-      evaluation_score: Math.random() * 3 + 6,
-      evaluation_details: {
-        similarity_scores: {
-          composition: Math.random(),
-          style: Math.random(),
-          content: Math.random()
+    try {
+      const { target_images = [], similarity_threshold = 0.7 } = config
+      const evaluatedResults = []
+
+      for (const result of results) {
+        try {
+          // Call photo matching API
+          const response = await fetch('http://localhost:3001/api/evaluate-photo-similarity', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              generatedImageUrl: result.image_url,
+              targetImages: target_images,
+              threshold: similarity_threshold
+            })
+          })
+
+          if (!response.ok) {
+            throw new Error(`Photo matching failed: ${response.statusText}`)
+          }
+
+          const evaluation = await response.json()
+          
+          evaluatedResults.push({
+            ...result,
+            evaluation_score: evaluation.overall_similarity * 10, // Convert to 1-10 scale
+            evaluation_details: {
+              similarity_scores: evaluation.similarity_scores || {},
+              best_match: evaluation.best_match,
+              threshold_met: evaluation.overall_similarity >= similarity_threshold,
+              timestamp: new Date().toISOString()
+            }
+          })
+        } catch (error) {
+          console.error(`Failed to evaluate photo similarity for ${result.id}:`, error)
+          // Fallback score
+          evaluatedResults.push({
+            ...result,
+            evaluation_score: 6.0,
+            evaluation_details: {
+              error: error.message,
+              fallback: true,
+              timestamp: new Date().toISOString()
+            }
+          })
         }
       }
-    }))
+
+      return evaluatedResults
+    } catch (error) {
+      console.error('Photo matching evaluation failed:', error)
+      // Return results with fallback scores
+      return results.map(result => ({
+        ...result,
+        evaluation_score: 6.0,
+        evaluation_details: {
+          error: error.message,
+          fallback: true
+        }
+      }))
+    }
   }
 
   const evaluateManually = async (results, config) => {
@@ -395,15 +658,30 @@ export function useIterationEngine() {
   }
 
   const saveIterationResults = async (runId, iteration, results) => {
-    const resultRecords = results.map(result => ({
-      run_id: runId,
-      iteration_number: iteration,
-      generated_image_id: result.id,
-      evaluation_score: result.evaluation_score,
-      evaluation_details: result.evaluation_details
-    }))
+    try {
+      if (!results || results.length === 0) {
+        console.warn(`No results to save for iteration ${iteration}`)
+        return
+      }
 
-    await supabase.from('iteration_results').insert(resultRecords)
+      const resultRecords = results.map(result => ({
+        run_id: runId,
+        iteration_number: iteration,
+        generated_image_id: result.id,
+        evaluation_score: result.evaluation_score,
+        evaluation_details: result.evaluation_details || {}
+      }))
+
+      const { error } = await supabase.from('iteration_results').insert(resultRecords)
+      if (error) {
+        throw error
+      }
+      
+      console.log(`Saved ${resultRecords.length} results for iteration ${iteration}`)
+    } catch (error) {
+      console.error(`Failed to save iteration results for iteration ${iteration}:`, error)
+      throw error
+    }
   }
 
   const selectBestPrompts = (results, config) => {
@@ -429,6 +707,7 @@ export function useIterationEngine() {
     setResults([])
     setError(null)
     setProgress({ completed: 0, total: 0, currentBatch: [] })
+    sourcePhotosCache.current.clear()
   }, [])
 
   return {

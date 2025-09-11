@@ -7,59 +7,7 @@ export default function IterationResults({ activeRun, results, onResultsUpdate }
   const [viewMode, setViewMode] = useState('grid') // grid, list
   const [selectedResult, setSelectedResult] = useState(null)
 
-  // Mock results for demonstration - in real implementation this would come from the iteration engine
-  const mockResults = [
-    {
-      id: '1',
-      iteration_number: 1,
-      image_url: 'https://via.placeholder.com/300x300/4F46E5/FFFFFF?text=Gen+1-1',
-      prompt: 'Cute golden retriever puppy playing in grass',
-      evaluation_score: 7.8,
-      evaluation_details: {
-        criteria: {
-          cuteness: 8.2,
-          photo_quality: 7.5,
-          overall_appeal: 7.7
-        },
-        feedback: 'Good composition, could improve lighting'
-      },
-      created_at: new Date().toISOString()
-    },
-    {
-      id: '2',
-      iteration_number: 1,
-      image_url: 'https://via.placeholder.com/300x300/7C3AED/FFFFFF?text=Gen+1-2',
-      prompt: 'Adorable kitten with blue eyes sitting on windowsill',
-      evaluation_score: 8.5,
-      evaluation_details: {
-        criteria: {
-          cuteness: 9.1,
-          photo_quality: 8.0,
-          overall_appeal: 8.4
-        },
-        feedback: 'Excellent expression and pose'
-      },
-      created_at: new Date().toISOString()
-    },
-    {
-      id: '3',
-      iteration_number: 2,
-      image_url: 'https://via.placeholder.com/300x300/059669/FFFFFF?text=Gen+2-1',
-      prompt: 'Playful corgi running through autumn leaves',
-      evaluation_score: 9.2,
-      evaluation_details: {
-        criteria: {
-          cuteness: 9.0,
-          photo_quality: 9.3,
-          overall_appeal: 9.3
-        },
-        feedback: 'Perfect action shot with great background'
-      },
-      created_at: new Date().toISOString()
-    }
-  ]
-
-  const displayResults = results.length > 0 ? results : mockResults
+  const displayResults = results || []
 
   const sortedResults = [...displayResults].sort((a, b) => {
     let comparison = 0
@@ -89,15 +37,19 @@ export default function IterationResults({ activeRun, results, onResultsUpdate }
   }
 
   const getBestResult = () => {
-    return displayResults.reduce((best, current) => 
+    const validResults = displayResults.filter(r => r.evaluation_score !== null && r.evaluation_score !== undefined)
+    if (validResults.length === 0) return null
+    return validResults.reduce((best, current) => 
       current.evaluation_score > best.evaluation_score ? current : best
-    , displayResults[0])
+    , validResults[0])
   }
 
   const getAverageScore = () => {
-    if (displayResults.length === 0) return 0
-    const total = displayResults.reduce((sum, result) => sum + result.evaluation_score, 0)
-    return (total / displayResults.length).toFixed(1)
+    if (displayResults.length === 0) return '0.0'
+    const validResults = displayResults.filter(r => r.evaluation_score !== null && r.evaluation_score !== undefined)
+    if (validResults.length === 0) return '0.0'
+    const total = validResults.reduce((sum, result) => sum + result.evaluation_score, 0)
+    return (total / validResults.length).toFixed(1)
   }
 
   const getIterationProgress = () => {
@@ -137,7 +89,7 @@ export default function IterationResults({ activeRun, results, onResultsUpdate }
             </div>
             <div className="text-center">
               <div className="text-2xl font-bold text-green-600">
-                {displayResults.length > 0 ? getBestResult().evaluation_score.toFixed(1) : '0.0'}
+                {getBestResult() ? getBestResult().evaluation_score.toFixed(1) : '0.0'}
               </div>
               <div className="text-sm text-gray-600">Best Score</div>
             </div>
@@ -221,7 +173,7 @@ export default function IterationResults({ activeRun, results, onResultsUpdate }
                   <div className="aspect-square bg-gray-100">
                     <img
                       src={result.image_url}
-                      alt={`Iteration ${result.iteration_number} result`}
+                      alt={`Iteration ${result.iteration_number || 'N/A'} result`}
                       className="w-full h-full object-cover"
                     />
                   </div>
@@ -230,11 +182,11 @@ export default function IterationResults({ activeRun, results, onResultsUpdate }
                   <div className="p-3">
                     {/* Score and Iteration */}
                     <div className="flex items-center justify-between mb-2">
-                      <div className={`px-2 py-1 rounded text-xs font-medium ${getScoreColor(result.evaluation_score)}`}>
-                        {result.evaluation_score.toFixed(1)}
+                      <div className={`px-2 py-1 rounded text-xs font-medium ${result.evaluation_score ? getScoreColor(result.evaluation_score) : 'text-gray-600 bg-gray-50'}`}>
+                        {result.evaluation_score ? result.evaluation_score.toFixed(1) : 'N/A'}
                       </div>
                       <div className="text-xs text-gray-500">
-                        Iteration {result.iteration_number}
+                        Iteration {result.iteration_number || 'N/A'}
                       </div>
                     </div>
 
@@ -272,7 +224,7 @@ export default function IterationResults({ activeRun, results, onResultsUpdate }
                   </div>
 
                   {/* Best Result Badge */}
-                  {result === getBestResult() && (
+                  {getBestResult() && result === getBestResult() && (
                     <div className="absolute top-2 left-2 bg-yellow-500 text-white px-2 py-1 rounded-full text-xs flex items-center gap-1">
                       <Award className="h-3 w-3" />
                       Best
@@ -287,16 +239,16 @@ export default function IterationResults({ activeRun, results, onResultsUpdate }
                 <div key={result.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 flex items-center space-x-4">
                   <img
                     src={result.image_url}
-                    alt={`Iteration ${result.iteration_number} result`}
+                    alt={`Iteration ${result.iteration_number || 'N/A'} result`}
                     className="w-16 h-16 object-cover rounded"
                   />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center space-x-2 mb-1">
-                      <div className={`px-2 py-1 rounded text-xs font-medium ${getScoreColor(result.evaluation_score)}`}>
-                        {result.evaluation_score.toFixed(1)}
+                      <div className={`px-2 py-1 rounded text-xs font-medium ${result.evaluation_score ? getScoreColor(result.evaluation_score) : 'text-gray-600 bg-gray-50'}`}>
+                        {result.evaluation_score ? result.evaluation_score.toFixed(1) : 'N/A'}
                       </div>
-                      <span className="text-sm text-gray-500">Iteration {result.iteration_number}</span>
-                      {result === getBestResult() && (
+                      <span className="text-sm text-gray-500">Iteration {result.iteration_number || 'N/A'}</span>
+                      {getBestResult() && result === getBestResult() && (
                         <div className="bg-yellow-500 text-white px-2 py-1 rounded-full text-xs flex items-center gap-1">
                           <Award className="h-3 w-3" />
                           Best
@@ -330,7 +282,7 @@ export default function IterationResults({ activeRun, results, onResultsUpdate }
           <div className="bg-white rounded-lg max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="p-6">
               <div className="flex justify-between items-start mb-4">
-                <h3 className="text-lg font-semibold">Iteration {selectedResult.iteration_number} Result</h3>
+                <h3 className="text-lg font-semibold">Iteration {selectedResult.iteration_number || 'N/A'} Result</h3>
                 <button
                   onClick={() => setSelectedResult(null)}
                   className="text-gray-400 hover:text-gray-600"

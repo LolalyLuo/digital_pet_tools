@@ -697,6 +697,44 @@ export function useIterationEngine() {
     return sorted.slice(0, keepCount).map(r => r.generated_prompt || r.initial_prompt)
   }
 
+  const loadIterationResults = useCallback(async (runId) => {
+    try {
+      const { data: savedResults, error } = await supabase
+        .from('iteration_results')
+        .select(`
+          *,
+          generated_images!inner(
+            id,
+            image_url,
+            generated_prompt,
+            initial_prompt,
+            created_at
+          )
+        `)
+        .eq('run_id', runId)
+        .order('iteration_number', { ascending: true })
+
+      if (error) throw error
+
+      const formattedResults = savedResults.map(result => ({
+        id: result.generated_image_id,
+        iteration_number: result.iteration_number,
+        image_url: result.generated_images?.image_url,
+        prompt: result.generated_images?.generated_prompt || result.generated_images?.initial_prompt,
+        evaluation_score: result.evaluation_score,
+        evaluation_details: result.evaluation_details,
+        created_at: result.generated_images?.created_at
+      }))
+
+      setResults(formattedResults)
+      return formattedResults
+    } catch (error) {
+      console.error('Failed to load iteration results:', error)
+      setError(`Failed to load results: ${error.message}`)
+      return []
+    }
+  }, [])
+
   const resetEngine = useCallback(() => {
     if (abortController.current) {
       abortController.current.abort()
@@ -721,6 +759,7 @@ export function useIterationEngine() {
     pauseIteration,
     stopIteration,
     resetEngine,
+    loadIterationResults,
     clearError: () => setError(null)
   }
 }

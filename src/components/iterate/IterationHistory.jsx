@@ -71,19 +71,45 @@ export default function IterationHistory() {
   const loadRunHistory = async () => {
     setLoading(true)
     try {
-      // In real implementation, this would load from the database
-      // const { data, error } = await supabase
-      //   .from('iteration_runs')
-      //   .select(`
-      //     *,
-      //     iteration_configs(name, evaluation_criteria, generation_method, source_photo_bundles)
-      //   `)
-      //   .order('started_at', { ascending: false })
-      
-      // For now, use mock data
-      setRuns(mockRuns)
+      const { data: runs, error } = await supabase
+        .from('iteration_runs')
+        .select(`
+          *,
+          iteration_results(
+            evaluation_score,
+            iteration_number
+          )
+        `)
+        .order('started_at', { ascending: false })
+
+      if (error) throw error
+
+      // Calculate stats for each run
+      const runsWithStats = runs.map(run => {
+        const results = run.iteration_results || []
+        const scores = results.filter(r => r.evaluation_score !== null).map(r => r.evaluation_score)
+        const bestScore = scores.length > 0 ? Math.max(...scores) : null
+        const avgScore = scores.length > 0 ? scores.reduce((sum, score) => sum + score, 0) / scores.length : null
+        
+        return {
+          ...run,
+          config_name: `Iteration Run ${run.id}`,
+          best_score: bestScore,
+          avg_score: avgScore,
+          total_images: results.length,
+          config: {
+            evaluation_criteria: { type: 'unknown' },
+            generation_method: { type: 'unknown' },
+            source_photo_bundles: []
+          }
+        }
+      })
+
+      setRuns(runsWithStats)
     } catch (error) {
       console.error('Failed to load run history:', error)
+      // Fallback to mock data on error
+      setRuns(mockRuns)
     } finally {
       setLoading(false)
     }

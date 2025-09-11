@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Play, Pause, Square, RotateCcw } from 'lucide-react'
 import ConfigPanel from './ConfigPanel'
 import IterationResults from './IterationResults'
@@ -19,8 +19,16 @@ export default function IteratePage() {
     startIteration,
     pauseIteration,
     stopIteration,
-    resetEngine
+    resetEngine,
+    loadIterationResults
   } = useIterationEngine()
+
+  // Load results when currentRun changes
+  useEffect(() => {
+    if (currentRun && currentRun.id) {
+      loadIterationResults(currentRun.id)
+    }
+  }, [currentRun, loadIterationResults])
 
   const handleStartIteration = async (config) => {
     setCurrentConfig(config)

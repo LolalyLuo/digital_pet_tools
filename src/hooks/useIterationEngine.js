@@ -493,7 +493,15 @@ export function useIterationEngine() {
       }
 
       const data = await response.json()
-      return data.results || []
+      const results = data.results || []
+      
+      // Convert image URLs to full URLs for display
+      return results.map(result => ({
+        ...result,
+        image_url: result.public_url || (result.image_url?.startsWith('http') 
+          ? result.image_url 
+          : supabase.storage.from('generated-images').getPublicUrl(result.image_url).data.publicUrl)
+      }))
       
     } catch (error) {
       console.error('Batch generation error:', error)
@@ -518,23 +526,41 @@ export function useIterationEngine() {
 
   const evaluateWithLLM = async (results, config) => {
     try {
-      const { model = 'gpt-4', scoring_prompt, criteria = [] } = config
+      const { model = 'gpt-4', scoring_prompt, prompt, criteria = [] } = config
+      const actualPrompt = scoring_prompt || prompt || 'Rate this pet image from 1-10 based on cuteness, photo quality, and overall appeal. Provide only a numeric score.'
       const evaluatedResults = []
+
+      if (!actualPrompt) {
+        console.error('❌ No prompt found in config:', config)
+        throw new Error('No evaluation prompt provided')
+      }
 
       for (const result of results) {
         try {
+          // Use public_url if available, otherwise convert image_url to full URL
+          const imageUrl = result.public_url || (result.image_url?.startsWith('http') 
+            ? result.image_url 
+            : supabase.storage.from('generated-images').getPublicUrl(result.image_url).data.publicUrl)
+
+          const requestBody = {
+            imageUrl: imageUrl,
+            prompt: actualPrompt,
+            criteria: criteria,
+            model: model,
+            temperature: config.temperature || 0.3,
+            maxTokens: config.max_tokens || 50
+          }
+          
+          console.log('🔍 Sending evaluation request:', {
+            ...requestBody,
+            imageUrl: requestBody.imageUrl?.substring(0, 100) + '...'
+          })
+          
           // Call LLM evaluation API
           const response = await fetch('http://localhost:3001/api/evaluate-image', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              imageUrl: result.image_url,
-              prompt: scoring_prompt,
-              criteria: criteria,
-              model: model,
-              temperature: config.temperature || 0.3,
-              maxTokens: config.max_tokens || 50
-            })
+            body: JSON.stringify(requestBody)
           })
 
           if (!response.ok) {
@@ -590,12 +616,17 @@ export function useIterationEngine() {
 
       for (const result of results) {
         try {
+          // Use public_url if available, otherwise convert image_url to full URL
+          const imageUrl = result.public_url || (result.image_url?.startsWith('http') 
+            ? result.image_url 
+            : supabase.storage.from('generated-images').getPublicUrl(result.image_url).data.publicUrl)
+            
           // Call photo matching API
           const response = await fetch('http://localhost:3001/api/evaluate-photo-similarity', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              generatedImageUrl: result.image_url,
+              generatedImageUrl: imageUrl,
               targetImages: target_images,
               threshold: similarity_threshold
             })
@@ -716,15 +747,23 @@ export function useIterationEngine() {
 
       if (error) throw error
 
-      const formattedResults = savedResults.map(result => ({
-        id: result.generated_image_id,
-        iteration_number: result.iteration_number,
-        image_url: result.generated_images?.image_url,
-        prompt: result.generated_images?.generated_prompt || result.generated_images?.initial_prompt,
-        evaluation_score: result.evaluation_score,
-        evaluation_details: result.evaluation_details,
-        created_at: result.generated_images?.created_at
-      }))
+      const formattedResults = savedResults.map(result => {
+        // Convert database image_url (filename) to full public URL
+        const imageUrl = result.generated_images?.image_url
+        const fullImageUrl = imageUrl ? supabase.storage
+          .from('generated-images')
+          .getPublicUrl(imageUrl).data.publicUrl : null
+          
+        return {
+          id: result.generated_image_id,
+          iteration_number: result.iteration_number,
+          image_url: fullImageUrl,
+          prompt: result.generated_images?.generated_prompt || result.generated_images?.initial_prompt,
+          evaluation_score: result.evaluation_score,
+          evaluation_details: result.evaluation_details,
+          created_at: result.generated_images?.created_at
+        }
+      })
 
       setResults(formattedResults)
       return formattedResults

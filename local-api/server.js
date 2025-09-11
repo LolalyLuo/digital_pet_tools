@@ -882,9 +882,17 @@ app.post("/api/generate-images", async (req, res) => {
 // LLM Image Evaluation endpoint
 app.post("/api/evaluate-image", async (req, res) => {
   try {
+    console.log('🔍 LLM Evaluation Request:', {
+      imageUrl: req.body.imageUrl?.substring(0, 100) + '...',
+      prompt: req.body.prompt,
+      criteria: req.body.criteria,
+      model: req.body.model
+    });
+
     const { imageUrl, prompt, criteria = [], model = 'gpt-4', temperature = 0.3, maxTokens = 50 } = req.body;
 
     if (!imageUrl || !prompt) {
+      console.error('❌ Missing required parameters:', { imageUrl: !!imageUrl, prompt: !!prompt });
       return res.status(400).json({ error: 'Missing required parameters: imageUrl and prompt' });
     }
 

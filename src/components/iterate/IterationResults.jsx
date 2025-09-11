@@ -175,6 +175,10 @@ export default function IterationResults({ activeRun, results, onResultsUpdate }
                       src={result.image_url}
                       alt={`Iteration ${result.iteration_number || 'N/A'} result`}
                       className="w-full h-full object-cover"
+                      onError={(e) => {
+                        console.error('❌ Image failed to load:', result.image_url)
+                        e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjNkI3MjgwIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZpbGw9IndoaXRlIiBmb250LXNpemU9IjE4IiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuMzVlbSI+SW1hZ2UgTm90IEZvdW5kPC90ZXh0Pjwvc3ZnPg=='
+                      }}
                     />
                   </div>
 
@@ -241,6 +245,10 @@ export default function IterationResults({ activeRun, results, onResultsUpdate }
                     src={result.image_url}
                     alt={`Iteration ${result.iteration_number || 'N/A'} result`}
                     className="w-16 h-16 object-cover rounded"
+                    onError={(e) => {
+                      console.error('❌ Image failed to load:', result.image_url)
+                      e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iIzZCNzI4MCIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmaWxsPSJ3aGl0ZSIgZm9udC1zaXplPSIxMCIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjM1ZW0iPk5vIEltYWdlPC90ZXh0Pjwvc3ZnPg=='
+                    }}
                   />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center space-x-2 mb-1">
@@ -297,6 +305,10 @@ export default function IterationResults({ activeRun, results, onResultsUpdate }
                     src={selectedResult.image_url}
                     alt="Generated result"
                     className="w-full rounded-lg"
+                    onError={(e) => {
+                      console.error('❌ Image failed to load:', selectedResult.image_url)
+                      e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAwIiBoZWlnaHQ9IjUwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjNkI3MjgwIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZpbGw9IndoaXRlIiBmb250LXNpemU9IjI0IiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuMzVlbSI+SW1hZ2UgTm90IEF2YWlsYWJsZTwvdGV4dD48L3N2Zz4='
+                    }}
                   />
                 </div>
                 <div className="space-y-4">

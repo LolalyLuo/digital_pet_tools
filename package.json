@@ -12,6 +12,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.54.0",
     "lucide-react": "^0.539.0",
+    "playwright": "^1.55.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-dropzone": "^14.3.8"

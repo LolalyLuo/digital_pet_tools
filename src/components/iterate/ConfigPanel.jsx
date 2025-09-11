@@ -190,7 +190,7 @@ export default function ConfigPanel({ currentConfig, onConfigChange, onStartIter
           <option value="gemini-img2img">Gemini Image-to-Image</option>
         </select>
 
-        <div className="mt-3 space-y-3">
+        <div className="mt-4 space-y-4">
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Temperature</label>
             <input
@@ -247,7 +247,7 @@ export default function ConfigPanel({ currentConfig, onConfigChange, onStartIter
           <option value="chain">Chain</option>
         </select>
 
-        <div className="mt-3 space-y-3">
+        <div className="mt-4 space-y-4">
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Variation Strength</label>
             <input
@@ -293,7 +293,7 @@ export default function ConfigPanel({ currentConfig, onConfigChange, onStartIter
           <Settings className="h-4 w-4 inline mr-2" />
           Iteration Settings
         </label>
-        <div className="space-y-3">
+        <div className="space-y-4">
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Max Iterations</label>
             <input
@@ -337,8 +337,8 @@ export default function ConfigPanel({ currentConfig, onConfigChange, onStartIter
       </div>
 
       {/* Action Buttons */}
-      <div className="pt-4 border-t border-gray-200">
-        <div className="space-y-2">
+      <div className="pt-6 border-t border-gray-200">
+        <div className="space-y-3">
           <button
             onClick={handleSaveConfig}
             disabled={isRunning}

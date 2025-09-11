@@ -50,7 +50,7 @@ export default function IteratePage() {
   return (
     <div className="flex-1 flex overflow-hidden bg-gray-50">
       {/* Left Sidebar - Configuration Panel */}
-      <div className="w-80 bg-white shadow-sm border-r border-gray-200 flex flex-col">
+      <div className="w-1/2 max-w-2xl bg-white shadow-sm border-r border-gray-200 flex flex-col">
         <div className="p-6 border-b border-gray-200">
           <h2 className="text-xl font-semibold text-gray-800">Configuration</h2>
           <p className="text-sm text-gray-600 mt-1">
@@ -69,7 +69,7 @@ export default function IteratePage() {
 
         {/* Control Buttons */}
         {currentConfig && (
-          <div className="p-4 border-t border-gray-200 bg-gray-50">
+          <div className="p-6 border-t border-gray-200 bg-gray-50">
             <div className="flex gap-2">
               {!currentRun && (
                 <button
@@ -189,26 +189,69 @@ export default function IteratePage() {
         </div>
 
         {/* Tab Content */}
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 overflow-auto p-6">
           {currentTab === 'config' && (
-            <div className="h-full flex items-center justify-center text-gray-500">
-              <div className="text-center">
-                <p className="text-lg">Configure your iteration settings</p>
-                <p className="text-sm mt-2">Use the panel on the left to set up your iteration parameters</p>
+            <div className="max-w-4xl mx-auto">
+              <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+                <h3 className="text-lg font-semibold text-gray-800 mb-4">Configuration Overview</h3>
+                <div className="prose text-gray-600">
+                  <p className="mb-4">Set up your iteration configuration using the panel on the left. Complete these steps to get started:</p>
+                  <div className="grid md:grid-cols-2 gap-6">
+                    <div>
+                      <h4 className="font-medium text-gray-800 mb-2">1. Create or select photo bundles</h4>
+                      <p className="text-sm text-gray-600 mb-4">Choose the source photos that will be used for generation</p>
+                      
+                      <h4 className="font-medium text-gray-800 mb-2">2. Choose evaluation criteria</h4>
+                      <p className="text-sm text-gray-600 mb-4">Select how generated images will be scored and ranked</p>
+                    </div>
+                    <div>
+                      <h4 className="font-medium text-gray-800 mb-2">3. Set generation method</h4>
+                      <p className="text-sm text-gray-600 mb-4">Configure the AI model and parameters for image generation</p>
+                      
+                      <h4 className="font-medium text-gray-800 mb-2">4. Configure iteration settings</h4>
+                      <p className="text-sm text-gray-600">Set the number of iterations, batch size, and other parameters</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-white rounded-lg shadow-sm p-6">
+                <h3 className="text-lg font-semibold text-gray-800 mb-4">How Iteration Works</h3>
+                <div className="grid md:grid-cols-3 gap-6">
+                  <div className="text-center">
+                    <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-xl font-bold mx-auto mb-3">1</div>
+                    <h4 className="font-medium text-gray-800 mb-2">Generate Images</h4>
+                    <p className="text-sm text-gray-600">Create images using your source photos and prompts</p>
+                  </div>
+                  <div className="text-center">
+                    <div className="w-12 h-12 bg-green-100 text-green-600 rounded-full flex items-center justify-center text-xl font-bold mx-auto mb-3">2</div>
+                    <h4 className="font-medium text-gray-800 mb-2">Evaluate Results</h4>
+                    <p className="text-sm text-gray-600">Score images using your chosen evaluation criteria</p>
+                  </div>
+                  <div className="text-center">
+                    <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center text-xl font-bold mx-auto mb-3">3</div>
+                    <h4 className="font-medium text-gray-800 mb-2">Improve & Repeat</h4>
+                    <p className="text-sm text-gray-600">Use best results to generate better prompts for next iteration</p>
+                  </div>
+                </div>
               </div>
             </div>
           )}
 
           {currentTab === 'results' && (
-            <IterationResults 
-              activeRun={currentRun}
-              results={results}
-              onResultsUpdate={() => {}} // Results are managed by the iteration engine
-            />
+            <div className="h-full">
+              <IterationResults 
+                activeRun={currentRun}
+                results={results}
+                onResultsUpdate={() => {}} // Results are managed by the iteration engine
+              />
+            </div>
           )}
 
           {currentTab === 'history' && (
-            <IterationHistory />
+            <div className="h-full">
+              <IterationHistory />
+            </div>
           )}
         </div>
       </div>

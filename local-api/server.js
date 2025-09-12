@@ -7,6 +7,7 @@ import OpenAI from "openai";
 import fetch from "node-fetch";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
+import multer from "multer";
 
 // Load environment variables
 dotenv.config();
@@ -21,6 +22,21 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+
+// Multer configuration for file uploads
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'), false);
+    }
+  }
+});
 
 // Initialize Supabase client
 console.log('🔧 Initializing Supabase client...');
@@ -984,6 +1000,254 @@ app.post("/api/evaluate-photo-similarity", async (req, res) => {
   } catch (error) {
     console.error('Photo similarity evaluation error:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Testing endpoint for file upload and generation
+app.post("/api/test/generate-images", upload.array('images', 10), async (req, res) => {
+  try {
+    const { prompts: promptsString, selectedModel = 'gemini-img2img' } = req.body;
+    const files = req.files;
+
+    if (!files || files.length === 0) {
+      return res.status(400).json({ error: 'No images uploaded' });
+    }
+
+    if (!promptsString) {
+      return res.status(400).json({ error: 'No prompts provided' });
+    }
+
+    let prompts;
+    try {
+      prompts = JSON.parse(promptsString);
+    } catch (e) {
+      prompts = [promptsString]; // Single prompt as string
+    }
+
+    console.log(`🧪 Testing: ${files.length} files, ${prompts.length} prompts, model: ${selectedModel}`);
+
+    // Convert uploaded files to base64 for processing
+    const imageBuffers = files.map(file => ({
+      buffer: file.buffer,
+      mimetype: file.mimetype,
+      filename: file.filename || 'uploaded-image'
+    }));
+
+    // Use the same generation logic as the main endpoint
+    const results = [];
+    
+    for (let i = 0; i < Math.min(files.length, prompts.length); i++) {
+      const imageBuffer = imageBuffers[i];
+      const prompt = prompts[i];
+      
+      try {
+        let imageUrl = null;
+        
+        if (selectedModel === 'gemini-img2img' && process.env.GEMINI_API_KEY) {
+          // Use Gemini for generation
+          const model = genAI.getGenerativeModel({ 
+            model: "gemini-2.5-flash-image-preview",
+            generationConfig: DEFAULT_MODEL_CONFIGS["gemini-img2img"]
+          });
+          
+          const base64Data = imageBuffer.buffer.toString('base64');
+          const imagePart = {
+            inlineData: {
+              data: base64Data,
+              mimeType: imageBuffer.mimetype
+            }
+          };
+          
+          const result = await model.generateContent([prompt, imagePart]);
+          const response = await result.response;
+          
+          // Handle Gemini response properly - look for inline image data
+          if (response.candidates && response.candidates[0]) {
+            const candidate = response.candidates[0];
+            if (candidate.content && candidate.content.parts) {
+              for (const part of candidate.content.parts) {
+                if (part.inlineData && part.inlineData.data) {
+                  console.log("✅ Gemini image generated successfully");
+                  imageUrl = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+                  break;
+                }
+              }
+            }
+          }
+        } else if (selectedModel === 'openai' && process.env.OPENAI_API_KEY) {
+          // Use OpenAI DALL-E for generation
+          const response = await openai.images.generate({
+            model: "dall-e-3",
+            prompt: prompt,
+            n: 1,
+            size: "1024x1024",
+            quality: "standard",
+          });
+          
+          imageUrl = response.data[0]?.url;
+        }
+        
+        if (imageUrl) {
+          results.push({
+            imageUrl: imageUrl,
+            prompt: prompt,
+            model: selectedModel,
+            index: i
+          });
+        }
+      } catch (error) {
+        console.error(`❌ Generation error for image ${i}:`, error);
+        results.push({
+          error: error.message,
+          prompt: prompt,
+          model: selectedModel,
+          index: i
+        });
+      }
+    }
+    
+    res.json({
+      success: true,
+      results: results,
+      count: results.length,
+      model: selectedModel
+    });
+    
+  } catch (error) {
+    console.error('❌ Testing generation error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GPT-4 Vision Evaluation endpoint
+app.post("/api/evaluate-gpt4-vision", async (req, res) => {
+  try {
+    const { generatedImageUrl, referenceImageUrl, customPrompt } = req.body;
+
+    if (!generatedImageUrl || !referenceImageUrl) {
+      return res.status(400).json({ 
+        error: 'Missing required parameters: generatedImageUrl and referenceImageUrl' 
+      });
+    }
+
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(500).json({ error: 'OpenAI API key not configured' });
+    }
+
+    console.log('🔍 Evaluating images with GPT-4 Vision...');
+    console.log('📊 Generated image: [IMAGE DATA]');
+    console.log('📋 Reference image: [IMAGE DATA]');
+
+    const evaluationPrompt = customPrompt || `Compare these two dog images and provide a detailed evaluation. 
+
+Rate the generated image (first image) compared to the reference image (second image) on:
+1. Overall cuteness (1-10) - How appealing, adorable, and charming is the generated image?
+2. Similarity to reference style (1-10) - How well does it maintain the style, composition, and characteristics of the reference?
+3. Image quality (1-10) - Technical quality including sharpness, lighting, composition, and overall visual appeal?
+
+Return your response as a JSON object with this exact format:
+{
+  "cuteness": <number>,
+  "similarity": <number>, 
+  "quality": <number>,
+  "reasoning": "<detailed explanation of your ratings and observations>"
+}`;
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: evaluationPrompt
+            },
+            {
+              type: "image_url",
+              image_url: {
+                url: generatedImageUrl,
+                detail: "high"
+              }
+            },
+            {
+              type: "image_url", 
+              image_url: {
+                url: referenceImageUrl,
+                detail: "high"
+              }
+            }
+          ]
+        }
+      ],
+      max_tokens: 500,
+      temperature: 0.1
+    });
+
+    const evaluationText = response.choices[0].message.content;
+    console.log('📝 GPT-4 Vision evaluation completed, parsing response...');
+
+    // Try to parse JSON from the response
+    let evaluation;
+    try {
+      // Extract JSON from the response if it's wrapped in text
+      const jsonMatch = evaluationText.match(/\{[\s\S]*\}/);
+      const jsonString = jsonMatch ? jsonMatch[0] : evaluationText;
+      evaluation = JSON.parse(jsonString);
+    } catch (parseError) {
+      console.error('❌ Failed to parse GPT-4 Vision response as JSON:', parseError);
+      
+      // Fallback: extract scores manually if JSON parsing fails
+      const cutenessMatch = evaluationText.match(/cuteness["\s]*:[\s]*(\d+\.?\d*)/i);
+      const similarityMatch = evaluationText.match(/similarity["\s]*:[\s]*(\d+\.?\d*)/i);
+      const qualityMatch = evaluationText.match(/quality["\s]*:[\s]*(\d+\.?\d*)/i);
+      
+      evaluation = {
+        cuteness: cutenessMatch ? parseFloat(cutenessMatch[1]) : 7,
+        similarity: similarityMatch ? parseFloat(similarityMatch[1]) : 7,
+        quality: qualityMatch ? parseFloat(qualityMatch[1]) : 8,
+        reasoning: evaluationText
+      };
+    }
+
+    // Validate scores are within range
+    evaluation.cuteness = Math.max(1, Math.min(10, evaluation.cuteness || 7));
+    evaluation.similarity = Math.max(1, Math.min(10, evaluation.similarity || 7));
+    evaluation.quality = Math.max(1, Math.min(10, evaluation.quality || 8));
+
+    // Calculate weighted score: (cuteness × 0.5) + (similarity × 0.3) + (quality × 0.2)
+    const weightedScore = (evaluation.cuteness * 0.5) + (evaluation.similarity * 0.3) + (evaluation.quality * 0.2);
+
+    const result = {
+      success: true,
+      evaluation: {
+        cuteness: evaluation.cuteness,
+        similarity: evaluation.similarity,
+        quality: evaluation.quality,
+        weightedScore: Number(weightedScore.toFixed(2)),
+        reasoning: evaluation.reasoning
+      },
+      metadata: {
+        model: "gpt-4o",
+        timestamp: new Date().toISOString()
+      }
+    };
+
+    console.log('✅ GPT-4 Vision evaluation completed:', {
+      cuteness: result.evaluation.cuteness,
+      similarity: result.evaluation.similarity,
+      quality: result.evaluation.quality,
+      weightedScore: result.evaluation.weightedScore,
+      model: result.metadata.model
+    });
+    res.json(result);
+
+  } catch (error) {
+    console.error('❌ GPT-4 Vision evaluation error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
   }
 });
 

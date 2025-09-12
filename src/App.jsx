@@ -1,107 +1,115 @@
-import { useState, useEffect } from 'react'
-import { supabase } from './utils/supabaseClient'
-import Auth from './components/Auth'
-import LeftPanel from './components/LeftPanel'
-import MiddlePanel from './components/MiddlePanel'
-import RightPanel from './components/RightPanel'
-import FinalizeDesigns from './components/FinalizeDesigns'
-import TestDesign from './components/TestDesign'
-import IteratePage from './components/iterate/IteratePage'
+import { useState, useEffect } from "react";
+import { supabase } from "./utils/supabaseClient";
+import Auth from "./components/Auth";
+import LeftPanel from "./components/LeftPanel";
+import MiddlePanel from "./components/MiddlePanel";
+import RightPanel from "./components/RightPanel";
+import FinalizeDesigns from "./components/FinalizeDesigns";
+import TestDesign from "./components/TestDesign";
+import IteratePage from "./components/iterate/IteratePage";
+import GenerationTester from "./components/testing/GenerationTester";
+import EvaluationTester from "./components/testing/EvaluationTester";
+import PipelineTester from "./components/testing/PipelineTester";
 
 function App() {
-  const [user, setUser] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [selectedPhotos, setSelectedPhotos] = useState([])
-  const [generatedPrompts, setGeneratedPrompts] = useState([])
-  const [results, setResults] = useState([])
-  const [currentApp, setCurrentApp] = useState('explore-ideas')
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [selectedPhotos, setSelectedPhotos] = useState([]);
+  const [generatedPrompts, setGeneratedPrompts] = useState([]);
+  const [results, setResults] = useState([]);
+  const [currentApp, setCurrentApp] = useState("explore-ideas");
 
   useEffect(() => {
-    let isMounted = true
-    
+    let isMounted = true;
+
     // Check for existing session with timeout and error handling
     const getSession = async () => {
       try {
         // Add timeout safety
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Session timeout')), 10000)
-        )
-        
-        const sessionPromise = supabase.auth.getSession()
-        const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise])
-        
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Session timeout")), 10000)
+        );
+
+        const sessionPromise = supabase.auth.getSession();
+        const {
+          data: { session },
+        } = await Promise.race([sessionPromise, timeoutPromise]);
+
         if (isMounted) {
-          setUser(session?.user ?? null)
-          setLoading(false)
+          setUser(session?.user ?? null);
+          setLoading(false);
         }
       } catch (error) {
-        console.error('Session error:', error)
+        console.error("Session error:", error);
         if (isMounted) {
           // Fallback: assume no user and stop loading
-          setUser(null)
-          setLoading(false)
+          setUser(null);
+          setLoading(false);
         }
       }
-    }
+    };
 
-    getSession()
+    getSession();
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (isMounted) {
-          setUser(session?.user ?? null)
-          setLoading(false)
-        }
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (isMounted) {
+        setUser(session?.user ?? null);
+        setLoading(false);
       }
-    )
+    });
 
     return () => {
-      isMounted = false
-      subscription?.unsubscribe()
-    }
-  }, [])
+      isMounted = false;
+      subscription?.unsubscribe();
+    };
+  }, []);
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut()
-    setUser(null)
-    setSelectedPhotos([])
-    setGeneratedPrompts([])
-    setResults([])
-  }
+    await supabase.auth.signOut();
+    setUser(null);
+    setSelectedPhotos([]);
+    setGeneratedPrompts([]);
+    setResults([]);
+  };
 
   const renderCurrentApp = () => {
     switch (currentApp) {
-      case 'explore-ideas':
+      case "explore-ideas":
         return (
           <>
-            <LeftPanel 
+            <LeftPanel
               selectedPhotos={selectedPhotos}
               setSelectedPhotos={setSelectedPhotos}
             />
-            <MiddlePanel 
+            <MiddlePanel
               selectedPhotos={selectedPhotos}
               generatedPrompts={generatedPrompts}
               setGeneratedPrompts={setGeneratedPrompts}
               results={results}
               setResults={setResults}
             />
-            <RightPanel 
-              results={results} 
-              setResults={setResults}
-            />
+            <RightPanel results={results} setResults={setResults} />
           </>
-        )
-      case 'finalize-designs':
-        return <FinalizeDesigns />
-      case 'test-design':
-        return <TestDesign />
-      case 'iterate':
-        return <IteratePage />
+        );
+      case "finalize-designs":
+        return <FinalizeDesigns />;
+      case "test-design":
+        return <TestDesign />;
+      case "iterate":
+        return <IteratePage />;
+      case "generation-tester":
+        return <GenerationTester />;
+      case "evaluation-tester":
+        return <EvaluationTester />;
+      case "pipeline-tester":
+        return <PipelineTester />;
       default:
-        return null
+        return null;
     }
-  }
+  };
 
   if (loading) {
     return (
@@ -111,9 +119,9 @@ function App() {
           <p className="text-gray-600">Loading...</p>
           <button
             onClick={() => {
-              console.log('Manual reset triggered')
-              setLoading(false)
-              setUser(null)
+              console.log("Manual reset triggered");
+              setLoading(false);
+              setUser(null);
             }}
             className="mt-4 px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
           >
@@ -121,11 +129,11 @@ function App() {
           </button>
         </div>
       </div>
-    )
+    );
   }
 
   if (!user) {
-    return <Auth onAuthSuccess={setUser} />
+    return <Auth onAuthSuccess={setUser} />;
   }
 
   return (
@@ -137,51 +145,81 @@ function App() {
             {/* App Navigation */}
             <div className="flex space-x-1">
               <button
-                onClick={() => setCurrentApp('explore-ideas')}
+                onClick={() => setCurrentApp("explore-ideas")}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  currentApp === 'explore-ideas'
-                    ? 'bg-blue-100 text-blue-700 border border-blue-200'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                  currentApp === "explore-ideas"
+                    ? "bg-blue-100 text-blue-700 border border-blue-200"
+                    : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
                 }`}
               >
                 Explore Ideas
               </button>
               <button
-                onClick={() => setCurrentApp('finalize-designs')}
+                onClick={() => setCurrentApp("finalize-designs")}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  currentApp === 'finalize-designs'
-                    ? 'bg-blue-100 text-blue-700 border border-blue-200'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                  currentApp === "finalize-designs"
+                    ? "bg-blue-100 text-blue-700 border border-blue-200"
+                    : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
                 }`}
               >
                 Finalize Designs
               </button>
               <button
-                onClick={() => setCurrentApp('test-design')}
+                onClick={() => setCurrentApp("test-design")}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  currentApp === 'test-design'
-                    ? 'bg-blue-100 text-blue-700 border border-blue-200'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                  currentApp === "test-design"
+                    ? "bg-blue-100 text-blue-700 border border-blue-200"
+                    : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
                 }`}
               >
                 Test Design
               </button>
               <button
-                onClick={() => setCurrentApp('iterate')}
+                onClick={() => setCurrentApp("iterate")}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  currentApp === 'iterate'
-                    ? 'bg-blue-100 text-blue-700 border border-blue-200'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                  currentApp === "iterate"
+                    ? "bg-blue-100 text-blue-700 border border-blue-200"
+                    : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
                 }`}
               >
                 Iterate
+              </button>
+              <button
+                onClick={() => setCurrentApp("generation-tester")}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  currentApp === "generation-tester"
+                    ? "bg-blue-100 text-blue-700 border border-blue-200"
+                    : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                }`}
+              >
+                Generation Test
+              </button>
+              <button
+                onClick={() => setCurrentApp("evaluation-tester")}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  currentApp === "evaluation-tester"
+                    ? "bg-blue-100 text-blue-700 border border-blue-200"
+                    : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                }`}
+              >
+                Evaluation Test
+              </button>
+              <button
+                onClick={() => setCurrentApp("pipeline-tester")}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  currentApp === "pipeline-tester"
+                    ? "bg-blue-100 text-blue-700 border border-blue-200"
+                    : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                }`}
+              >
+                Pipeline Test
               </button>
             </div>
 
             {/* User Info and Sign Out */}
             <div className="flex items-center gap-3">
               <span className="text-sm text-gray-600">
-                {user.email}
+                {user?.email || "testing@vertexai.com"}
               </span>
               <button
                 onClick={handleSignOut}
@@ -195,11 +233,9 @@ function App() {
       </div>
 
       {/* App Content */}
-      <div className="flex flex-1 overflow-hidden">
-        {renderCurrentApp()}
-      </div>
+      <div className="flex flex-1 overflow-hidden">{renderCurrentApp()}</div>
     </div>
-  )
+  );
 }
 
-export default App
+export default App;

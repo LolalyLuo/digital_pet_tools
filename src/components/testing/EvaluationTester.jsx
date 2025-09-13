@@ -152,27 +152,62 @@ Return ONLY a JSON object with this exact format:
       // Clear current samples first
       await fetch('http://localhost:3001/api/current-samples', { method: 'DELETE' })
 
-      console.log(`🎯 Generating new images for ${trainingSamples.length} training samples...`)
+      console.log(`🎯 Processing ${trainingSamples.length} training samples with fully parallel pipeline...`)
 
-      // Process each training sample
-      for (let i = 0; i < trainingSamples.length; i++) {
-        const sample = trainingSamples[i]
-        console.log(`📸 Processing sample ${i + 1}/${trainingSamples.length}: Customer ${sample.customer_id}`)
-
+      // Phase 1: Download all training sample images in parallel
+      console.log(`📥 Phase 1: Downloading all ${trainingSamples.length} training sample images...`)
+      const downloadPromises = trainingSamples.map(async (sample, index) => {
         try {
-          // Download the customer's uploaded image for generating new images
-          const uploadedResponse = await fetch(sample.uploaded_image_url)
-          const uploadedBlob = await uploadedResponse.blob()
-          const uploadedFile = new File([uploadedBlob], `uploaded_${sample.customer_id}.jpg`, { type: 'image/jpeg' })
+          console.log(`📸 Downloading images for sample ${index + 1}/${trainingSamples.length}: Customer ${sample.customer_id}`)
 
-          // Download the OpenAI generated image (this will be our reference)
-          const referenceResponse = await fetch(sample.generated_image_url)
-          const referenceBlob = await referenceResponse.blob()
+          const [uploadedResponse, referenceResponse] = await Promise.all([
+            fetch(sample.uploaded_image_url),
+            fetch(sample.generated_image_url)
+          ])
+
+          const [uploadedBlob, referenceBlob] = await Promise.all([
+            uploadedResponse.blob(),
+            referenceResponse.blob()
+          ])
+
+          const uploadedFile = new File([uploadedBlob], `uploaded_${sample.customer_id}.jpg`, { type: 'image/jpeg' })
           const referenceFile = new File([referenceBlob], `reference_${sample.customer_id}.jpg`, { type: 'image/jpeg' })
 
-          // Generate a new image using the uploaded image as input
+          return {
+            sample,
+            uploadedFile,
+            referenceFile,
+            success: true
+          }
+        } catch (error) {
+          console.error(`Error downloading images for sample ${sample.id}:`, error.message)
+          return {
+            sample,
+            error: error.message,
+            success: false
+          }
+        }
+      })
+
+      const downloadResults = await Promise.allSettled(downloadPromises)
+      const downloadedSamples = downloadResults
+        .map(result => result.status === 'fulfilled' ? result.value : null)
+        .filter(sample => sample?.success)
+
+      console.log(`📥 Phase 1 complete: ${downloadedSamples.length}/${trainingSamples.length} samples downloaded successfully`)
+
+      if (downloadedSamples.length === 0) {
+        throw new Error('No samples could be downloaded')
+      }
+
+      // Phase 2: Generate all new images with Gemini in parallel
+      console.log(`🎨 Phase 2: Generating ${downloadedSamples.length} new images with Gemini in parallel...`)
+      const generationPromises = downloadedSamples.map(async (sampleData, index) => {
+        try {
+          console.log(`🎨 Generating image ${index + 1}/${downloadedSamples.length}: Customer ${sampleData.sample.customer_id}`)
+
           const generateFormData = new FormData()
-          generateFormData.append('images', uploadedFile)
+          generateFormData.append('images', sampleData.uploadedFile)
           generateFormData.append('prompts', JSON.stringify([generationPrompt]))
           generateFormData.append('selectedModel', 'gemini-img2img')
 
@@ -182,15 +217,13 @@ Return ONLY a JSON object with this exact format:
           })
 
           if (!generateResponse.ok) {
-            console.error(`Failed to generate image for sample ${sample.id}`)
-            continue
+            throw new Error(`Failed to generate image for sample ${sampleData.sample.id}`)
           }
 
           const generateData = await generateResponse.json()
 
           if (!generateData.success || !generateData.results || generateData.results.length === 0) {
-            console.error(`No generated image returned for sample ${sample.id}`)
-            continue
+            throw new Error(`No generated image returned for sample ${sampleData.sample.id}`)
           }
 
           const generatedImageUrl = generateData.results[0].imageUrl
@@ -198,12 +231,43 @@ Return ONLY a JSON object with this exact format:
           // Download the newly generated image
           const newGeneratedResponse = await fetch(generatedImageUrl)
           const newGeneratedBlob = await newGeneratedResponse.blob()
-          const newGeneratedFile = new File([newGeneratedBlob], `generated_${sample.customer_id}.jpg`, { type: 'image/jpeg' })
+          const newGeneratedFile = new File([newGeneratedBlob], `generated_${sampleData.sample.customer_id}.jpg`, { type: 'image/jpeg' })
 
-          // Upload the pair to current working samples
+          return {
+            ...sampleData,
+            newGeneratedFile,
+            success: true
+          }
+        } catch (error) {
+          console.error(`Error generating image for sample ${sampleData.sample.id}:`, error.message)
+          return {
+            ...sampleData,
+            error: error.message,
+            success: false
+          }
+        }
+      })
+
+      const generationResults = await Promise.allSettled(generationPromises)
+      const generatedSamples = generationResults
+        .map(result => result.status === 'fulfilled' ? result.value : null)
+        .filter(sample => sample?.success)
+
+      console.log(`🎨 Phase 2 complete: ${generatedSamples.length}/${downloadedSamples.length} images generated successfully`)
+
+      if (generatedSamples.length === 0) {
+        throw new Error('No images could be generated')
+      }
+
+      // Phase 3: Upload all sample pairs in parallel
+      console.log(`📤 Phase 3: Uploading ${generatedSamples.length} evaluation pairs in parallel...`)
+      const uploadPromises = generatedSamples.map(async (sampleData, index) => {
+        try {
+          console.log(`📤 Uploading pair ${index + 1}/${generatedSamples.length}: Customer ${sampleData.sample.customer_id}`)
+
           const uploadFormData = new FormData()
-          uploadFormData.append('generated', newGeneratedFile)  // Newly generated image
-          uploadFormData.append('reference', referenceFile)     // OpenAI generated image (reference)
+          uploadFormData.append('generated', sampleData.newGeneratedFile)  // Newly generated image
+          uploadFormData.append('reference', sampleData.referenceFile)     // OpenAI generated image (reference)
 
           const uploadResponse = await fetch('http://localhost:3001/api/upload-sample-images', {
             method: 'POST',
@@ -211,18 +275,22 @@ Return ONLY a JSON object with this exact format:
           })
 
           if (!uploadResponse.ok) {
-            console.error(`Failed to upload evaluation pair for sample ${sample.id}`)
-          } else {
-            console.log(`✅ Successfully created evaluation pair for customer ${sample.customer_id} (Generated vs OpenAI reference)`)
+            throw new Error(`Failed to upload evaluation pair for sample ${sampleData.sample.id}`)
           }
 
-        } catch (sampleError) {
-          console.error(`Error processing sample ${sample.id}:`, sampleError)
+          console.log(`✅ Successfully uploaded evaluation pair for customer ${sampleData.sample.customer_id}`)
+          return true
+        } catch (error) {
+          console.error(`Error uploading sample ${sampleData.sample.id}:`, error.message)
+          return false
         }
+      })
 
-        // Small delay between generations
-        await new Promise(resolve => setTimeout(resolve, 500))
-      }
+      const uploadResults = await Promise.allSettled(uploadPromises)
+      const successful = uploadResults.filter(result => result.status === 'fulfilled' && result.value === true).length
+      const failed = uploadResults.length - successful
+
+      console.log(`🎯 Fully parallel pipeline complete: ${successful} successful, ${failed} failed`)
 
       // Reload the current samples
       loadCurrentSamples()
@@ -416,39 +484,91 @@ Return ONLY a JSON object with this exact format:
     setBatchResults([])
 
     try {
-      const response = await fetch('http://localhost:3001/api/evaluate-samples', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          samples: samplePairs.map(pair => ({
-            id: pair.id,
-            generatedImageUrl: pair.generated.url,
-            referenceImageUrl: pair.reference.url
-          })),
-          customPrompt: customPrompt
-        })
+      console.log(`🎯 Processing ${samplePairs.length} evaluation samples in parallel...`)
+
+      // Process all evaluations in parallel
+      const evaluateIndividualSample = async (pair, index) => {
+        console.log(`🔍 Evaluating sample ${index + 1}/${samplePairs.length}: ID ${pair.id}`)
+
+        try {
+          const response = await fetch('http://localhost:3001/api/evaluate-gpt4-vision', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              generatedImageUrl: pair.generated.url,
+              referenceImageUrl: pair.reference.url,
+              customPrompt: customPrompt
+            })
+          })
+
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`)
+          }
+
+          const data = await response.json()
+
+          if (data.success && data.evaluation) {
+            return {
+              sampleId: pair.id,
+              samplePair: pair,
+              ...data.evaluation
+            }
+          } else {
+            throw new Error(data.error || 'Evaluation failed')
+          }
+
+        } catch (sampleError) {
+          console.error(`Error evaluating sample ${pair.id}:`, sampleError.message)
+          return {
+            sampleId: pair.id,
+            samplePair: pair,
+            error: sampleError.message,
+            visualAppeal: 0,
+            styleSimilarity: 0,
+            technicalQuality: 0,
+            reasoning: `Evaluation failed: ${sampleError.message}`
+          }
+        }
+      }
+
+      // Process all samples in parallel
+      const results = await Promise.allSettled(
+        samplePairs.map((pair, index) => evaluateIndividualSample(pair, index))
+      )
+
+      // Extract successful results and handle failures
+      const processedResults = results.map((result, index) => {
+        if (result.status === 'fulfilled') {
+          return result.value
+        } else {
+          console.error(`Failed to evaluate sample ${samplePairs[index].id}:`, result.reason)
+          return {
+            sampleId: samplePairs[index].id,
+            samplePair: samplePairs[index],
+            error: result.reason?.message || 'Unknown error',
+            visualAppeal: 0,
+            styleSimilarity: 0,
+            technicalQuality: 0,
+            reasoning: `Evaluation failed: ${result.reason?.message || 'Unknown error'}`
+          }
+        }
       })
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
+      const successful = processedResults.filter(result => !result.error).length
+      const failed = processedResults.length - successful
 
-      const data = await response.json()
+      console.log(`🎯 Parallel evaluation complete: ${successful} successful, ${failed} failed`)
 
-      if (data.success && data.results) {
-        // Calculate weighted scores and sort results (highest first)
-        const sortedResults = data.results
-          .map(result => ({
-            ...result,
-            calculatedScore: parseFloat(calculateWeightedScore(result).toFixed(2))
-          }))
-          .sort((a, b) => b.calculatedScore - a.calculatedScore)
+      // Calculate weighted scores and sort results (highest first)
+      const sortedResults = processedResults
+        .map(result => ({
+          ...result,
+          calculatedScore: parseFloat(calculateWeightedScore(result).toFixed(2))
+        }))
+        .sort((a, b) => b.calculatedScore - a.calculatedScore)
 
-        console.log('Batch results:', sortedResults)
-        setBatchResults(sortedResults)
-      } else {
-        throw new Error(data.error || 'Batch evaluation failed')
-      }
+      console.log('Batch results:', sortedResults)
+      setBatchResults(sortedResults)
 
     } catch (err) {
       setError(`Batch evaluation failed: ${err.message}`)
@@ -721,7 +841,6 @@ Return ONLY a JSON object with this exact format:
             {/* Sample Set Management */}
             <div className="border border-gray-200 rounded-lg p-4 mb-4">
               <h4 className="font-medium text-gray-800 mb-3">Sample Set Management</h4>
-
               {trainingSamples.length > 0 && (
                 <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-md">
                   <div className="flex items-center justify-between mb-3">

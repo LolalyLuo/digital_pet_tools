@@ -1,28 +1,34 @@
-import { useState, useEffect } from 'react'
-import { useDropzone } from 'react-dropzone'
-import { Upload, Eye, Loader2, AlertCircle, Plus, X, Play, Save, Trophy, BarChart3, Settings, Database } from 'lucide-react'
+import { useState, useEffect } from "react";
+import {
+  Loader2,
+  AlertCircle,
+  Play,
+  Save,
+  Trophy,
+  BarChart3,
+  Settings,
+  Database,
+  Trash2,
+} from "lucide-react";
+import { supabase } from "../../utils/supabaseClient";
 
 const EvaluationTester = () => {
-  const [generatedImage, setGeneratedImage] = useState(null)
-  const [referenceImage, setReferenceImage] = useState(null)
-  const [samplePairs, setSamplePairs] = useState([])
-  const [evaluation, setEvaluation] = useState(null)
-  const [batchResults, setBatchResults] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [batchLoading, setBatchLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [customPrompt, setCustomPrompt] = useState('')
-  const [savedPrompts, setSavedPrompts] = useState([])
-  const [promptName, setPromptName] = useState('')
-  const [mode, setMode] = useState('single') // 'single' or 'batch'
+  const [evaluation, setEvaluation] = useState(null);
+  const [batchResults, setBatchResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [customPrompt, setCustomPrompt] = useState("");
+  const [savedPrompts, setSavedPrompts] = useState([]);
+  const [promptName, setPromptName] = useState("");
   const [weights, setWeights] = useState({
     visualAppeal: 0.4,
     styleSimilarity: 0.3,
-    technicalQuality: 0.3
-  })
-  const [trainingSamples, setTrainingSamples] = useState([])
-  const [loadingTraining, setLoadingTraining] = useState(false)
-  const [generationPrompt, setGenerationPrompt] = useState('Transform this dog into a cute, adorable style')
+    technicalQuality: 0.3,
+  });
+  const [trainingData, setTrainingData] = useState([]);
+  const [dataSets, setDataSets] = useState([]);
+  const [currentDataSet, setCurrentDataSet] = useState("");
+  const [loadingData, setLoadingData] = useState(false);
 
   // Default evaluation prompt
   const defaultPrompt = `Evaluate this AI-generated dog image compared to the reference image.
@@ -38,1047 +44,620 @@ Return ONLY a JSON object with this exact format:
   "styleSimilarity": 6.0,
   "technicalQuality": 8.2,
   "reasoning": "Brief explanation of your scoring rationale"
-}`
+}`;
 
   useEffect(() => {
     if (!customPrompt) {
-      setCustomPrompt(defaultPrompt)
+      setCustomPrompt(defaultPrompt);
     }
-    loadSavedPrompts()
-    loadCurrentSamples()
-    loadTrainingSamples()
-  }, [])
+    loadSavedPrompts();
+    loadDataSets();
+  }, []);
 
-  const loadTrainingSamples = async () => {
+  useEffect(() => {
+    if (currentDataSet) {
+      loadTrainingDataForSet(currentDataSet);
+    }
+  }, [currentDataSet]);
+
+  const loadDataSets = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/training/samples')
-      if (response.ok) {
-        const data = await response.json()
-        setTrainingSamples(data.samples || [])
+      const { data, error } = await supabase
+        .from("training_data_sets")
+        .select("name")
+        .order("created_at", { ascending: true });
+
+      if (error) throw error;
+
+      const setNames = data.map((row) => row.name);
+      setDataSets(setNames);
+
+      if (setNames.length > 0 && !currentDataSet) {
+        setCurrentDataSet(setNames[0]);
       }
     } catch (err) {
-      console.log('No training samples available')
+      console.error("Error loading data sets:", err);
     }
-  }
+  };
+
+  const loadTrainingDataForSet = async (dataSetName) => {
+    if (!dataSetName) return;
+
+    try {
+      setLoadingData(true);
+      const { data, error } = await supabase
+        .from("training_samples")
+        .select("*")
+        .eq("data_set_name", dataSetName)
+        .order("created_at", { ascending: true });
+
+      if (error) throw error;
+
+      // Transform data and filter for samples that have both OpenAI and Gemini images
+      const transformedData = data
+        .map((sample) => ({
+          id: sample.id,
+          name: sample.name,
+          uploadedImage: sample.uploaded_image_url
+            ? {
+                url: sample.uploaded_image_url,
+                preview: sample.uploaded_image_url,
+              }
+            : null,
+          openaiImage: sample.openai_image_url
+            ? {
+                url: sample.openai_image_url,
+                preview: sample.openai_image_url,
+              }
+            : null,
+          geminiImage: sample.gemini_image_url
+            ? {
+                url: sample.gemini_image_url,
+                preview: sample.gemini_image_url,
+              }
+            : null,
+          status: sample.status || "unknown",
+          created_at: sample.created_at,
+          source: sample.source,
+        }))
+        .filter((sample) => sample.openaiImage && sample.geminiImage); // Only samples ready for evaluation
+
+      setTrainingData(transformedData);
+    } catch (err) {
+      setError(`Failed to load training data: ${err.message}`);
+      console.error("Error loading training data:", err);
+    } finally {
+      setLoadingData(false);
+    }
+  };
 
   const loadSavedPrompts = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/evaluation-prompts')
+      const response = await fetch(
+        "http://localhost:3001/api/evaluation-prompts"
+      );
       if (response.ok) {
-        const data = await response.json()
-        setSavedPrompts(data.prompts || [])
+        const data = await response.json();
+        setSavedPrompts(data.prompts || []);
       }
     } catch (err) {
-      console.log('No saved prompts available')
+      console.log("No saved prompts available");
     }
-  }
+  };
 
   const savePrompt = async () => {
     if (!promptName.trim() || !customPrompt.trim()) {
-      setError('Please enter a prompt name and content')
-      return
+      setError("Please enter both prompt name and prompt content");
+      return;
     }
 
     try {
-      const response = await fetch('http://localhost:3001/api/evaluation-prompts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: promptName,
-          content: customPrompt
-        })
-      })
+      const response = await fetch(
+        "http://localhost:3001/api/evaluation-prompts",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name: promptName.trim(),
+            prompt: customPrompt.trim(),
+            weights: weights,
+          }),
+        }
+      );
 
       if (response.ok) {
-        setPromptName('')
-        loadSavedPrompts()
-        setError('')
+        setPromptName("");
+        loadSavedPrompts();
+        console.log("✅ Prompt saved successfully");
+      } else {
+        throw new Error("Failed to save prompt");
       }
     } catch (err) {
-      setError('Failed to save prompt')
+      setError(`Failed to save prompt: ${err.message}`);
     }
-  }
+  };
 
   const loadPrompt = (prompt) => {
-    setCustomPrompt(prompt.content)
-    setError('')
-  }
-
-
-  const loadCurrentSamples = async () => {
-    try {
-      const response = await fetch('http://localhost:3001/api/current-samples')
-      if (response.ok) {
-        const data = await response.json()
-        setSamplePairs(data.samples || [])
-      }
-    } catch (err) {
-      console.log('No current samples available')
+    setCustomPrompt(prompt.prompt);
+    if (prompt.weights) {
+      setWeights(prompt.weights);
     }
-  }
+  };
 
+  const deletePrompt = async (promptId) => {
+    if (!confirm("Are you sure you want to delete this prompt?")) {
+      return;
+    }
 
-
-  const resetSampleSet = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/current-samples', {
-        method: 'DELETE'
-      })
+      const response = await fetch(
+        `http://localhost:3001/api/evaluation-prompts/${promptId}`,
+        {
+          method: "DELETE",
+        }
+      );
 
       if (response.ok) {
-        setSamplePairs([])
-        setError('')
+        loadSavedPrompts();
+        console.log("🗑️ Prompt deleted successfully");
+      } else {
+        throw new Error("Failed to delete prompt");
       }
     } catch (err) {
-      setError('Failed to reset sample set')
+      setError(`Failed to delete prompt: ${err.message}`);
     }
-  }
+  };
 
-  const loadTrainingSamplesAsEvaluation = async () => {
-    if (trainingSamples.length === 0) {
-      setError('No training samples available')
-      return
+  const calculateWeightedScore = (scores, customWeights = weights) => {
+    if (!scores || typeof scores !== "object") return 0;
+
+    const visualAppeal = parseFloat(scores.visualAppeal) || 0;
+    const styleSimilarity = parseFloat(scores.styleSimilarity) || 0;
+    const technicalQuality = parseFloat(scores.technicalQuality) || 0;
+
+    return (
+      visualAppeal * customWeights.visualAppeal +
+      styleSimilarity * customWeights.styleSimilarity +
+      technicalQuality * customWeights.technicalQuality
+    ).toFixed(2);
+  };
+
+  // Recalculate all scores when weights change
+  const recalculatedResults = batchResults
+    .map((result) => ({
+      ...result,
+      weightedScore: parseFloat(calculateWeightedScore(result.evaluation)),
+    }))
+    .sort((a, b) => b.weightedScore - a.weightedScore);
+
+  const evaluateBatch = async () => {
+    if (trainingData.length === 0) {
+      setError("No training samples available for evaluation");
+      return;
     }
 
     if (!customPrompt.trim()) {
-      setError('Please enter an evaluation prompt first')
-      return
+      setError("Please enter an evaluation prompt");
+      return;
     }
 
-    setLoadingTraining(true)
-    setError('')
+    setLoading(true);
+    setError("");
+    setBatchResults([]);
 
     try {
-      // Clear current samples first
-      await fetch('http://localhost:3001/api/current-samples', { method: 'DELETE' })
+      console.log(
+        `🔍 Starting batch evaluation of ${trainingData.length} training samples...`
+      );
 
-      console.log(`🎯 Processing ${trainingSamples.length} training samples with fully parallel pipeline...`)
-
-      // Phase 1: Download all training sample images in parallel
-      console.log(`📥 Phase 1: Downloading all ${trainingSamples.length} training sample images...`)
-      const downloadPromises = trainingSamples.map(async (sample, index) => {
-        try {
-          console.log(`📸 Downloading images for sample ${index + 1}/${trainingSamples.length}: Customer ${sample.customer_id}`)
-
-          const [uploadedResponse, referenceResponse] = await Promise.all([
-            fetch(sample.uploaded_image_url),
-            fetch(sample.generated_image_url)
-          ])
-
-          const [uploadedBlob, referenceBlob] = await Promise.all([
-            uploadedResponse.blob(),
-            referenceResponse.blob()
-          ])
-
-          const uploadedFile = new File([uploadedBlob], `uploaded_${sample.customer_id}.jpg`, { type: 'image/jpeg' })
-          const referenceFile = new File([referenceBlob], `reference_${sample.customer_id}.jpg`, { type: 'image/jpeg' })
-
-          return {
-            sample,
-            uploadedFile,
-            referenceFile,
-            success: true
+      const evaluateIndividualSample = async (sample, index) => {
+        const response = await fetch(
+          "http://localhost:3001/api/evaluate-gpt4-vision",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              generatedImageUrl: sample.geminiImage.url,
+              referenceImageUrl: sample.openaiImage.url,
+              customPrompt: customPrompt,
+            }),
           }
-        } catch (error) {
-          console.error(`Error downloading images for sample ${sample.id}:`, error.message)
-          return {
-            sample,
-            error: error.message,
-            success: false
-          }
+        );
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
         }
-      })
 
-      const downloadResults = await Promise.allSettled(downloadPromises)
-      const downloadedSamples = downloadResults
-        .map(result => result.status === 'fulfilled' ? result.value : null)
-        .filter(sample => sample?.success)
+        const data = await response.json();
+        const weightedScore = calculateWeightedScore(data.evaluation);
 
-      console.log(`📥 Phase 1 complete: ${downloadedSamples.length}/${trainingSamples.length} samples downloaded successfully`)
+        return {
+          sampleId: sample.id,
+          sampleName: sample.name,
+          index: index + 1,
+          evaluation: data.evaluation,
+          weightedScore: parseFloat(weightedScore),
+          generatedImageUrl: sample.geminiImage.url,
+          referenceImageUrl: sample.openaiImage.url,
+        };
+      };
 
-      if (downloadedSamples.length === 0) {
-        throw new Error('No samples could be downloaded')
+      const results = await Promise.allSettled(
+        trainingData.map((sample, index) =>
+          evaluateIndividualSample(sample, index)
+        )
+      );
+
+      const successful = results
+        .filter((result) => result.status === "fulfilled")
+        .map((result) => result.value);
+
+      const failed = results.filter((result) => result.status === "rejected");
+
+      console.log(
+        `🎯 Batch evaluation complete: ${successful.length} successful, ${failed.length} failed`
+      );
+
+      if (failed.length > 0) {
+        console.warn(
+          "Failed evaluations:",
+          failed.map((f) => f.reason)
+        );
       }
 
-      // Phase 2: Generate all new images with Gemini in parallel
-      console.log(`🎨 Phase 2: Generating ${downloadedSamples.length} new images with Gemini in parallel...`)
-      const generationPromises = downloadedSamples.map(async (sampleData, index) => {
-        try {
-          console.log(`🎨 Generating image ${index + 1}/${downloadedSamples.length}: Customer ${sampleData.sample.customer_id}`)
-
-          const generateFormData = new FormData()
-          generateFormData.append('images', sampleData.uploadedFile)
-          generateFormData.append('prompts', JSON.stringify([generationPrompt]))
-          generateFormData.append('selectedModel', 'gemini-img2img')
-
-          const generateResponse = await fetch('http://localhost:3001/api/test/generate-images', {
-            method: 'POST',
-            body: generateFormData
-          })
-
-          if (!generateResponse.ok) {
-            throw new Error(`Failed to generate image for sample ${sampleData.sample.id}`)
-          }
-
-          const generateData = await generateResponse.json()
-
-          if (!generateData.success || !generateData.results || generateData.results.length === 0) {
-            throw new Error(`No generated image returned for sample ${sampleData.sample.id}`)
-          }
-
-          const generatedImageUrl = generateData.results[0].imageUrl
-
-          // Download the newly generated image
-          const newGeneratedResponse = await fetch(generatedImageUrl)
-          const newGeneratedBlob = await newGeneratedResponse.blob()
-          const newGeneratedFile = new File([newGeneratedBlob], `generated_${sampleData.sample.customer_id}.jpg`, { type: 'image/jpeg' })
-
-          return {
-            ...sampleData,
-            newGeneratedFile,
-            success: true
-          }
-        } catch (error) {
-          console.error(`Error generating image for sample ${sampleData.sample.id}:`, error.message)
-          return {
-            ...sampleData,
-            error: error.message,
-            success: false
-          }
-        }
-      })
-
-      const generationResults = await Promise.allSettled(generationPromises)
-      const generatedSamples = generationResults
-        .map(result => result.status === 'fulfilled' ? result.value : null)
-        .filter(sample => sample?.success)
-
-      console.log(`🎨 Phase 2 complete: ${generatedSamples.length}/${downloadedSamples.length} images generated successfully`)
-
-      if (generatedSamples.length === 0) {
-        throw new Error('No images could be generated')
-      }
-
-      // Phase 3: Upload all sample pairs in parallel
-      console.log(`📤 Phase 3: Uploading ${generatedSamples.length} evaluation pairs in parallel...`)
-      const uploadPromises = generatedSamples.map(async (sampleData, index) => {
-        try {
-          console.log(`📤 Uploading pair ${index + 1}/${generatedSamples.length}: Customer ${sampleData.sample.customer_id}`)
-
-          const uploadFormData = new FormData()
-          uploadFormData.append('generated', sampleData.newGeneratedFile)  // Newly generated image
-          uploadFormData.append('reference', sampleData.referenceFile)     // OpenAI generated image (reference)
-
-          const uploadResponse = await fetch('http://localhost:3001/api/upload-sample-images', {
-            method: 'POST',
-            body: uploadFormData
-          })
-
-          if (!uploadResponse.ok) {
-            throw new Error(`Failed to upload evaluation pair for sample ${sampleData.sample.id}`)
-          }
-
-          console.log(`✅ Successfully uploaded evaluation pair for customer ${sampleData.sample.customer_id}`)
-          return true
-        } catch (error) {
-          console.error(`Error uploading sample ${sampleData.sample.id}:`, error.message)
-          return false
-        }
-      })
-
-      const uploadResults = await Promise.allSettled(uploadPromises)
-      const successful = uploadResults.filter(result => result.status === 'fulfilled' && result.value === true).length
-      const failed = uploadResults.length - successful
-
-      console.log(`🎯 Fully parallel pipeline complete: ${successful} successful, ${failed} failed`)
-
-      // Reload the current samples
-      loadCurrentSamples()
-      setError('')
-
+      setBatchResults(
+        successful.sort((a, b) => b.weightedScore - a.weightedScore)
+      );
     } catch (err) {
-      setError(`Failed to load training samples: ${err.message}`)
-      console.error('Training samples load error:', err)
+      setError(`Batch evaluation failed: ${err.message}`);
+      console.error("Batch evaluation error:", err);
     } finally {
-      setLoadingTraining(false)
+      setLoading(false);
     }
-  }
+  };
 
-  const createDropzone = (onDrop, acceptedImage, label) => {
-    const { getRootProps, getInputProps, isDragActive } = useDropzone({
-      accept: {
-        'image/*': ['.png', '.jpg', '.jpeg', '.webp']
-      },
-      multiple: false,
-      onDrop: (acceptedFiles) => {
-        if (acceptedFiles.length > 0) {
-          const file = acceptedFiles[0]
-          const reader = new FileReader()
-          reader.onload = () => {
-            onDrop({
-              file,
-              preview: reader.result,
-              name: file.name
-            })
-          }
-          reader.readAsDataURL(file)
-          setError('')
-        }
-      }
-    })
+  const getScoreColor = (score) => {
+    if (score >= 8) return "text-green-600";
+    if (score >= 6) return "text-yellow-600";
+    return "text-red-600";
+  };
 
-    return (
-      <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          {label}
-        </label>
-        <div
-          {...getRootProps()}
-          className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors ${
-            isDragActive
-              ? 'border-blue-400 bg-blue-50'
-              : acceptedImage
-              ? 'border-green-400 bg-green-50'
-              : 'border-gray-300 hover:border-gray-400'
-          }`}
-        >
-          <input {...getInputProps()} />
-          {acceptedImage ? (
-            <div className="space-y-2 flex flex-col items-center">
-              <img
-                src={acceptedImage.preview}
-                alt="Uploaded"
-                style={{
-                  maxHeight: '60px',
-                  maxWidth: '80px',
-                  objectFit: 'cover'
-                }}
-                className="rounded border"
-              />
-              <p className="text-xs text-gray-600 max-w-20 truncate">{acceptedImage.name}</p>
-            </div>
-          ) : (
-            <div className="space-y-1">
-              <Upload className="mx-auto text-gray-400" size={32} />
-              <p className="text-sm text-gray-600">
-                {isDragActive ? 'Drop image here' : 'Upload image'}
-              </p>
-            </div>
-          )}
+  const renderWeightControls = () => (
+    <div className="bg-gray-50 p-4 rounded-lg">
+      <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center">
+        <Settings className="mr-2" size={16} />
+        Scoring Weights
+      </h4>
+      <div className="grid grid-cols-3 gap-4">
+        <div>
+          <label className="block text-xs text-gray-600 mb-1">
+            Visual Appeal
+          </label>
+          <input
+            type="number"
+            min="0"
+            max="1"
+            step="0.1"
+            value={weights.visualAppeal}
+            onChange={(e) =>
+              setWeights((prev) => ({
+                ...prev,
+                visualAppeal: parseFloat(e.target.value) || 0,
+              }))
+            }
+            className="w-full px-2 py-1 text-sm border rounded"
+          />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-600 mb-1">
+            Style Similarity
+          </label>
+          <input
+            type="number"
+            min="0"
+            max="1"
+            step="0.1"
+            value={weights.styleSimilarity}
+            onChange={(e) =>
+              setWeights((prev) => ({
+                ...prev,
+                styleSimilarity: parseFloat(e.target.value) || 0,
+              }))
+            }
+            className="w-full px-2 py-1 text-sm border rounded"
+          />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-600 mb-1">
+            Technical Quality
+          </label>
+          <input
+            type="number"
+            min="0"
+            max="1"
+            step="0.1"
+            value={weights.technicalQuality}
+            onChange={(e) =>
+              setWeights((prev) => ({
+                ...prev,
+                technicalQuality: parseFloat(e.target.value) || 0,
+              }))
+            }
+            className="w-full px-2 py-1 text-sm border rounded"
+          />
         </div>
       </div>
-    )
-  }
-
-  const addToSampleSet = async () => {
-    if (!generatedImage || !referenceImage) {
-      setError('Please upload both images before adding to sample set')
-      return
-    }
-
-    try {
-      // Upload images using FormData
-      const formData = new FormData()
-      formData.append('generated', generatedImage.file)
-      formData.append('reference', referenceImage.file)
-
-      const response = await fetch('http://localhost:3001/api/upload-sample-images', {
-        method: 'POST',
-        body: formData
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-
-        // Add to local state for immediate UI update
-        const newPair = {
-          id: Date.now(),
-          generated: {
-            ...generatedImage,
-            preview: generatedImage.preview,
-            url: data.generatedUrl
-          },
-          reference: {
-            ...referenceImage,
-            preview: referenceImage.preview,
-            url: data.referenceUrl
-          }
-        }
-        setSamplePairs(prev => [...prev, newPair])
-        setGeneratedImage(null)
-        setReferenceImage(null)
-        setError('')
-      } else {
-        setError('Failed to upload and save sample images')
-      }
-    } catch (err) {
-      setError('Failed to upload and save sample images')
-    }
-  }
-
-  const removeSamplePair = (id) => {
-    setSamplePairs(prev => prev.filter(pair => pair.id !== id))
-  }
-
-  const handleSingleEvaluation = async () => {
-    if (!generatedImage || !referenceImage) {
-      setError('Please upload both images')
-      return
-    }
-
-    setLoading(true)
-    setError('')
-    setEvaluation(null)
-
-    try {
-      const response = await fetch('http://localhost:3001/api/evaluate-gpt4-vision', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          generatedImageUrl: generatedImage.url,
-          referenceImageUrl: referenceImage.url,
-          customPrompt: customPrompt
-        })
-      })
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
-      const data = await response.json()
-
-      if (data.success && data.evaluation) {
-        setEvaluation(data.evaluation)
-      } else {
-        throw new Error(data.error || 'Evaluation failed')
-      }
-
-    } catch (err) {
-      setError(`Evaluation failed: ${err.message}`)
-      console.error('Evaluation error:', err)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const calculateWeightedScore = (result) => {
-    if (result.score !== undefined) {
-      return result.score
-    } else {
-      return (
-        (result.visualAppeal * weights.visualAppeal) +
-        (result.styleSimilarity * weights.styleSimilarity) +
-        (result.technicalQuality * weights.technicalQuality)
-      )
-    }
-  }
-
-  const handleBatchEvaluation = async () => {
-    if (samplePairs.length === 0) {
-      setError('Please add sample pairs to evaluate')
-      return
-    }
-
-    setBatchLoading(true)
-    setError('')
-    setBatchResults([])
-
-    try {
-      console.log(`🎯 Processing ${samplePairs.length} evaluation samples in parallel...`)
-
-      // Process all evaluations in parallel
-      const evaluateIndividualSample = async (pair, index) => {
-        console.log(`🔍 Evaluating sample ${index + 1}/${samplePairs.length}: ID ${pair.id}`)
-
-        try {
-          const response = await fetch('http://localhost:3001/api/evaluate-gpt4-vision', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              generatedImageUrl: pair.generated.url,
-              referenceImageUrl: pair.reference.url,
-              customPrompt: customPrompt
-            })
-          })
-
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`)
-          }
-
-          const data = await response.json()
-
-          if (data.success && data.evaluation) {
-            return {
-              sampleId: pair.id,
-              samplePair: pair,
-              ...data.evaluation
-            }
-          } else {
-            throw new Error(data.error || 'Evaluation failed')
-          }
-
-        } catch (sampleError) {
-          console.error(`Error evaluating sample ${pair.id}:`, sampleError.message)
-          return {
-            sampleId: pair.id,
-            samplePair: pair,
-            error: sampleError.message,
-            visualAppeal: 0,
-            styleSimilarity: 0,
-            technicalQuality: 0,
-            reasoning: `Evaluation failed: ${sampleError.message}`
-          }
-        }
-      }
-
-      // Process all samples in parallel
-      const results = await Promise.allSettled(
-        samplePairs.map((pair, index) => evaluateIndividualSample(pair, index))
-      )
-
-      // Extract successful results and handle failures
-      const processedResults = results.map((result, index) => {
-        if (result.status === 'fulfilled') {
-          return result.value
-        } else {
-          console.error(`Failed to evaluate sample ${samplePairs[index].id}:`, result.reason)
-          return {
-            sampleId: samplePairs[index].id,
-            samplePair: samplePairs[index],
-            error: result.reason?.message || 'Unknown error',
-            visualAppeal: 0,
-            styleSimilarity: 0,
-            technicalQuality: 0,
-            reasoning: `Evaluation failed: ${result.reason?.message || 'Unknown error'}`
-          }
-        }
-      })
-
-      const successful = processedResults.filter(result => !result.error).length
-      const failed = processedResults.length - successful
-
-      console.log(`🎯 Parallel evaluation complete: ${successful} successful, ${failed} failed`)
-
-      // Calculate weighted scores and sort results (highest first)
-      const sortedResults = processedResults
-        .map(result => ({
-          ...result,
-          calculatedScore: parseFloat(calculateWeightedScore(result).toFixed(2))
-        }))
-        .sort((a, b) => b.calculatedScore - a.calculatedScore)
-
-      console.log('Batch results:', sortedResults)
-      setBatchResults(sortedResults)
-
-    } catch (err) {
-      setError(`Batch evaluation failed: ${err.message}`)
-      console.error('Batch evaluation error:', err)
-    } finally {
-      setBatchLoading(false)
-    }
-  }
-
-  // Update results when weights change
-  useEffect(() => {
-    if (batchResults.length > 0) {
-      const updatedResults = batchResults
-        .map(result => ({
-          ...result,
-          calculatedScore: parseFloat(calculateWeightedScore(result).toFixed(2))
-        }))
-        .sort((a, b) => b.calculatedScore - a.calculatedScore)
-
-      setBatchResults(updatedResults)
-    }
-  }, [weights])
+      <p className="text-xs text-gray-500 mt-2">
+        Total weight:{" "}
+        {(
+          weights.visualAppeal +
+          weights.styleSimilarity +
+          weights.technicalQuality
+        ).toFixed(1)}
+      </p>
+    </div>
+  );
 
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-6 overflow-y-auto max-h-screen">
-      {/* Header */}
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-2xl font-bold text-gray-800 flex items-center">
-            <Eye className="mr-2" size={24} />
-            Enhanced Evaluation Tester
+    <div className="flex flex-col h-screen bg-gray-100">
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left Panel - Configuration */}
+        <div className="w-1/2 bg-white shadow-sm p-6 overflow-y-auto">
+          <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center">
+            <Trophy className="mr-2" size={24} />
+            Evaluation Test
           </h2>
 
-          {/* Mode Toggle */}
-          <div className="flex rounded-lg border border-gray-300">
-            <button
-              onClick={() => setMode('single')}
-              className={`px-4 py-2 text-sm font-medium rounded-l-lg transition-colors ${
-                mode === 'single'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-white text-gray-700 hover:bg-gray-50'
-              }`}
+          {error && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded flex items-start">
+              <AlertCircle className="mr-2 mt-0.5 text-red-500" size={16} />
+              <span className="text-sm text-red-700">{error}</span>
+            </div>
+          )}
+
+          {/* Data Set Selection */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Training Data Set
+            </label>
+            <select
+              value={currentDataSet}
+              onChange={(e) => setCurrentDataSet(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
             >
-              Single Test
-            </button>
-            <button
-              onClick={() => setMode('batch')}
-              className={`px-4 py-2 text-sm font-medium rounded-r-lg transition-colors ${
-                mode === 'batch'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-white text-gray-700 hover:bg-gray-50'
-              }`}
-            >
-              Batch Test ({samplePairs.length} samples)
-            </button>
+              <option value="">Select a data set...</option>
+              {dataSets.map((setName) => (
+                <option key={setName} value={setName}>
+                  {setName}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-500 mt-1">
+              {loadingData
+                ? "Loading..."
+                : `${trainingData.length} samples ready for evaluation (OpenAI vs Gemini)`}
+            </p>
           </div>
-        </div>
 
-        {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md flex items-center">
-            <AlertCircle className="text-red-500 mr-2" size={16} />
-            <span className="text-red-700">{error}</span>
-          </div>
-        )}
-
-        {/* Scoring Formula */}
-        <div className="mb-6 bg-gray-50 rounded-lg p-4">
-          <div className="flex items-center mb-3">
-            <Settings className="mr-2" size={18} />
-            <h4 className="font-medium text-gray-800">Scoring Formula</h4>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Visual Appeal & Cuteness ({weights.visualAppeal.toFixed(2)})
-              </label>
-              <input
-                type="range"
-                min="0"
-                max="2"
-                step="0.01"
-                value={weights.visualAppeal}
-                onChange={(e) => {
-                  setWeights({
-                    ...weights,
-                    visualAppeal: parseFloat(e.target.value)
-                  })
-                }}
-                className="w-full"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Style Similarity ({weights.styleSimilarity.toFixed(2)})
-              </label>
-              <input
-                type="range"
-                min="0"
-                max="2"
-                step="0.01"
-                value={weights.styleSimilarity}
-                onChange={(e) => {
-                  setWeights({
-                    ...weights,
-                    styleSimilarity: parseFloat(e.target.value)
-                  })
-                }}
-                className="w-full"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Technical Quality ({weights.technicalQuality.toFixed(2)})
-              </label>
-              <input
-                type="range"
-                min="0"
-                max="2"
-                step="0.01"
-                value={weights.technicalQuality}
-                onChange={(e) => {
-                  setWeights({
-                    ...weights,
-                    technicalQuality: parseFloat(e.target.value)
-                  })
-                }}
-                className="w-full"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Custom Prompt Section */}
-        <div className="mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Evaluation Prompt
-          </label>
-          <textarea
-            value={customPrompt}
-            onChange={(e) => setCustomPrompt(e.target.value)}
-            className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-            rows={6}
-            placeholder="Enter custom evaluation prompt..."
-          />
-
-          {/* Prompt Controls */}
-          <div className="flex items-center gap-2 mt-2">
-            <input
-              type="text"
-              value={promptName}
-              onChange={(e) => setPromptName(e.target.value)}
-              placeholder="Prompt name..."
-              className="px-3 py-1 border border-gray-300 rounded text-sm"
+          {/* Evaluation Prompt */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Evaluation Prompt
+            </label>
+            <textarea
+              value={customPrompt}
+              onChange={(e) => setCustomPrompt(e.target.value)}
+              className="w-full h-40 px-3 py-2 border border-gray-300 rounded resize-none focus:ring-1 focus:ring-blue-500"
+              placeholder="Enter your evaluation criteria..."
             />
-            <button
-              onClick={savePrompt}
-              className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700 flex items-center"
-            >
-              <Save size={14} className="mr-1" />
-              Save
-            </button>
+          </div>
+
+          {/* Prompt Management */}
+          <div className="mb-6">
+            <div className="flex gap-2 mb-3">
+              <input
+                type="text"
+                value={promptName}
+                onChange={(e) => setPromptName(e.target.value)}
+                placeholder="Prompt name..."
+                className="flex-1 px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+              />
+              <button
+                onClick={savePrompt}
+                className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center"
+              >
+                <Save size={16} />
+              </button>
+            </div>
 
             {savedPrompts.length > 0 && (
-              <select
-                onChange={(e) => {
-                  const prompt = savedPrompts.find(p => p.id === e.target.value)
-                  if (prompt) loadPrompt(prompt)
-                }}
-                className="px-3 py-1 border border-gray-300 rounded text-sm"
-              >
-                <option value="">Load saved prompt...</option>
-                {savedPrompts.map(prompt => (
-                  <option key={prompt.id} value={prompt.id}>{prompt.name}</option>
-                ))}
-              </select>
-            )}
-          </div>
-        </div>
-
-        {mode === 'single' ? (
-          // Single Evaluation Mode
-          <>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-              {createDropzone(setGeneratedImage, generatedImage, "Generated Image")}
-              {createDropzone(setReferenceImage, referenceImage, "Reference Image")}
-            </div>
-
-            <div className="flex gap-4">
-              <button
-                onClick={handleSingleEvaluation}
-                disabled={loading || !generatedImage || !referenceImage}
-                className={`flex-1 py-3 px-4 rounded-md font-medium transition-colors flex items-center justify-center ${
-                  loading || !generatedImage || !referenceImage
-                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                    : 'bg-purple-600 text-white hover:bg-purple-700'
-                }`}
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="animate-spin mr-2" size={16} />
-                    Evaluating...
-                  </>
-                ) : (
-                  <>
-                    <Play className="mr-2" size={16} />
-                    Evaluate Single Pair
-                  </>
-                )}
-              </button>
-
-              <button
-                onClick={addToSampleSet}
-                disabled={!generatedImage || !referenceImage}
-                className={`px-4 py-3 rounded-md font-medium transition-colors flex items-center ${
-                  !generatedImage || !referenceImage
-                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                    : 'bg-blue-600 text-white hover:bg-blue-700'
-                }`}
-              >
-                <Plus className="mr-2" size={16} />
-                Add to Sample Set
-              </button>
-            </div>
-          </>
-        ) : (
-          // Batch Evaluation Mode
-          <>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-              {createDropzone(setGeneratedImage, generatedImage, "Generated Image")}
-              {createDropzone(setReferenceImage, referenceImage, "Reference Image")}
-            </div>
-
-            <div className="flex gap-4 mb-6">
-              <button
-                onClick={addToSampleSet}
-                disabled={!generatedImage || !referenceImage}
-                className={`px-4 py-3 rounded-md font-medium transition-colors flex items-center ${
-                  !generatedImage || !referenceImage
-                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                    : 'bg-blue-600 text-white hover:bg-blue-700'
-                }`}
-              >
-                <Plus className="mr-2" size={16} />
-                Add to Sample Set
-              </button>
-
-              <button
-                onClick={handleBatchEvaluation}
-                disabled={batchLoading || samplePairs.length === 0}
-                className={`flex-1 py-3 px-4 rounded-md font-medium transition-colors flex items-center justify-center ${
-                  batchLoading || samplePairs.length === 0
-                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                    : 'bg-green-600 text-white hover:bg-green-700'
-                }`}
-              >
-                {batchLoading ? (
-                  <>
-                    <Loader2 className="animate-spin mr-2" size={16} />
-                    Evaluating {samplePairs.length} samples...
-                  </>
-                ) : (
-                  <>
-                    <BarChart3 className="mr-2" size={16} />
-                    Evaluate All Samples ({samplePairs.length})
-                  </>
-                )}
-              </button>
-            </div>
-
-            {/* Sample Set Management */}
-            <div className="border border-gray-200 rounded-lg p-4 mb-4">
-              <h4 className="font-medium text-gray-800 mb-3">Sample Set Management</h4>
-              {trainingSamples.length > 0 && (
-                <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-md">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center">
-                      <Database size={16} className="mr-2 text-blue-600" />
-                      <span className="text-sm text-blue-800">
-                        {trainingSamples.length} training samples available
-                      </span>
-                    </div>
+              <div className="space-y-1">
+                <p className="text-xs text-gray-600">Saved Prompts:</p>
+                {savedPrompts.map((prompt, index) => (
+                  <div
+                    key={prompt.id || index}
+                    className="flex items-center gap-1"
+                  >
                     <button
-                      onClick={loadTrainingSamplesAsEvaluation}
-                      disabled={loadingTraining}
-                      className={`px-3 py-1 rounded text-sm font-medium transition-colors flex items-center ${
-                        loadingTraining
-                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                          : 'bg-blue-600 text-white hover:bg-blue-700'
-                      }`}
+                      onClick={() => loadPrompt(prompt)}
+                      className="flex-1 text-left px-2 py-1 text-xs bg-gray-50 hover:bg-gray-100 rounded"
                     >
-                      {loadingTraining ? (
-                        <>
-                          <Loader2 className="animate-spin mr-1" size={12} />
-                          Generating...
-                        </>
-                      ) : (
-                        <>
-                          <Database size={12} className="mr-1" />
-                          Generate & Evaluate
-                        </>
-                      )}
+                      {prompt.name}
+                    </button>
+                    <button
+                      onClick={() => deletePrompt(prompt.id)}
+                      className="px-1 py-1 text-red-500 hover:bg-red-50 rounded"
+                      title="Delete prompt"
+                    >
+                      <Trash2 size={12} />
                     </button>
                   </div>
+                ))}
+              </div>
+            )}
+          </div>
 
-                  <div className="mb-2">
-                    <label className="block text-xs font-medium text-blue-700 mb-1">
-                      Generation Prompt
-                    </label>
-                    <input
-                      type="text"
-                      value={generationPrompt}
-                      onChange={(e) => setGenerationPrompt(e.target.value)}
-                      placeholder="Enter prompt for generating images..."
-                      className="w-full px-2 py-1 text-xs border border-blue-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
+          {/* Scoring Weights */}
+          {renderWeightControls()}
 
-                  <p className="text-xs text-blue-600">
-                    Generate new images from customer photos using this prompt, then evaluate vs OpenAI references
+          {/* Evaluate Button */}
+          <button
+            onClick={evaluateBatch}
+            disabled={
+              loading || trainingData.length === 0 || !customPrompt.trim()
+            }
+            className={`w-full mt-6 mb-4 px-4 py-3 rounded font-medium transition-colors flex items-center justify-center ${
+              loading || trainingData.length === 0 || !customPrompt.trim()
+                ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                : "bg-green-600 text-white hover:bg-green-700"
+            }`}
+          >
+            {loading ? (
+              <>
+                <Loader2 className="animate-spin mr-2" size={18} />
+                Evaluating...
+              </>
+            ) : (
+              <>
+                <Play className="mr-2" size={18} />
+                Evaluate All Samples
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Right Panel - Results */}
+        <div className="flex-1 bg-white shadow-sm overflow-hidden">
+          <div className="h-full flex flex-col">
+            <div className="p-6 border-b">
+              <h3 className="text-lg font-semibold text-gray-800 flex items-center">
+                <BarChart3 className="mr-2" size={20} />
+                Evaluation Results
+                {recalculatedResults.length > 0 && (
+                  <span className="ml-2 text-sm text-gray-500">
+                    ({recalculatedResults.length} samples)
+                  </span>
+                )}
+              </h3>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 pb-24">
+              {recalculatedResults.length === 0 ? (
+                <div className="text-center text-gray-500 mt-12">
+                  <Trophy size={48} className="mx-auto mb-4 text-gray-300" />
+                  <p>No evaluations yet</p>
+                  <p className="text-sm">
+                    Select a training data set and click "Evaluate All Samples"
+                    to get started
                   </p>
                 </div>
-              )}
-
-              <div className="flex flex-wrap gap-2 mb-3">
-                <button
-                  onClick={resetSampleSet}
-                  disabled={samplePairs.length === 0}
-                  className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700 flex items-center disabled:bg-gray-400"
-                >
-                  <X size={14} className="mr-1" />
-                  Clear All Samples
-                </button>
-              </div>
-            </div>
-
-            {/* Sample Set Display */}
-            {samplePairs.length > 0 && (
-              <div className="border border-gray-200 rounded-lg p-4">
-                <h4 className="font-medium text-gray-800 mb-3">Sample Set ({samplePairs.length} pairs)</h4>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {samplePairs.map((pair) => (
-                    <div key={pair.id} className="relative">
-                      <div className="grid grid-cols-2 gap-1">
-                        <img
-                          src={pair.generated.preview || pair.generated.url}
-                          alt="Generated"
-                          className="w-full h-20 object-cover rounded border"
-                        />
-                        <img
-                          src={pair.reference.preview || pair.reference.url}
-                          alt="Reference"
-                          className="w-full h-20 object-cover rounded border"
-                        />
+              ) : (
+                <div className="space-y-4">
+                  {recalculatedResults.map((result, index) => (
+                    <div
+                      key={result.sampleId}
+                      className="border rounded-lg p-4"
+                    >
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center">
+                          <span className="text-lg font-semibold text-gray-800">
+                            #{index + 1} {result.sampleName}
+                          </span>
+                          <span
+                            className={`ml-3 text-2xl font-bold ${getScoreColor(
+                              result.weightedScore
+                            )}`}
+                          >
+                            {result.weightedScore}
+                          </span>
+                        </div>
                       </div>
-                      <button
-                        onClick={() => removeSamplePair(pair.id)}
-                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center hover:bg-red-600"
-                      >
-                        <X size={12} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </>
-        )}
-      </div>
 
-      {/* Single Evaluation Results */}
-      {evaluation && mode === 'single' && (
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h3 className="text-lg font-semibold text-gray-800 mb-4">Evaluation Results</h3>
+                      <div className="grid grid-cols-2 gap-4 mb-3">
+                        <div>
+                          <p className="text-xs text-gray-600 mb-1">
+                            Generated (Gemini)
+                          </p>
+                          <img
+                            src={result.generatedImageUrl}
+                            alt="Generated"
+                            className="w-full h-32 object-cover rounded border"
+                          />
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-600 mb-1">
+                            Reference (OpenAI)
+                          </p>
+                          <img
+                            src={result.referenceImageUrl}
+                            alt="Reference"
+                            className="w-full h-32 object-cover rounded border"
+                          />
+                        </div>
+                      </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            <div>
-              <h4 className="font-medium text-gray-700 mb-2">Generated Image</h4>
-              <img
-                src={generatedImage.preview}
-                alt="Generated"
-                style={{ maxHeight: '150px', maxWidth: '150px', objectFit: 'cover' }}
-                className="rounded-md border"
-              />
-            </div>
-            <div>
-              <h4 className="font-medium text-gray-700 mb-2">Reference Image</h4>
-              <img
-                src={referenceImage.preview}
-                alt="Reference"
-                style={{ maxHeight: '150px', maxWidth: '150px', objectFit: 'cover' }}
-                className="rounded-md border"
-              />
-            </div>
-          </div>
+                      {result.evaluation && (
+                        <div className="grid grid-cols-3 gap-4 text-sm">
+                          <div>
+                            <span className="text-gray-600">
+                              Visual Appeal:
+                            </span>
+                            <span
+                              className={`ml-1 font-medium ${getScoreColor(
+                                result.evaluation.visualAppeal
+                              )}`}
+                            >
+                              {result.evaluation.visualAppeal}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-gray-600">
+                              Style Similarity:
+                            </span>
+                            <span
+                              className={`ml-1 font-medium ${getScoreColor(
+                                result.evaluation.styleSimilarity
+                              )}`}
+                            >
+                              {result.evaluation.styleSimilarity}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-gray-600">
+                              Technical Quality:
+                            </span>
+                            <span
+                              className={`ml-1 font-medium ${getScoreColor(
+                                result.evaluation.technicalQuality
+                              )}`}
+                            >
+                              {result.evaluation.technicalQuality}
+                            </span>
+                          </div>
+                        </div>
+                      )}
 
-          <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg p-4 mb-4">
-            <div className="flex items-center justify-between mb-4">
-              <h4 className="text-lg font-semibold text-gray-800">Individual Scores</h4>
-              <div className="text-2xl font-bold text-purple-600">
-                {evaluation.score ? evaluation.score :
-                 ((evaluation.visualAppeal * weights.visualAppeal) +
-                  (evaluation.styleSimilarity * weights.styleSimilarity) +
-                  (evaluation.technicalQuality * weights.technicalQuality)).toFixed(1)}
-              </div>
-            </div>
-
-            {!evaluation.score && (
-              <div className="grid grid-cols-3 gap-4 mb-4">
-                <div className="text-center">
-                  <div className="text-lg font-semibold text-blue-600">{evaluation.visualAppeal}</div>
-                  <div className="text-sm text-gray-600">Visual Appeal ({weights.visualAppeal.toFixed(2)})</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-lg font-semibold text-green-600">{evaluation.styleSimilarity}</div>
-                  <div className="text-sm text-gray-600">Style Similarity ({weights.styleSimilarity.toFixed(2)})</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-lg font-semibold text-orange-600">{evaluation.technicalQuality}</div>
-                  <div className="text-sm text-gray-600">Technical Quality ({weights.technicalQuality.toFixed(2)})</div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h4 className="font-semibold text-gray-800 mb-2">Analysis</h4>
-            <p className="text-gray-700 leading-relaxed">{evaluation.reasoning}</p>
-          </div>
-        </div>
-      )}
-
-      {/* Batch Results */}
-      {batchResults.length > 0 && mode === 'batch' && (
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
-            <Trophy className="mr-2" size={20} />
-            Ranked Results ({batchResults.length} samples)
-          </h3>
-
-          <div className="space-y-4">
-            {batchResults.map((result, index) => (
-              <div key={result.sampleId} className="border border-gray-200 rounded-lg p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div style={{ display: 'flex', alignItems: 'center' }}>
-                    <div style={{
-                      width: '32px',
-                      height: '32px',
-                      borderRadius: '50%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontWeight: 'bold',
-                      color: 'white',
-                      marginRight: '24px',
-                      backgroundColor: index === 0 ? '#eab308' :
-                                    index === 1 ? '#9ca3af' :
-                                    index === 2 ? '#f97316' : '#3b82f6'
-                    }}>
-                      {index + 1}
-                    </div>
-                    <div>
-                      <span style={{
-                        fontSize: '18px',
-                        fontWeight: '600',
-                        color: '#9333ea'
-                      }}>
-                        {result.calculatedScore}
-                      </span>
-                      {result.visualAppeal !== undefined && (
-                        <div className="text-xs text-gray-500 mt-1">
-                          Visual: {result.visualAppeal} | Style: {result.styleSimilarity} | Technical: {result.technicalQuality}
+                      {result.evaluation?.reasoning && (
+                        <div className="mt-3 p-2 bg-gray-50 rounded">
+                          <p className="text-xs text-gray-700">
+                            {result.evaluation.reasoning}
+                          </p>
                         </div>
                       )}
                     </div>
-                  </div>
+                  ))}
                 </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <h5 className="text-sm font-medium text-gray-700 mb-1">Generated</h5>
-                    <img
-                      src={result.samplePair?.generated.url}
-                      alt="Generated"
-                      style={{ maxHeight: '120px', maxWidth: '120px', objectFit: 'cover' }}
-                      className="rounded border"
-                    />
-                  </div>
-                  <div>
-                    <h5 className="text-sm font-medium text-gray-700 mb-1">Reference</h5>
-                    <img
-                      src={result.samplePair?.reference.url}
-                      alt="Reference"
-                      style={{ maxHeight: '120px', maxWidth: '120px', objectFit: 'cover' }}
-                      className="rounded border"
-                    />
-                  </div>
-                  <div>
-                    <h5 className="text-sm font-medium text-gray-700 mb-1">Analysis</h5>
-                    <div className="bg-gray-50 rounded p-2 h-24 overflow-y-auto">
-                      <p className="text-xs text-gray-600">{result.reasoning}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
+              )}
+            </div>
           </div>
         </div>
-      )}
+      </div>
     </div>
-  )
-}
+  );
+};
 
-export default EvaluationTester
+export default EvaluationTester;

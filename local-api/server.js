@@ -1174,7 +1174,7 @@ app.post("/api/test/generate-images", upload.array('images', 10), async (req, re
   }
 });
 
-// GPT-4 Vision Evaluation endpoint
+// Gemini Vision Evaluation endpoint
 app.post("/api/evaluate-gpt4-vision", async (req, res) => {
   try {
     const { generatedImageUrl, referenceImageUrl, customPrompt } = req.body;
@@ -1185,13 +1185,34 @@ app.post("/api/evaluate-gpt4-vision", async (req, res) => {
       });
     }
 
-    if (!process.env.OPENAI_API_KEY) {
-      return res.status(500).json({ error: 'OpenAI API key not configured' });
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({ error: 'Gemini API key not configured' });
     }
 
-    console.log('🔍 Evaluating images with GPT-4 Vision...');
-    console.log('📊 Generated image: [IMAGE DATA]');
-    console.log('📋 Reference image: [IMAGE DATA]');
+    console.log('🔍 Evaluating images with Gemini Vision...');
+    console.log('📋 Generated image URL:', generatedImageUrl);
+    console.log('📋 Reference image URL:', referenceImageUrl);
+    console.log('📝 Using prompt:', customPrompt.substring(0, 100) + '...');
+
+    // Test if images are accessible
+    console.log('🔗 Testing image accessibility...');
+    try {
+      const [genResponse, refResponse] = await Promise.all([
+        fetch(generatedImageUrl, { method: 'HEAD' }),
+        fetch(referenceImageUrl, { method: 'HEAD' })
+      ]);
+      console.log(`📊 Generated image status: ${genResponse.status} (${genResponse.headers.get('content-type')})`);
+      console.log(`📊 Reference image status: ${refResponse.status} (${refResponse.headers.get('content-type')})`);
+
+      if (!genResponse.ok || !refResponse.ok) {
+        console.warn('⚠️ One or both images are not accessible!');
+      }
+    } catch (fetchError) {
+      console.error('❌ Image accessibility test failed:', fetchError.message);
+    }
+
+    console.log('🔑 Gemini API Key available:', !!process.env.GEMINI_API_KEY);
+    console.log('🔑 API Key first 10 chars:', process.env.GEMINI_API_KEY?.substring(0, 10) + '...');
 
     const evaluationPrompt = customPrompt || `Compare these two dog images and provide a detailed evaluation.
 
@@ -1208,39 +1229,84 @@ Return your response as a JSON object with this exact format:
   "reasoning": "<detailed explanation of your ratings and observations>"
 }`;
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: evaluationPrompt
-            },
-            {
-              type: "image_url",
-              image_url: {
-                url: generatedImageUrl,
-                detail: "high"
-              }
-            },
-            {
-              type: "image_url", 
-              image_url: {
-                url: referenceImageUrl,
-                detail: "high"
-              }
-            }
-          ]
-        }
-      ],
-      max_tokens: 500,
-      temperature: 0.1
+    // Download images to pass to Gemini
+    console.log('📥 Downloading images for Gemini...');
+    const [genImageResponse, refImageResponse] = await Promise.all([
+      fetch(generatedImageUrl),
+      fetch(referenceImageUrl)
+    ]);
+
+    console.log(`📥 Generated image download: ${genImageResponse.status} ${genImageResponse.statusText}`);
+    console.log(`📥 Reference image download: ${refImageResponse.status} ${refImageResponse.statusText}`);
+
+    if (!genImageResponse.ok || !refImageResponse.ok) {
+      throw new Error('Failed to download images for Gemini evaluation');
+    }
+
+    const genImageBuffer = await genImageResponse.arrayBuffer();
+    const refImageBuffer = await refImageResponse.arrayBuffer();
+
+    console.log(`📦 Generated image size: ${genImageBuffer.byteLength} bytes`);
+    console.log(`📦 Reference image size: ${refImageBuffer.byteLength} bytes`);
+
+    const genMimeType = genImageResponse.headers.get('content-type') || 'image/jpeg';
+    const refMimeType = refImageResponse.headers.get('content-type') || 'image/jpeg';
+
+    console.log(`🎨 Generated image MIME: ${genMimeType}`);
+    console.log(`🎨 Reference image MIME: ${refMimeType}`);
+
+    console.log('🤖 Initializing Gemini model...');
+    const model = genAI.getGenerativeModel({
+      model: "gemini-2.5-flash-image-preview",
+      generationConfig: {
+        temperature: 0.1,
+        topK: 32,
+        topP: 1,
+        maxOutputTokens: 1000,
+      }
     });
 
-    const evaluationText = response.choices[0].message.content;
-    console.log('📝 GPT-4 Vision evaluation completed, parsing response...');
+    console.log('📝 Preparing Gemini request payload...');
+    const genImageData = {
+      inlineData: {
+        data: Buffer.from(genImageBuffer).toString('base64'),
+        mimeType: genMimeType,
+      },
+    };
+
+    const refImageData = {
+      inlineData: {
+        data: Buffer.from(refImageBuffer).toString('base64'),
+        mimeType: refMimeType,
+      },
+    };
+
+    console.log('📤 Payload structure:', {
+      hasText: !!evaluationPrompt,
+      hasImage1: !!genImageData.inlineData.data,
+      hasImage2: !!refImageData.inlineData.data,
+      image1Size: genImageData.inlineData.data.length,
+      image2Size: refImageData.inlineData.data.length,
+    });
+
+    console.log('🚀 Calling Gemini API...');
+    const response = await model.generateContent([evaluationPrompt, genImageData, refImageData]);
+
+    console.log('📨 Gemini response received');
+    console.log('📊 Response object keys:', Object.keys(response));
+    console.log('📊 Response.response keys:', response.response ? Object.keys(response.response) : 'no response property');
+
+    let evaluationText;
+    try {
+      evaluationText = response.response.text();
+      console.log('✅ Successfully extracted text from response');
+      console.log('📝 Response length:', evaluationText?.length || 0);
+    } catch (textError) {
+      console.error('❌ Error extracting text from response:', textError);
+      console.log('🔍 Full response object:', JSON.stringify(response, null, 2));
+      throw new Error(`Failed to extract text from Gemini response: ${textError.message}`);
+    }
+    console.log('📝 Gemini Vision evaluation completed, parsing response...');
 
     // Try to parse JSON from the response
     let evaluation;
@@ -1249,25 +1315,27 @@ Return your response as a JSON object with this exact format:
       const jsonMatch = evaluationText.match(/\{[\s\S]*\}/);
       const jsonString = jsonMatch ? jsonMatch[0] : evaluationText;
       evaluation = JSON.parse(jsonString);
+
+      // Validate that we have the required fields
+      if (!evaluation.visualAppeal || !evaluation.styleSimilarity || !evaluation.technicalQuality) {
+        throw new Error('Missing required evaluation fields');
+      }
     } catch (parseError) {
-      console.error('❌ Failed to parse GPT-4 Vision response as JSON:', parseError);
+      console.error('❌ Failed to parse Gemini Vision response as JSON:', parseError);
+      console.log('📄 Full response text:', evaluationText);
 
-      // Fallback: extract scores manually if JSON parsing fails
-      const visualAppealMatch = evaluationText.match(/visualAppeal["\s]*:[\s]*(\d+\.?\d*)/i);
-      const styleSimilarityMatch = evaluationText.match(/styleSimilarity["\s]*:[\s]*(\d+\.?\d*)/i);
-      const technicalQualityMatch = evaluationText.match(/technicalQuality["\s]*:[\s]*(\d+\.?\d*)/i);
-      const scoreMatch = evaluationText.match(/score["\s]*:[\s]*(\d+\.?\d*)/i);
+      // Check if Gemini refused to evaluate (common responses)
+      if (evaluationText.toLowerCase().includes("i'm sorry") ||
+          evaluationText.toLowerCase().includes("i can't") ||
+          evaluationText.toLowerCase().includes("i cannot") ||
+          evaluationText.toLowerCase().includes("unable to")) {
 
-      evaluation = {
-        visualAppeal: visualAppealMatch ? Math.min(10, parseFloat(visualAppealMatch[1])) : null,
-        styleSimilarity: styleSimilarityMatch ? Math.min(10, parseFloat(styleSimilarityMatch[1])) : null,
-        technicalQuality: technicalQualityMatch ? Math.min(10, parseFloat(technicalQualityMatch[1])) : null,
-        score: scoreMatch ? Math.min(10, parseFloat(scoreMatch[1])) : undefined,
-        reasoning: evaluationText
-      };
+        console.log('🚨 Gemini Vision declined to evaluate - skipping this sample');
+        throw new Error('Gemini Vision declined to evaluate this image pair');
+      }
 
-      console.log('🚨 GPT-4 Vision refused or failed to provide proper evaluation:');
-      console.log('📄 Full response:', evaluationText);
+      // For other parsing errors, throw with details
+      throw new Error(`Gemini Vision evaluation failed: ${parseError.message}. Response: ${evaluationText.substring(0, 100)}...`);
     }
 
     // Check if this is a single-score evaluation (new format)
@@ -1287,12 +1355,12 @@ Return your response as a JSON object with this exact format:
           reasoning: evaluation.reasoning || 'No reasoning provided'
         },
         metadata: {
-          model: "gpt-4o",
+          model: "gemini-2.5-flash",
           timestamp: new Date().toISOString()
         }
       };
 
-      console.log('✅ GPT-4 Vision evaluation completed (single score):', {
+      console.log('✅ Gemini Vision evaluation completed (single score):', {
         score: result.evaluation.score,
         model: result.metadata.model
       });
@@ -1305,7 +1373,7 @@ Return your response as a JSON object with this exact format:
           !evaluation.technicalQuality && evaluation.technicalQuality !== 0) {
         return res.status(400).json({
           success: false,
-          error: 'GPT-4 Vision refused to evaluate the images or could not provide valid scores',
+          error: 'Gemini Vision refused to evaluate the images or could not provide valid scores',
           reasoning: evaluation.reasoning
         });
       }
@@ -1323,12 +1391,12 @@ Return your response as a JSON object with this exact format:
           reasoning: evaluation.reasoning
         },
         metadata: {
-          model: "gpt-4o",
+          model: "gemini-2.5-flash",
           timestamp: new Date().toISOString()
         }
       };
 
-      console.log('✅ GPT-4 Vision evaluation completed (structured format):', {
+      console.log('✅ Gemini Vision evaluation completed (structured format):', {
         visualAppeal: result.evaluation.visualAppeal,
         styleSimilarity: result.evaluation.styleSimilarity,
         technicalQuality: result.evaluation.technicalQuality,
@@ -1338,7 +1406,7 @@ Return your response as a JSON object with this exact format:
     }
 
   } catch (error) {
-    console.error('❌ GPT-4 Vision evaluation error:', error);
+    console.error('❌ Gemini Vision evaluation error:', error);
     res.status(500).json({
       success: false,
       error: error.message
@@ -1361,7 +1429,7 @@ app.post("/api/evaluate-samples", async (req, res) => {
       return res.status(500).json({ error: 'OpenAI API key not configured' });
     }
 
-    console.log(`🔍 Evaluating ${samples.length} samples with GPT-4 Vision...`);
+    console.log(`🔍 Evaluating ${samples.length} samples with Gemini Vision...`);
 
     const defaultPrompt = `Evaluate this AI-generated dog image compared to the reference image.
 
@@ -1439,7 +1507,7 @@ Return ONLY a JSON object with this exact format:
             reasoning: evaluationText
           };
 
-          console.log('🚨 Batch evaluation - GPT-4 Vision parsing failed for sample:');
+          console.log('🚨 Batch evaluation - Gemini Vision parsing failed for sample:');
           console.log('📄 Full response:', evaluationText);
         }
 
@@ -1469,7 +1537,7 @@ Return ONLY a JSON object with this exact format:
           if (!evaluation.visualAppeal && evaluation.visualAppeal !== 0 ||
               !evaluation.styleSimilarity && evaluation.styleSimilarity !== 0 ||
               !evaluation.technicalQuality && evaluation.technicalQuality !== 0) {
-            console.log(`⚠️  Skipping sample ${sample.id} - GPT-4 Vision refused to evaluate`);
+            console.log(`⚠️  Skipping sample ${sample.id} - Gemini Vision refused to evaluate`);
             continue;
           }
 
@@ -1529,48 +1597,117 @@ Return ONLY a JSON object with this exact format:
   }
 });
 
-// In-memory storage for evaluation prompts and sample sets (in production, use a database)
-let evaluationPrompts = [];
-let nextPromptId = 1;
+// Sample sets - will be moved to database later if needed
 let sampleSets = [];
 let nextSampleSetId = 1;
 
 // Get saved evaluation prompts
-app.get("/api/evaluation-prompts", (req, res) => {
-  res.json({
-    success: true,
-    prompts: evaluationPrompts
-  });
-});
-
-// Save evaluation prompt
-app.post("/api/evaluation-prompts", (req, res) => {
+app.get("/api/evaluation-prompts", async (req, res) => {
   try {
-    const { name, content } = req.body;
+    const { data, error } = await supabase
+      .from('evaluation_prompts')
+      .select('*')
+      .order('created_at', { ascending: true });
 
-    if (!name || !content) {
-      return res.status(400).json({
-        error: 'Missing required parameters: name and content'
+    if (error) {
+      console.error('❌ Error loading evaluation prompts:', error);
+      return res.json({
+        success: true,
+        prompts: [] // Return empty array if table doesn't exist yet
       });
     }
 
-    const newPrompt = {
-      id: nextPromptId++,
-      name: name.trim(),
-      content: content.trim(),
-      createdAt: new Date().toISOString()
-    };
+    res.json({
+      success: true,
+      prompts: data || []
+    });
+  } catch (err) {
+    console.error('❌ Error fetching evaluation prompts:', err);
+    res.json({
+      success: true,
+      prompts: [] // Fallback to empty array
+    });
+  }
+});
 
-    evaluationPrompts.push(newPrompt);
+// Save evaluation prompt
+app.post("/api/evaluation-prompts", async (req, res) => {
+  try {
+    const { name, prompt, weights } = req.body;
+
+    if (!name || !prompt) {
+      return res.status(400).json({
+        error: 'Missing required parameters: name and prompt'
+      });
+    }
+
+    const { data, error } = await supabase
+      .from('evaluation_prompts')
+      .insert([
+        {
+          name: name.trim(),
+          prompt: prompt.trim(),
+          weights: weights || null,
+          created_at: new Date().toISOString()
+        }
+      ])
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ Error saving evaluation prompt:', error);
+      return res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
 
     console.log(`💾 Saved evaluation prompt: "${name}"`);
     res.json({
       success: true,
-      prompt: newPrompt
+      prompt: data
     });
 
   } catch (error) {
     console.error('❌ Error saving prompt:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Delete evaluation prompt
+app.delete("/api/evaluation-prompts/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({
+        error: 'Missing prompt ID'
+      });
+    }
+
+    const { error } = await supabase
+      .from('evaluation_prompts')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('❌ Error deleting evaluation prompt:', error);
+      return res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+
+    console.log(`🗑️ Deleted evaluation prompt ID: ${id}`);
+    res.json({
+      success: true
+    });
+
+  } catch (error) {
+    console.error('❌ Error deleting prompt:', error);
     res.status(500).json({
       success: false,
       error: error.message

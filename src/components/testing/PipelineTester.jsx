@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, ArrowRight, Star, Eye, Zap, Loader2, AlertCircle, RefreshCw } from 'lucide-react'
+import { Upload, ArrowRight, Star, Eye, Zap, Loader2, AlertCircle, RefreshCw, Database } from 'lucide-react'
 
 const PipelineTester = () => {
   const [uploadedImage, setUploadedImage] = useState(null)
@@ -14,6 +14,74 @@ const PipelineTester = () => {
   })
   const [error, setError] = useState('')
   const [step, setStep] = useState(1) // 1: upload, 2: generated, 3: evaluated
+  const [trainingSamples, setTrainingSamples] = useState([])
+  const [selectedTrainingSample, setSelectedTrainingSample] = useState('')
+
+  useEffect(() => {
+    loadTrainingSamples()
+  }, [])
+
+  const loadTrainingSamples = async () => {
+    try {
+      const response = await fetch('http://localhost:3001/api/training/samples')
+      if (response.ok) {
+        const data = await response.json()
+        setTrainingSamples(data.samples || [])
+      }
+    } catch (err) {
+      console.log('No training samples available')
+    }
+  }
+
+  const loadTrainingSampleImages = async (sampleId) => {
+    const sample = trainingSamples.find(s => s.id === parseInt(sampleId))
+    if (!sample) return
+
+    try {
+      // Fetch both images from the training sample
+      const [uploadedResponse, generatedResponse] = await Promise.all([
+        fetch(sample.uploaded_image_url),
+        fetch(sample.generated_image_url)
+      ])
+
+      const uploadedBlob = await uploadedResponse.blob()
+      const generatedBlob = await generatedResponse.blob()
+
+      // Create File objects
+      const uploadedFile = new File([uploadedBlob], `customer_${sample.customer_id}.jpg`, { type: 'image/jpeg' })
+      const generatedFile = new File([generatedBlob], `generated_${sample.customer_id}.jpg`, { type: 'image/jpeg' })
+
+      // Set uploaded image (original customer image)
+      const uploadedReader = new FileReader()
+      uploadedReader.onload = () => {
+        setUploadedImage({
+          file: uploadedFile,
+          preview: uploadedReader.result,
+          name: `Customer ${sample.customer_id} Original`
+        })
+      }
+      uploadedReader.readAsDataURL(uploadedFile)
+
+      // Set reference image (AI generated image)
+      const generatedReader = new FileReader()
+      generatedReader.onload = () => {
+        setReferenceImage({
+          file: generatedFile,
+          preview: generatedReader.result,
+          name: `Customer ${sample.customer_id} Generated (${sample.product_type})`
+        })
+      }
+      generatedReader.readAsDataURL(generatedFile)
+
+      setError('')
+      setStep(1)
+      setGeneratedImage(null)
+      setEvaluation(null)
+
+    } catch (err) {
+      setError('Failed to load training sample images')
+    }
+  }
 
   const createDropzone = (onDrop, acceptedImage, label) => {
     const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -271,6 +339,38 @@ const PipelineTester = () => {
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md flex items-center">
             <AlertCircle className="text-red-500 mr-2" size={16} />
             <span className="text-red-700">{error}</span>
+          </div>
+        )}
+
+        {/* Training Samples */}
+        {trainingSamples.length > 0 && (
+          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="flex items-center mb-3">
+              <Database className="mr-2 text-blue-600" size={16} />
+              <h4 className="font-medium text-blue-800">Use Training Sample Pair</h4>
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                value={selectedTrainingSample}
+                onChange={(e) => {
+                  setSelectedTrainingSample(e.target.value)
+                  if (e.target.value) {
+                    loadTrainingSampleImages(e.target.value)
+                  }
+                }}
+                className="flex-1 p-2 border border-blue-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="">Select a customer's image pair...</option>
+                {trainingSamples.map(sample => (
+                  <option key={sample.id} value={sample.id}>
+                    Customer {sample.customer_id} - {sample.product_type}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p className="text-xs text-blue-600 mt-2">
+              Load real customer data: original photo + AI generated reference for comparison
+            </p>
           </div>
         )}
 

@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, Image, Loader2, AlertCircle } from 'lucide-react'
+import { Upload, Image, Loader2, AlertCircle, Database } from 'lucide-react'
 
 const GenerationTester = () => {
   const [uploadedImage, setUploadedImage] = useState(null)
@@ -8,6 +8,49 @@ const GenerationTester = () => {
   const [generatedImage, setGeneratedImage] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [trainingSamples, setTrainingSamples] = useState([])
+  const [selectedTrainingSample, setSelectedTrainingSample] = useState('')
+
+  useEffect(() => {
+    loadTrainingSamples()
+  }, [])
+
+  const loadTrainingSamples = async () => {
+    try {
+      const response = await fetch('http://localhost:3001/api/training/samples')
+      if (response.ok) {
+        const data = await response.json()
+        setTrainingSamples(data.samples || [])
+      }
+    } catch (err) {
+      console.log('No training samples available')
+    }
+  }
+
+  const loadTrainingSampleImage = async (sampleId) => {
+    const sample = trainingSamples.find(s => s.id === parseInt(sampleId))
+    if (!sample) return
+
+    try {
+      // Fetch the uploaded image from the training sample
+      const response = await fetch(sample.uploaded_image_url)
+      const blob = await response.blob()
+      const file = new File([blob], `training_${sample.customer_id}.jpg`, { type: 'image/jpeg' })
+
+      const reader = new FileReader()
+      reader.onload = () => {
+        setUploadedImage({
+          file,
+          preview: reader.result,
+          name: `Customer ${sample.customer_id} (${sample.product_type})`
+        })
+      }
+      reader.readAsDataURL(file)
+      setError('')
+    } catch (err) {
+      setError('Failed to load training sample image')
+    }
+  }
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     accept: {
@@ -86,6 +129,38 @@ const GenerationTester = () => {
           </div>
         )}
 
+        {/* Training Samples */}
+        {trainingSamples.length > 0 && (
+          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="flex items-center mb-3">
+              <Database className="mr-2 text-blue-600" size={16} />
+              <h4 className="font-medium text-blue-800">Use Training Sample</h4>
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                value={selectedTrainingSample}
+                onChange={(e) => {
+                  setSelectedTrainingSample(e.target.value)
+                  if (e.target.value) {
+                    loadTrainingSampleImage(e.target.value)
+                  }
+                }}
+                className="flex-1 p-2 border border-blue-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="">Select a customer image...</option>
+                {trainingSamples.map(sample => (
+                  <option key={sample.id} value={sample.id}>
+                    Customer {sample.customer_id} - {sample.product_type}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p className="text-xs text-blue-600 mt-2">
+              Use real customer uploaded images from production data
+            </p>
+          </div>
+        )}
+
         {/* Image Upload */}
         <div className="mb-6">
           <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -107,10 +182,10 @@ const GenerationTester = () => {
                 <img
                   src={uploadedImage.preview}
                   alt="Uploaded"
-                  style={{ 
-                    maxHeight: '80px', 
-                    maxWidth: '120px', 
-                    objectFit: 'cover' 
+                  style={{
+                    maxHeight: '80px',
+                    maxWidth: '120px',
+                    objectFit: 'cover'
                   }}
                   className="rounded border"
                 />

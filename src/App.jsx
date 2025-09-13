@@ -10,6 +10,7 @@ import IteratePage from "./components/iterate/IteratePage";
 import GenerationTester from "./components/testing/GenerationTester";
 import EvaluationTester from "./components/testing/EvaluationTester";
 import PipelineTester from "./components/testing/PipelineTester";
+import TrainingGenerator from "./components/testing/TrainingGenerator";
 
 function App() {
   const [user, setUser] = useState(null);
@@ -106,6 +107,8 @@ function App() {
         return <EvaluationTester />;
       case "pipeline-tester":
         return <PipelineTester />;
+      case "training-generator":
+        return <TrainingGenerator />;
       default:
         return null;
     }
@@ -213,6 +216,16 @@ function App() {
                 }`}
               >
                 Pipeline Test
+              </button>
+              <button
+                onClick={() => setCurrentApp("training-generator")}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  currentApp === "training-generator"
+                    ? "bg-blue-100 text-blue-700 border border-blue-200"
+                    : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                }`}
+              >
+                Training Generator
               </button>
             </div>
 

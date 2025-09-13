@@ -48,7 +48,14 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+// Production database client for training sample generation
+const prodSupabase = createClient(
+  process.env.PROD_SUPABASE_URL,
+  process.env.PROD_SUPABASE_SERVICE_ROLE_KEY
+);
+
 console.log('✅ Supabase client initialized');
+console.log('✅ Production Supabase client initialized');
 
 // Initialize database tables
 async function initializeDatabase() {
@@ -71,6 +78,28 @@ async function initializeDatabase() {
     `);
   } else {
     console.log('✅ Current working samples table exists and is accessible');
+  }
+
+  // Check training samples table
+  const { data: trainingData, error: trainingError } = await supabase
+    .from('training_samples')
+    .select('id')
+    .limit(1);
+
+  if (trainingError) {
+    console.log('⚠️  Table training_samples does not exist. Please create it manually in Supabase with this SQL:');
+    console.log(`
+      CREATE TABLE training_samples (
+        id SERIAL PRIMARY KEY,
+        customer_id TEXT NOT NULL,
+        product_type TEXT NOT NULL,
+        uploaded_image_url TEXT NOT NULL,
+        generated_image_url TEXT NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+    `);
+  } else {
+    console.log('✅ Training samples table exists and is accessible');
   }
 }
 
@@ -1230,19 +1259,22 @@ Return your response as a JSON object with this exact format:
       const scoreMatch = evaluationText.match(/score["\s]*:[\s]*(\d+\.?\d*)/i);
 
       evaluation = {
-        visualAppeal: visualAppealMatch ? Math.min(10, parseFloat(visualAppealMatch[1])) : 7,
-        styleSimilarity: styleSimilarityMatch ? Math.min(10, parseFloat(styleSimilarityMatch[1])) : 7,
-        technicalQuality: technicalQualityMatch ? Math.min(10, parseFloat(technicalQualityMatch[1])) : 8,
+        visualAppeal: visualAppealMatch ? Math.min(10, parseFloat(visualAppealMatch[1])) : null,
+        styleSimilarity: styleSimilarityMatch ? Math.min(10, parseFloat(styleSimilarityMatch[1])) : null,
+        technicalQuality: technicalQualityMatch ? Math.min(10, parseFloat(technicalQualityMatch[1])) : null,
         score: scoreMatch ? Math.min(10, parseFloat(scoreMatch[1])) : undefined,
         reasoning: evaluationText
       };
+
+      console.log('🚨 GPT-4 Vision refused or failed to provide proper evaluation:');
+      console.log('📄 Full response:', evaluationText);
     }
 
     // Check if this is a single-score evaluation (new format)
     if (evaluation.score !== undefined) {
       // Single score format
       const originalScore = evaluation.score;
-      evaluation.score = Math.max(0, Math.min(10, evaluation.score || 7.0));
+      evaluation.score = Math.max(0, Math.min(10, evaluation.score));
 
       if (originalScore !== evaluation.score) {
         console.log(`⚠️  Score clamped from ${originalScore} to ${evaluation.score}`);
@@ -1267,9 +1299,20 @@ Return your response as a JSON object with this exact format:
       res.json(result);
     } else {
       // New structured format with separate criteria scores
-      evaluation.visualAppeal = Math.max(0, Math.min(10, evaluation.visualAppeal || 7));
-      evaluation.styleSimilarity = Math.max(0, Math.min(10, evaluation.styleSimilarity || 7));
-      evaluation.technicalQuality = Math.max(0, Math.min(10, evaluation.technicalQuality || 8));
+      // Check if we have valid scores, reject if any are null/undefined
+      if (!evaluation.visualAppeal && evaluation.visualAppeal !== 0 ||
+          !evaluation.styleSimilarity && evaluation.styleSimilarity !== 0 ||
+          !evaluation.technicalQuality && evaluation.technicalQuality !== 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'GPT-4 Vision refused to evaluate the images or could not provide valid scores',
+          reasoning: evaluation.reasoning
+        });
+      }
+
+      evaluation.visualAppeal = Math.max(0, Math.min(10, evaluation.visualAppeal));
+      evaluation.styleSimilarity = Math.max(0, Math.min(10, evaluation.styleSimilarity));
+      evaluation.technicalQuality = Math.max(0, Math.min(10, evaluation.technicalQuality));
 
       const result = {
         success: true,
@@ -1389,12 +1432,15 @@ Return ONLY a JSON object with this exact format:
           const scoreMatch = evaluationText.match(/score["\s]*:[\s]*(\d+\.?\d*)/i);
 
           evaluation = {
-            visualAppeal: visualAppealMatch ? parseFloat(visualAppealMatch[1]) : 7.0,
-            styleSimilarity: styleSimilarityMatch ? parseFloat(styleSimilarityMatch[1]) : 7.0,
-            technicalQuality: technicalQualityMatch ? parseFloat(technicalQualityMatch[1]) : 7.0,
+            visualAppeal: visualAppealMatch ? parseFloat(visualAppealMatch[1]) : null,
+            styleSimilarity: styleSimilarityMatch ? parseFloat(styleSimilarityMatch[1]) : null,
+            technicalQuality: technicalQualityMatch ? parseFloat(technicalQualityMatch[1]) : null,
             score: scoreMatch ? parseFloat(scoreMatch[1]) : undefined,
             reasoning: evaluationText
           };
+
+          console.log('🚨 Batch evaluation - GPT-4 Vision parsing failed for sample:');
+          console.log('📄 Full response:', evaluationText);
         }
 
         // Handle both structured and legacy score formats
@@ -1419,9 +1465,17 @@ Return ONLY a JSON object with this exact format:
           });
         } else {
           // New structured format
-          evaluation.visualAppeal = Math.max(0.0, Math.min(10.0, evaluation.visualAppeal || 7.0));
-          evaluation.styleSimilarity = Math.max(0.0, Math.min(10.0, evaluation.styleSimilarity || 7.0));
-          evaluation.technicalQuality = Math.max(0.0, Math.min(10.0, evaluation.technicalQuality || 7.0));
+          // Skip this sample if GPT-4 refused to evaluate (null scores)
+          if (!evaluation.visualAppeal && evaluation.visualAppeal !== 0 ||
+              !evaluation.styleSimilarity && evaluation.styleSimilarity !== 0 ||
+              !evaluation.technicalQuality && evaluation.technicalQuality !== 0) {
+            console.log(`⚠️  Skipping sample ${sample.id} - GPT-4 Vision refused to evaluate`);
+            continue;
+          }
+
+          evaluation.visualAppeal = Math.max(0.0, Math.min(10.0, evaluation.visualAppeal));
+          evaluation.styleSimilarity = Math.max(0.0, Math.min(10.0, evaluation.styleSimilarity));
+          evaluation.technicalQuality = Math.max(0.0, Math.min(10.0, evaluation.technicalQuality));
 
           results.push({
             sampleId: sample.id,
@@ -1967,6 +2021,319 @@ app.post("/api/generate-chain-prompts", async (req, res) => {
   } catch (error) {
     console.error('Chain prompt generation error:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Training Sample Generation Endpoints
+
+// Get customers with single uploaded images
+app.get("/api/prod/customers", async (req, res) => {
+  try {
+    console.log('🔍 Scanning production storage for single-image customers...');
+
+    // List all customer folders in product-images bucket
+    const { data: customerFolders, error: listError } = await prodSupabase.storage
+      .from('product-images')
+      .list('', { limit: 1000 });
+
+    if (listError) {
+      console.error('❌ Error listing customer folders:', listError);
+      return res.status(500).json({ error: 'Failed to list customer folders' });
+    }
+
+    const singleImageCustomers = [];
+
+    // Check each customer folder for uploaded images
+    for (const folder of customerFolders) {
+      if (!folder.name || folder.name === '.emptyFolderPlaceholder') continue;
+
+      try {
+        // Check if uploaded folder exists and count images
+        const { data: uploadedFiles, error: uploadError } = await prodSupabase.storage
+          .from('product-images')
+          .list(`${folder.name}/uploaded`, { limit: 10 });
+
+        if (!uploadError && uploadedFiles) {
+          // Filter out folder placeholders and count actual image files
+          const imageFiles = uploadedFiles.filter(file =>
+            file.name &&
+            !file.name.includes('.emptyFolderPlaceholder') &&
+            /\.(jpg|jpeg|png|webp)$/i.test(file.name)
+          );
+
+          if (imageFiles.length === 1) {
+            singleImageCustomers.push({
+              customerId: folder.name,
+              uploadedImage: imageFiles[0].name,
+              uploadedAt: imageFiles[0].created_at
+            });
+          }
+        }
+      } catch (error) {
+        console.log(`⚠️  Skipping customer ${folder.name}: ${error.message}`);
+      }
+    }
+
+    console.log(`✅ Found ${singleImageCustomers.length} customers with single uploaded images`);
+
+    res.json({
+      success: true,
+      customers: singleImageCustomers,
+      totalCount: singleImageCustomers.length
+    });
+
+  } catch (error) {
+    console.error('❌ Error scanning customers:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Get available product types
+app.get("/api/prod/products", async (req, res) => {
+  try {
+    console.log('🔍 Scanning for available product types...');
+
+    // Get a sample customer to see what product folders exist
+    const { data: customerFolders, error: listError } = await prodSupabase.storage
+      .from('product-images')
+      .list('', { limit: 10 });
+
+    if (listError) {
+      return res.status(500).json({ error: 'Failed to list customer folders' });
+    }
+
+    const productTypes = new Set();
+
+    // Check first few customers to find available product types
+    for (const folder of customerFolders.slice(0, 5)) {
+      if (!folder.name || folder.name === '.emptyFolderPlaceholder') continue;
+
+      try {
+        const { data: subFolders, error } = await prodSupabase.storage
+          .from('product-images')
+          .list(folder.name, { limit: 20 });
+
+        if (!error && subFolders) {
+          subFolders.forEach(subFolder => {
+            if (subFolder.name &&
+                subFolder.name !== 'uploaded' &&
+                !subFolder.name.includes('.emptyFolderPlaceholder')) {
+              productTypes.add(subFolder.name);
+            }
+          });
+        }
+      } catch (error) {
+        console.log(`⚠️  Error checking ${folder.name}:`, error.message);
+      }
+    }
+
+    const products = Array.from(productTypes).sort();
+    console.log(`✅ Found product types:`, products);
+
+    res.json({
+      success: true,
+      products: products
+    });
+
+  } catch (error) {
+    console.error('❌ Error scanning products:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Generate training samples - batch download and process
+app.post("/api/training/generate", async (req, res) => {
+  try {
+    const { productType, customers } = req.body;
+
+    if (!productType || !customers || customers.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required parameters: productType and customers'
+      });
+    }
+
+    console.log(`🚀 Starting training sample generation for ${customers.length} customers with product: ${productType}`);
+
+    const results = [];
+    const errors = [];
+
+    // Process customers in batches
+    for (let i = 0; i < customers.length; i++) {
+      const customer = customers[i];
+
+      try {
+        console.log(`📥 Processing customer ${i + 1}/${customers.length}: ${customer.customerId}`);
+
+        // Download uploaded image from production
+        const uploadedPath = `${customer.customerId}/uploaded/${customer.uploadedImage}`;
+        const { data: uploadedImageData, error: uploadedError } = await prodSupabase.storage
+          .from('product-images')
+          .download(uploadedPath);
+
+        if (uploadedError) {
+          throw new Error(`Failed to download uploaded image: ${uploadedError.message}`);
+        }
+
+        // Find and download product image
+        const { data: productFiles, error: productListError } = await prodSupabase.storage
+          .from('product-images')
+          .list(`${customer.customerId}/${productType}`, { limit: 10 });
+
+        if (productListError || !productFiles || productFiles.length === 0) {
+          throw new Error(`No product images found for ${productType}`);
+        }
+
+        // Get the first product image (or you could add logic to select specific ones)
+        const productImage = productFiles.find(file =>
+          file.name && /\.(jpg|jpeg|png|webp)$/i.test(file.name)
+        );
+
+        if (!productImage) {
+          throw new Error(`No valid product image found for ${productType}`);
+        }
+
+        const productPath = `${customer.customerId}/${productType}/${productImage.name}`;
+        const { data: productImageData, error: productError } = await prodSupabase.storage
+          .from('product-images')
+          .download(productPath);
+
+        if (productError) {
+          throw new Error(`Failed to download product image: ${productError.message}`);
+        }
+
+        // Upload images to local Supabase storage
+        const timestamp = Date.now();
+        const uploadedFileName = `training_samples/uploaded_${customer.customerId}_${timestamp}.${customer.uploadedImage.split('.').pop()}`;
+        const productFileName = `training_samples/generated_${customer.customerId}_${productType}_${timestamp}.${productImage.name.split('.').pop()}`;
+
+        // Upload uploaded image
+        const { data: uploadedUpload, error: uploadedUploadError } = await supabase.storage
+          .from('generated-images')
+          .upload(uploadedFileName, uploadedImageData, {
+            contentType: `image/${customer.uploadedImage.split('.').pop()}`,
+            cacheControl: '3600'
+          });
+
+        if (uploadedUploadError) {
+          throw new Error(`Failed to upload uploaded image: ${uploadedUploadError.message}`);
+        }
+
+        // Upload product image
+        const { data: productUpload, error: productUploadError } = await supabase.storage
+          .from('generated-images')
+          .upload(productFileName, productImageData, {
+            contentType: `image/${productImage.name.split('.').pop()}`,
+            cacheControl: '3600'
+          });
+
+        if (productUploadError) {
+          throw new Error(`Failed to upload product image: ${productUploadError.message}`);
+        }
+
+        // Create public URLs
+        const uploadedUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/generated-images/${uploadedUpload.path}`;
+        const productUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/generated-images/${productUpload.path}`;
+
+        // Save to training samples database
+        const { data: trainingSample, error: dbError } = await supabase
+          .from('training_samples')
+          .insert({
+            customer_id: customer.customerId,
+            product_type: productType,
+            uploaded_image_url: uploadedUrl,
+            generated_image_url: productUrl
+          })
+          .select()
+          .single();
+
+        if (dbError) {
+          throw new Error(`Failed to save training sample: ${dbError.message}`);
+        }
+
+        results.push({
+          customerId: customer.customerId,
+          success: true,
+          trainingSampleId: trainingSample.id,
+          uploadedUrl,
+          productUrl
+        });
+
+        console.log(`✅ Successfully processed customer ${customer.customerId}`);
+
+      } catch (error) {
+        console.error(`❌ Error processing customer ${customer.customerId}:`, error);
+        errors.push({
+          customerId: customer.customerId,
+          error: error.message
+        });
+
+        results.push({
+          customerId: customer.customerId,
+          success: false,
+          error: error.message
+        });
+      }
+
+      // Add small delay to avoid overwhelming the API
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+
+    console.log(`🎉 Training sample generation complete: ${results.filter(r => r.success).length} successful, ${errors.length} failed`);
+
+    res.json({
+      success: true,
+      results,
+      summary: {
+        total: customers.length,
+        successful: results.filter(r => r.success).length,
+        failed: errors.length,
+        productType
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Training sample generation error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Get training samples
+app.get("/api/training/samples", async (req, res) => {
+  try {
+    const { data: samples, error } = await supabase
+      .from('training_samples')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to fetch training samples'
+      });
+    }
+
+    res.json({
+      success: true,
+      samples: samples || [],
+      count: samples?.length || 0
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching training samples:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 });
 

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, Eye, Loader2, AlertCircle, Plus, X, Play, Save, Trophy, BarChart3, Settings } from 'lucide-react'
+import { Upload, Eye, Loader2, AlertCircle, Plus, X, Play, Save, Trophy, BarChart3, Settings, Database } from 'lucide-react'
 
 const EvaluationTester = () => {
   const [generatedImage, setGeneratedImage] = useState(null)
@@ -20,6 +20,9 @@ const EvaluationTester = () => {
     styleSimilarity: 0.3,
     technicalQuality: 0.3
   })
+  const [trainingSamples, setTrainingSamples] = useState([])
+  const [loadingTraining, setLoadingTraining] = useState(false)
+  const [generationPrompt, setGenerationPrompt] = useState('Transform this dog into a cute, adorable style')
 
   // Default evaluation prompt
   const defaultPrompt = `Evaluate this AI-generated dog image compared to the reference image.
@@ -43,7 +46,20 @@ Return ONLY a JSON object with this exact format:
     }
     loadSavedPrompts()
     loadCurrentSamples()
+    loadTrainingSamples()
   }, [])
+
+  const loadTrainingSamples = async () => {
+    try {
+      const response = await fetch('http://localhost:3001/api/training/samples')
+      if (response.ok) {
+        const data = await response.json()
+        setTrainingSamples(data.samples || [])
+      }
+    } catch (err) {
+      console.log('No training samples available')
+    }
+  }
 
   const loadSavedPrompts = async () => {
     try {
@@ -115,6 +131,108 @@ Return ONLY a JSON object with this exact format:
       }
     } catch (err) {
       setError('Failed to reset sample set')
+    }
+  }
+
+  const loadTrainingSamplesAsEvaluation = async () => {
+    if (trainingSamples.length === 0) {
+      setError('No training samples available')
+      return
+    }
+
+    if (!customPrompt.trim()) {
+      setError('Please enter an evaluation prompt first')
+      return
+    }
+
+    setLoadingTraining(true)
+    setError('')
+
+    try {
+      // Clear current samples first
+      await fetch('http://localhost:3001/api/current-samples', { method: 'DELETE' })
+
+      console.log(`🎯 Generating new images for ${trainingSamples.length} training samples...`)
+
+      // Process each training sample
+      for (let i = 0; i < trainingSamples.length; i++) {
+        const sample = trainingSamples[i]
+        console.log(`📸 Processing sample ${i + 1}/${trainingSamples.length}: Customer ${sample.customer_id}`)
+
+        try {
+          // Download the customer's uploaded image for generating new images
+          const uploadedResponse = await fetch(sample.uploaded_image_url)
+          const uploadedBlob = await uploadedResponse.blob()
+          const uploadedFile = new File([uploadedBlob], `uploaded_${sample.customer_id}.jpg`, { type: 'image/jpeg' })
+
+          // Download the OpenAI generated image (this will be our reference)
+          const referenceResponse = await fetch(sample.generated_image_url)
+          const referenceBlob = await referenceResponse.blob()
+          const referenceFile = new File([referenceBlob], `reference_${sample.customer_id}.jpg`, { type: 'image/jpeg' })
+
+          // Generate a new image using the uploaded image as input
+          const generateFormData = new FormData()
+          generateFormData.append('images', uploadedFile)
+          generateFormData.append('prompts', JSON.stringify([generationPrompt]))
+          generateFormData.append('selectedModel', 'gemini-img2img')
+
+          const generateResponse = await fetch('http://localhost:3001/api/test/generate-images', {
+            method: 'POST',
+            body: generateFormData
+          })
+
+          if (!generateResponse.ok) {
+            console.error(`Failed to generate image for sample ${sample.id}`)
+            continue
+          }
+
+          const generateData = await generateResponse.json()
+
+          if (!generateData.success || !generateData.results || generateData.results.length === 0) {
+            console.error(`No generated image returned for sample ${sample.id}`)
+            continue
+          }
+
+          const generatedImageUrl = generateData.results[0].imageUrl
+
+          // Download the newly generated image
+          const newGeneratedResponse = await fetch(generatedImageUrl)
+          const newGeneratedBlob = await newGeneratedResponse.blob()
+          const newGeneratedFile = new File([newGeneratedBlob], `generated_${sample.customer_id}.jpg`, { type: 'image/jpeg' })
+
+          // Upload the pair to current working samples
+          const uploadFormData = new FormData()
+          uploadFormData.append('generated', newGeneratedFile)  // Newly generated image
+          uploadFormData.append('reference', referenceFile)     // OpenAI generated image (reference)
+
+          const uploadResponse = await fetch('http://localhost:3001/api/upload-sample-images', {
+            method: 'POST',
+            body: uploadFormData
+          })
+
+          if (!uploadResponse.ok) {
+            console.error(`Failed to upload evaluation pair for sample ${sample.id}`)
+          } else {
+            console.log(`✅ Successfully created evaluation pair for customer ${sample.customer_id} (Generated vs OpenAI reference)`)
+          }
+
+        } catch (sampleError) {
+          console.error(`Error processing sample ${sample.id}:`, sampleError)
+        }
+
+        // Small delay between generations
+        await new Promise(resolve => setTimeout(resolve, 500))
+      }
+
+      // Reload the current samples
+      loadCurrentSamples()
+      setError('')
+
+    } catch (err) {
+      setError(`Failed to load training samples: ${err.message}`)
+      console.error('Training samples load error:', err)
+    } finally {
+      setLoadingTraining(false)
     }
   }
 
@@ -603,6 +721,58 @@ Return ONLY a JSON object with this exact format:
             {/* Sample Set Management */}
             <div className="border border-gray-200 rounded-lg p-4 mb-4">
               <h4 className="font-medium text-gray-800 mb-3">Sample Set Management</h4>
+
+              {trainingSamples.length > 0 && (
+                <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center">
+                      <Database size={16} className="mr-2 text-blue-600" />
+                      <span className="text-sm text-blue-800">
+                        {trainingSamples.length} training samples available
+                      </span>
+                    </div>
+                    <button
+                      onClick={loadTrainingSamplesAsEvaluation}
+                      disabled={loadingTraining}
+                      className={`px-3 py-1 rounded text-sm font-medium transition-colors flex items-center ${
+                        loadingTraining
+                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                          : 'bg-blue-600 text-white hover:bg-blue-700'
+                      }`}
+                    >
+                      {loadingTraining ? (
+                        <>
+                          <Loader2 className="animate-spin mr-1" size={12} />
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <Database size={12} className="mr-1" />
+                          Generate & Evaluate
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  <div className="mb-2">
+                    <label className="block text-xs font-medium text-blue-700 mb-1">
+                      Generation Prompt
+                    </label>
+                    <input
+                      type="text"
+                      value={generationPrompt}
+                      onChange={(e) => setGenerationPrompt(e.target.value)}
+                      placeholder="Enter prompt for generating images..."
+                      className="w-full px-2 py-1 text-xs border border-blue-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  <p className="text-xs text-blue-600">
+                    Generate new images from customer photos using this prompt, then evaluate vs OpenAI references
+                  </p>
+                </div>
+              )}
+
               <div className="flex flex-wrap gap-2 mb-3">
                 <button
                   onClick={resetSampleSet}

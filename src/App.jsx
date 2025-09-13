@@ -7,7 +7,6 @@ import RightPanel from "./components/RightPanel";
 import FinalizeDesigns from "./components/FinalizeDesigns";
 import TestDesign from "./components/TestDesign";
 import IteratePage from "./components/iterate/IteratePage";
-import GenerationTester from "./components/testing/GenerationTester";
 import EvaluationTester from "./components/testing/EvaluationTester";
 import PipelineTester from "./components/testing/PipelineTester";
 import TrainingDataManager from "./components/testing/TrainingDataManager";
@@ -101,8 +100,6 @@ function App() {
         return <TestDesign />;
       case "iterate":
         return <IteratePage />;
-      case "generation-tester":
-        return <GenerationTester />;
       case "evaluation-tester":
         return <EvaluationTester />;
       case "pipeline-tester":
@@ -196,16 +193,6 @@ function App() {
                 }`}
               >
                 Training Data
-              </button>
-              <button
-                onClick={() => setCurrentApp("generation-tester")}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  currentApp === "generation-tester"
-                    ? "bg-blue-100 text-blue-700 border border-blue-200"
-                    : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-                }`}
-              >
-                Generation Test
               </button>
               <button
                 onClick={() => setCurrentApp("evaluation-tester")}

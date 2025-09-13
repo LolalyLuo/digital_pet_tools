@@ -8,6 +8,9 @@ import fetch from "node-fetch";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import multer from "multer";
+// Import Vertex AI libraries
+import { JobServiceClient, PredictionServiceClient } from "@google-cloud/aiplatform";
+import { Storage } from "@google-cloud/storage";
 
 // Load environment variables
 dotenv.config();
@@ -56,6 +59,28 @@ const prodSupabase = createClient(
 
 console.log('✅ Supabase client initialized');
 console.log('✅ Production Supabase client initialized');
+
+// Initialize Vertex AI client
+const projectId = process.env.GOOGLE_CLOUD_PROJECT_ID;
+const location = process.env.VERTEX_AI_LOCATION || 'us-central1';
+
+console.log('🔧 Initializing Vertex AI client...');
+console.log('📍 Project ID:', projectId);
+console.log('📍 Location:', location);
+
+// Initialize clients with explicit configuration
+const clientOptions = {
+  projectId: projectId,
+  apiEndpoint: `${location}-aiplatform.googleapis.com`,
+};
+
+const jobServiceClient = new JobServiceClient(clientOptions);
+const predictionClient = new PredictionServiceClient(clientOptions);
+const storageClient = new Storage({
+  projectId: projectId,
+});
+
+console.log('✅ Vertex AI client initialized');
 
 // Initialize database tables
 async function initializeDatabase() {
@@ -2586,6 +2611,433 @@ app.get("/api/training/samples", async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.message
+    });
+  }
+});
+
+// Vertex AI Prompt Optimizer Endpoints
+// Submit prompt optimization job to Google Cloud Vertex AI
+app.post("/api/vertex-ai/optimize", async (req, res) => {
+  console.log("🎯 Vertex AI Prompt Optimizer job submission received");
+
+  try {
+    const {
+      trainingDataSet,
+      basePrompts,
+      optimizationMode = "data-driven",
+      targetModel = "gemini-2.5-flash",
+      evaluationMetrics = ["bleu", "rouge"]
+    } = req.body;
+
+    if (!trainingDataSet || !basePrompts || basePrompts.length === 0) {
+      return res.status(400).json({
+        error: "Missing required parameters",
+        details: "trainingDataSet and basePrompts are required"
+      });
+    }
+
+    console.log(`📊 Training Data Set: ${trainingDataSet}`);
+    console.log(`📝 Base Prompts: ${basePrompts.length} prompts`);
+    console.log(`⚙️ Optimization Mode: ${optimizationMode}`);
+    console.log(`🎯 Target Model: ${targetModel}`);
+
+    // Step 1: Format training data as JSONL
+    console.log("📋 Formatting training data...");
+    const formatResponse = await fetch(`http://localhost:${PORT}/api/vertex-ai/format-data`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trainingDataSet, basePrompts })
+    });
+
+    if (!formatResponse.ok) {
+      throw new Error("Failed to format training data");
+    }
+
+    const formattedData = await formatResponse.json();
+
+    // Step 2: Upload training data and config to Cloud Storage
+    console.log("☁️ Uploading training data and config to Cloud Storage...");
+    const bucketName = `vertex-ai-optimizer-${projectId}`;
+    const fileName = `training-data-${Date.now()}.jsonl`;
+    const configFileName = `config-${Date.now()}.json`;
+
+    try {
+      // Create bucket if it doesn't exist
+      await storageClient.createBucket(bucketName, {
+        location: location,
+      }).catch(error => {
+        if (error.code !== 5) { // Ignore "already exists" error
+          console.warn("Bucket creation warning:", error.message);
+        }
+      });
+
+      const bucket = storageClient.bucket(bucketName);
+
+      // Upload JSONL training data
+      const dataFile = bucket.file(fileName);
+      await dataFile.save(formattedData.jsonlData, {
+        metadata: {
+          contentType: 'application/jsonl',
+        },
+      });
+
+      const datasetUri = `gs://${bucketName}/${fileName}`;
+      console.log(`📄 Training data uploaded: ${datasetUri}`);
+
+      // Create and upload Vertex AI Prompt Optimizer config
+      const config = {
+        project: projectId,
+        location: location,
+        system_instruction: basePrompts[0] || "Generate a cute dog photo",
+        target_model: `projects/${projectId}/locations/${location}/publishers/google/models/${targetModel}`,
+        source_model: `projects/${projectId}/locations/${location}/publishers/google/models/gemini-1.5-flash`,
+        evaluation_dataset: datasetUri,
+        optimization_mode: optimizationMode,
+        evaluation_metrics: evaluationMetrics,
+        prompt_template: "{{input_text}}",
+        output_path: `gs://${bucketName}/results-${Date.now()}`
+      };
+
+      const configFile = bucket.file(configFileName);
+      await configFile.save(JSON.stringify(config, null, 2), {
+        metadata: {
+          contentType: 'application/json',
+        },
+      });
+
+      const configUri = `gs://${bucketName}/${configFileName}`;
+      console.log(`📄 Config uploaded: ${configUri}`);
+
+      // Step 3: Submit Vertex AI Prompt Optimizer job
+      console.log("🚀 Submitting to Vertex AI Prompt Optimizer...");
+      console.log(`🔧 Using Project: ${projectId}`);
+      console.log(`🔧 Using Location: ${location}`);
+
+      // NOTE: Vertex AI Prompt Optimizer currently requires Python SDK
+      // The Node.js SDK doesn't have direct support for Prompt Optimizer
+      // We'll use the Training Custom Job API as a workaround
+
+      const parent = `projects/${projectId}/locations/${location}`;
+      console.log(`🔧 Parent resource: ${parent}`);
+
+      const customJobSpec = {
+        displayName: `prompt-optimization-${Date.now()}`,
+        jobSpec: {
+          workerPoolSpecs: [{
+            machineSpec: {
+              machineType: 'n1-standard-4',
+            },
+            diskSpec: {
+              bootDiskType: 'pd-ssd',
+              bootDiskSizeGb: 100,
+            },
+            containerSpec: {
+              // Use Vertex AI Prompt Optimizer container image
+              imageUri: 'us-docker.pkg.dev/vertex-ai-restricted/builtin-algorithm/apd:preview_v1_0',
+              args: [
+                `--config=${configUri}`
+              ]
+            },
+            replicaCount: 1,
+          }]
+        }
+      };
+
+      const request = {
+        parent,
+        customJob: customJobSpec,
+      };
+
+      console.log("🔄 Creating custom training job for prompt optimization...");
+
+      try {
+        const [job] = await jobServiceClient.createCustomJob(request);
+        const jobId = job.name.split('/').pop();
+
+        console.log(`✅ Vertex AI optimization job created: ${jobId}`);
+
+        res.json({
+          jobId: jobId,
+          status: "submitted",
+          trainingDataSet,
+          basePrompts: basePrompts.length,
+          optimizationMode,
+          targetModel,
+          evaluationMetrics,
+          datasetUri,
+          estimatedCompletionTime: "10-30 minutes",
+          timestamp: new Date().toISOString(),
+          message: "Job submitted successfully to Vertex AI"
+        });
+
+      } catch (vertexError) {
+        console.error("❌ Vertex AI job creation error:", vertexError);
+        throw new Error(`Vertex AI job creation failed: ${vertexError.message}`);
+      }
+
+    } catch (storageError) {
+      console.error("❌ Cloud Storage error:", storageError);
+      throw new Error(`Cloud Storage failed: ${storageError.message}`);
+    }
+
+  } catch (error) {
+    console.error("❌ Vertex AI optimization job submission error:", error);
+    res.status(500).json({
+      error: "Optimization job submission failed",
+      details: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Get optimization job status
+app.get("/api/vertex-ai/jobs/:jobId", async (req, res) => {
+  console.log("📊 Vertex AI job status check received");
+
+  try {
+    const { jobId } = req.params;
+
+    console.log(`🔍 Checking status for job: ${jobId}`);
+
+    // Query Vertex AI for job status
+    const jobName = `projects/${projectId}/locations/${location}/customJobs/${jobId}`;
+
+    try {
+      const [job] = await jobServiceClient.getCustomJob({ name: jobName });
+
+      console.log(`📊 Job state: ${job.state}`);
+
+      let status, progress = 0;
+
+      // Map Vertex AI job states to our status
+      switch (job.state) {
+        case 'JOB_STATE_QUEUED':
+        case 'JOB_STATE_PENDING':
+          status = 'queued';
+          progress = 0;
+          break;
+        case 'JOB_STATE_RUNNING':
+          status = 'running';
+          // Estimate progress based on start time
+          if (job.startTime) {
+            const startTime = new Date(job.startTime.seconds * 1000);
+            const elapsed = Date.now() - startTime.getTime();
+            const estimated = 20 * 60 * 1000; // 20 minutes estimated
+            progress = Math.min(Math.floor((elapsed / estimated) * 95), 95);
+          } else {
+            progress = 10;
+          }
+          break;
+        case 'JOB_STATE_SUCCEEDED':
+          status = 'completed';
+          progress = 100;
+          break;
+        case 'JOB_STATE_FAILED':
+          status = 'failed';
+          progress = 0;
+          break;
+        case 'JOB_STATE_CANCELLED':
+          status = 'cancelled';
+          progress = 0;
+          break;
+        default:
+          status = 'unknown';
+          progress = 0;
+      }
+
+      const response = {
+        jobId,
+        status,
+        progress,
+        state: job.state,
+        displayName: job.displayName,
+        createTime: job.createTime,
+        startTime: job.startTime,
+        endTime: job.endTime,
+        timestamp: new Date().toISOString(),
+      };
+
+      // Add error details if failed
+      if (job.state === 'JOB_STATE_FAILED' && job.error) {
+        response.error = {
+          code: job.error.code,
+          message: job.error.message,
+        };
+      }
+
+      res.json(response);
+
+    } catch (jobError) {
+      if (jobError.code === 5) { // NOT_FOUND
+        console.log(`❓ Job ${jobId} not found`);
+        res.status(404).json({
+          error: "Job not found",
+          details: `Job ${jobId} does not exist`,
+          timestamp: new Date().toISOString()
+        });
+      } else {
+        throw jobError;
+      }
+    }
+
+  } catch (error) {
+    console.error("❌ Vertex AI job status check error:", error);
+    res.status(500).json({
+      error: "Job status check failed",
+      details: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Format training data for Vertex AI Prompt Optimizer
+app.post("/api/vertex-ai/format-data", async (req, res) => {
+  console.log("📋 Vertex AI data formatting request received");
+
+  try {
+    const { trainingDataSet, basePrompts } = req.body;
+
+    if (!trainingDataSet) {
+      return res.status(400).json({
+        error: "Missing required parameter",
+        details: "trainingDataSet is required"
+      });
+    }
+
+    console.log(`📊 Formatting data set: ${trainingDataSet}`);
+
+    // Get training samples from database
+    const { data: trainingSamples, error: dbError } = await supabase
+      .from("training_samples")
+      .select("*")
+      .eq("data_set_name", trainingDataSet)
+      .limit(100); // Limit for now
+
+    if (dbError) {
+      throw new Error(`Database error: ${dbError.message}`);
+    }
+
+    if (!trainingSamples || trainingSamples.length === 0) {
+      return res.status(404).json({
+        error: "No training samples found",
+        details: `No samples found for data set: ${trainingDataSet}`
+      });
+    }
+
+    console.log(`📄 Found ${trainingSamples.length} training samples`);
+
+    // Format for Vertex AI Prompt Optimizer JSONL
+    const formattedSamples = trainingSamples.map((sample) => {
+      // For image generation tasks, we format as:
+      // Input: customer image description/prompt
+      // Output: what the model should generate (represented by OpenAI result)
+      return {
+        input_text: basePrompts[0] || "Generate a cute dog photo", // Base prompt
+        input_image: sample.uploaded_image_url, // Customer image
+        output_text: "High-quality generated dog image", // Expected output description
+        reference_image: sample.openai_image_url, // Reference "gold standard"
+        sample_id: sample.id,
+        metadata: {
+          customer_id: sample.customer_id,
+          product_type: sample.product_type,
+          source: sample.source,
+          created_at: sample.created_at
+        }
+      };
+    });
+
+    // Convert to JSONL format (one JSON object per line)
+    const jsonlData = formattedSamples
+      .map(sample => JSON.stringify(sample))
+      .join('\n');
+
+    const summary = {
+      dataSet: trainingDataSet,
+      sampleCount: formattedSamples.length,
+      format: "JSONL",
+      basePrompts: basePrompts || ["Generate a cute dog photo"],
+      sampleStructure: {
+        input_text: "Base prompt for generation",
+        input_image: "Customer uploaded image URL",
+        output_text: "Expected output description",
+        reference_image: "OpenAI generated reference image URL",
+        sample_id: "Database sample ID",
+        metadata: "Additional sample information"
+      },
+      timestamp: new Date().toISOString()
+    };
+
+    res.json({
+      summary,
+      jsonlData,
+      downloadSize: `${Math.round(jsonlData.length / 1024)} KB`,
+      message: "Training data formatted successfully for Vertex AI Prompt Optimizer"
+    });
+
+  } catch (error) {
+    console.error("❌ Vertex AI data formatting error:", error);
+    res.status(500).json({
+      error: "Data formatting failed",
+      details: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Get optimization results
+app.get("/api/vertex-ai/results/:jobId", async (req, res) => {
+  console.log("📋 Vertex AI optimization results request received");
+
+  try {
+    const { jobId } = req.params;
+
+    console.log(`📄 Getting results for job: ${jobId}`);
+
+    // TODO: Implement real Google Cloud results retrieval
+    // For now, return mock results
+    const mockResults = {
+      jobId,
+      status: "completed",
+      originalPrompts: [
+        "Generate a cute dog photo"
+      ],
+      optimizedPrompts: [
+        {
+          prompt: "Create a high-quality, adorable photograph of a friendly dog with excellent lighting, sharp focus, and professional composition",
+          confidenceScore: 0.89,
+          improvements: [
+            "Added specificity for image quality",
+            "Included lighting and composition guidance",
+            "Enhanced emotional appeal"
+          ]
+        },
+        {
+          prompt: "Generate an endearing canine portrait featuring a happy, well-groomed dog in natural lighting with bokeh background",
+          confidenceScore: 0.85,
+          improvements: [
+            "Used professional photography terms",
+            "Specified background style",
+            "Emphasized emotional state"
+          ]
+        }
+      ],
+      performanceMetrics: {
+        averageImprovement: "23%",
+        bleuScore: 0.76,
+        rougeScore: 0.82
+      },
+      completedAt: new Date().toISOString(),
+      message: "Optimization completed successfully (MOCK - real implementation pending)"
+    };
+
+    res.json(mockResults);
+
+  } catch (error) {
+    console.error("❌ Vertex AI results retrieval error:", error);
+    res.status(500).json({
+      error: "Results retrieval failed",
+      details: error.message,
+      timestamp: new Date().toISOString()
     });
   }
 });

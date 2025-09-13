@@ -8,8 +8,8 @@ import FinalizeDesigns from "./components/FinalizeDesigns";
 import TestDesign from "./components/TestDesign";
 import IteratePage from "./components/iterate/IteratePage";
 import EvaluationTester from "./components/testing/EvaluationTester";
-import PipelineTester from "./components/testing/PipelineTester";
 import TrainingDataManager from "./components/testing/TrainingDataManager";
+import VertexAIOptimizer from "./components/testing/VertexAIOptimizer";
 
 function App() {
   const [user, setUser] = useState(null);
@@ -102,10 +102,10 @@ function App() {
         return <IteratePage />;
       case "evaluation-tester":
         return <EvaluationTester />;
-      case "pipeline-tester":
-        return <PipelineTester />;
       case "training-data":
         return <TrainingDataManager />;
+      case "vertex-ai-optimizer":
+        return <VertexAIOptimizer />;
       default:
         return null;
     }
@@ -205,14 +205,14 @@ function App() {
                 Evaluation Test
               </button>
               <button
-                onClick={() => setCurrentApp("pipeline-tester")}
+                onClick={() => setCurrentApp("vertex-ai-optimizer")}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  currentApp === "pipeline-tester"
+                  currentApp === "vertex-ai-optimizer"
                     ? "bg-blue-100 text-blue-700 border border-blue-200"
                     : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
                 }`}
               >
-                Pipeline Test
+                Vertex AI Optimizer
               </button>
             </div>
 

@@ -9,6 +9,8 @@
     "dev": "node --watch server.js"
   },
   "dependencies": {
+    "@google-cloud/aiplatform": "^5.7.0",
+    "@google-cloud/storage": "^7.17.1",
     "@google/generative-ai": "^0.21.0",
     "@supabase/supabase-js": "^2.57.0",
     "cors": "^2.8.5",

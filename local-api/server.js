@@ -50,6 +50,32 @@ const supabase = createClient(
 
 console.log('✅ Supabase client initialized');
 
+// Initialize database tables
+async function initializeDatabase() {
+  console.log('🔧 Checking database table...');
+  // Test if the table exists by trying to select from it
+  const { data, error } = await supabase
+    .from('current_working_samples')
+    .select('id')
+    .limit(1);
+
+  if (error) {
+    console.log('⚠️  Table current_working_samples does not exist. Please create it manually in Supabase with this SQL:');
+    console.log(`
+      CREATE TABLE current_working_samples (
+        id SERIAL PRIMARY KEY,
+        generated_image_url TEXT NOT NULL,
+        reference_image_url TEXT NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+    `);
+  } else {
+    console.log('✅ Current working samples table exists and is accessible');
+  }
+}
+
+initializeDatabase();
+
 // Initialize AI clients
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -1125,8 +1151,8 @@ app.post("/api/evaluate-gpt4-vision", async (req, res) => {
     const { generatedImageUrl, referenceImageUrl, customPrompt } = req.body;
 
     if (!generatedImageUrl || !referenceImageUrl) {
-      return res.status(400).json({ 
-        error: 'Missing required parameters: generatedImageUrl and referenceImageUrl' 
+      return res.status(400).json({
+        error: 'Missing required parameters: generatedImageUrl and referenceImageUrl'
       });
     }
 
@@ -1138,7 +1164,7 @@ app.post("/api/evaluate-gpt4-vision", async (req, res) => {
     console.log('📊 Generated image: [IMAGE DATA]');
     console.log('📋 Reference image: [IMAGE DATA]');
 
-    const evaluationPrompt = customPrompt || `Compare these two dog images and provide a detailed evaluation. 
+    const evaluationPrompt = customPrompt || `Compare these two dog images and provide a detailed evaluation.
 
 Rate the generated image (first image) compared to the reference image (second image) on:
 1. Overall cuteness (1-10) - How appealing, adorable, and charming is the generated image?
@@ -1148,7 +1174,7 @@ Rate the generated image (first image) compared to the reference image (second i
 Return your response as a JSON object with this exact format:
 {
   "cuteness": <number>,
-  "similarity": <number>, 
+  "similarity": <number>,
   "quality": <number>,
   "reasoning": "<detailed explanation of your ratings and observations>"
 }`;
@@ -1196,57 +1222,556 @@ Return your response as a JSON object with this exact format:
       evaluation = JSON.parse(jsonString);
     } catch (parseError) {
       console.error('❌ Failed to parse GPT-4 Vision response as JSON:', parseError);
-      
+
       // Fallback: extract scores manually if JSON parsing fails
-      const cutenessMatch = evaluationText.match(/cuteness["\s]*:[\s]*(\d+\.?\d*)/i);
-      const similarityMatch = evaluationText.match(/similarity["\s]*:[\s]*(\d+\.?\d*)/i);
-      const qualityMatch = evaluationText.match(/quality["\s]*:[\s]*(\d+\.?\d*)/i);
-      
+      const visualAppealMatch = evaluationText.match(/visualAppeal["\s]*:[\s]*(\d+\.?\d*)/i);
+      const styleSimilarityMatch = evaluationText.match(/styleSimilarity["\s]*:[\s]*(\d+\.?\d*)/i);
+      const technicalQualityMatch = evaluationText.match(/technicalQuality["\s]*:[\s]*(\d+\.?\d*)/i);
+      const scoreMatch = evaluationText.match(/score["\s]*:[\s]*(\d+\.?\d*)/i);
+
       evaluation = {
-        cuteness: cutenessMatch ? parseFloat(cutenessMatch[1]) : 7,
-        similarity: similarityMatch ? parseFloat(similarityMatch[1]) : 7,
-        quality: qualityMatch ? parseFloat(qualityMatch[1]) : 8,
+        visualAppeal: visualAppealMatch ? Math.min(10, parseFloat(visualAppealMatch[1])) : 7,
+        styleSimilarity: styleSimilarityMatch ? Math.min(10, parseFloat(styleSimilarityMatch[1])) : 7,
+        technicalQuality: technicalQualityMatch ? Math.min(10, parseFloat(technicalQualityMatch[1])) : 8,
+        score: scoreMatch ? Math.min(10, parseFloat(scoreMatch[1])) : undefined,
         reasoning: evaluationText
       };
     }
 
-    // Validate scores are within range
-    evaluation.cuteness = Math.max(1, Math.min(10, evaluation.cuteness || 7));
-    evaluation.similarity = Math.max(1, Math.min(10, evaluation.similarity || 7));
-    evaluation.quality = Math.max(1, Math.min(10, evaluation.quality || 8));
+    // Check if this is a single-score evaluation (new format)
+    if (evaluation.score !== undefined) {
+      // Single score format
+      const originalScore = evaluation.score;
+      evaluation.score = Math.max(0, Math.min(10, evaluation.score || 7.0));
 
-    // Calculate weighted score: (cuteness × 0.5) + (similarity × 0.3) + (quality × 0.2)
-    const weightedScore = (evaluation.cuteness * 0.5) + (evaluation.similarity * 0.3) + (evaluation.quality * 0.2);
-
-    const result = {
-      success: true,
-      evaluation: {
-        cuteness: evaluation.cuteness,
-        similarity: evaluation.similarity,
-        quality: evaluation.quality,
-        weightedScore: Number(weightedScore.toFixed(2)),
-        reasoning: evaluation.reasoning
-      },
-      metadata: {
-        model: "gpt-4o",
-        timestamp: new Date().toISOString()
+      if (originalScore !== evaluation.score) {
+        console.log(`⚠️  Score clamped from ${originalScore} to ${evaluation.score}`);
       }
-    };
 
-    console.log('✅ GPT-4 Vision evaluation completed:', {
-      cuteness: result.evaluation.cuteness,
-      similarity: result.evaluation.similarity,
-      quality: result.evaluation.quality,
-      weightedScore: result.evaluation.weightedScore,
-      model: result.metadata.model
-    });
-    res.json(result);
+      const result = {
+        success: true,
+        evaluation: {
+          score: evaluation.score,
+          reasoning: evaluation.reasoning || 'No reasoning provided'
+        },
+        metadata: {
+          model: "gpt-4o",
+          timestamp: new Date().toISOString()
+        }
+      };
+
+      console.log('✅ GPT-4 Vision evaluation completed (single score):', {
+        score: result.evaluation.score,
+        model: result.metadata.model
+      });
+      res.json(result);
+    } else {
+      // New structured format with separate criteria scores
+      evaluation.visualAppeal = Math.max(0, Math.min(10, evaluation.visualAppeal || 7));
+      evaluation.styleSimilarity = Math.max(0, Math.min(10, evaluation.styleSimilarity || 7));
+      evaluation.technicalQuality = Math.max(0, Math.min(10, evaluation.technicalQuality || 8));
+
+      const result = {
+        success: true,
+        evaluation: {
+          visualAppeal: evaluation.visualAppeal,
+          styleSimilarity: evaluation.styleSimilarity,
+          technicalQuality: evaluation.technicalQuality,
+          reasoning: evaluation.reasoning
+        },
+        metadata: {
+          model: "gpt-4o",
+          timestamp: new Date().toISOString()
+        }
+      };
+
+      console.log('✅ GPT-4 Vision evaluation completed (structured format):', {
+        visualAppeal: result.evaluation.visualAppeal,
+        styleSimilarity: result.evaluation.styleSimilarity,
+        technicalQuality: result.evaluation.technicalQuality,
+        model: result.metadata.model
+      });
+      res.json(result);
+    }
 
   } catch (error) {
     console.error('❌ GPT-4 Vision evaluation error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: error.message 
+      error: error.message
+    });
+  }
+});
+
+// Batch Sample Evaluation endpoint
+app.post("/api/evaluate-samples", async (req, res) => {
+  try {
+    const { samples, customPrompt } = req.body;
+
+    if (!samples || samples.length === 0) {
+      return res.status(400).json({
+        error: 'Missing required parameter: samples array'
+      });
+    }
+
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(500).json({ error: 'OpenAI API key not configured' });
+    }
+
+    console.log(`🔍 Evaluating ${samples.length} samples with GPT-4 Vision...`);
+
+    const defaultPrompt = `Evaluate this AI-generated dog image compared to the reference image.
+
+Analyze these specific criteria and give each a score from 0.0 to 10.0:
+1. Visual Appeal & Cuteness - How appealing and cute is the generated image?
+2. Style Similarity - How well does it match the reference image's style and composition?
+3. Technical Quality - Assess sharpness, lighting, and overall technical execution
+
+Return ONLY a JSON object with this exact format:
+{
+  "visualAppeal": 7.5,
+  "styleSimilarity": 6.0,
+  "technicalQuality": 8.2,
+  "reasoning": "Brief explanation of your scoring rationale"
+}`;
+
+    const evaluationPrompt = customPrompt || defaultPrompt;
+
+    const results = [];
+
+    // Process samples one by one to avoid rate limits
+    for (const sample of samples) {
+      try {
+        const response = await openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: evaluationPrompt
+                },
+                {
+                  type: "image_url",
+                  image_url: {
+                    url: sample.generatedImageUrl,
+                    detail: "high"
+                  }
+                },
+                {
+                  type: "image_url",
+                  image_url: {
+                    url: sample.referenceImageUrl,
+                    detail: "high"
+                  }
+                }
+              ]
+            }
+          ],
+          max_tokens: 300,
+          temperature: 0.1
+        });
+
+        const evaluationText = response.choices[0].message.content;
+
+        // Parse the evaluation result
+        let evaluation;
+        try {
+          const jsonMatch = evaluationText.match(/\{[\s\S]*\}/);
+          const jsonString = jsonMatch ? jsonMatch[0] : evaluationText;
+          evaluation = JSON.parse(jsonString);
+        } catch (parseError) {
+          // Fallback: extract scores manually
+          const visualAppealMatch = evaluationText.match(/visualAppeal["\s]*:[\s]*(\d+\.?\d*)/i);
+          const styleSimilarityMatch = evaluationText.match(/styleSimilarity["\s]*:[\s]*(\d+\.?\d*)/i);
+          const technicalQualityMatch = evaluationText.match(/technicalQuality["\s]*:[\s]*(\d+\.?\d*)/i);
+          const scoreMatch = evaluationText.match(/score["\s]*:[\s]*(\d+\.?\d*)/i);
+
+          evaluation = {
+            visualAppeal: visualAppealMatch ? parseFloat(visualAppealMatch[1]) : 7.0,
+            styleSimilarity: styleSimilarityMatch ? parseFloat(styleSimilarityMatch[1]) : 7.0,
+            technicalQuality: technicalQualityMatch ? parseFloat(technicalQualityMatch[1]) : 7.0,
+            score: scoreMatch ? parseFloat(scoreMatch[1]) : undefined,
+            reasoning: evaluationText
+          };
+        }
+
+        // Handle both structured and legacy score formats
+        if (evaluation.score !== undefined) {
+          // Legacy single score format
+          const rawScore = evaluation.score;
+          evaluation.score = Math.max(0.0, Math.min(10.0, parseFloat(rawScore)));
+
+          if (rawScore < 0 || rawScore > 10) {
+            console.log(`⚠️  Score ${rawScore} was out of range, clamped to ${evaluation.score}`);
+          }
+
+          results.push({
+            sampleId: sample.id,
+            score: evaluation.score,
+            reasoning: evaluation.reasoning || 'No reasoning provided',
+            samplePair: {
+              id: sample.id,
+              generated: { url: sample.generatedImageUrl },
+              reference: { url: sample.referenceImageUrl }
+            }
+          });
+        } else {
+          // New structured format
+          evaluation.visualAppeal = Math.max(0.0, Math.min(10.0, evaluation.visualAppeal || 7.0));
+          evaluation.styleSimilarity = Math.max(0.0, Math.min(10.0, evaluation.styleSimilarity || 7.0));
+          evaluation.technicalQuality = Math.max(0.0, Math.min(10.0, evaluation.technicalQuality || 7.0));
+
+          results.push({
+            sampleId: sample.id,
+            visualAppeal: evaluation.visualAppeal,
+            styleSimilarity: evaluation.styleSimilarity,
+            technicalQuality: evaluation.technicalQuality,
+            reasoning: evaluation.reasoning || 'No reasoning provided',
+            samplePair: {
+              id: sample.id,
+              generated: { url: sample.generatedImageUrl },
+              reference: { url: sample.referenceImageUrl }
+            }
+          });
+        }
+
+        // Add small delay between requests
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+      } catch (sampleError) {
+        console.error(`❌ Error evaluating sample ${sample.id}:`, sampleError);
+        results.push({
+          sampleId: sample.id,
+          score: 5.0,
+          reasoning: `Evaluation failed: ${sampleError.message}`,
+          samplePair: {
+            id: sample.id,
+            generated: {
+              url: sample.generatedImageUrl
+            },
+            reference: {
+              url: sample.referenceImageUrl
+            }
+          }
+        });
+      }
+    }
+
+    console.log(`✅ Completed batch evaluation: ${results.length} results`);
+    res.json({
+      success: true,
+      results: results,
+      count: results.length
+    });
+
+  } catch (error) {
+    console.error('❌ Batch evaluation error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// In-memory storage for evaluation prompts and sample sets (in production, use a database)
+let evaluationPrompts = [];
+let nextPromptId = 1;
+let sampleSets = [];
+let nextSampleSetId = 1;
+
+// Get saved evaluation prompts
+app.get("/api/evaluation-prompts", (req, res) => {
+  res.json({
+    success: true,
+    prompts: evaluationPrompts
+  });
+});
+
+// Save evaluation prompt
+app.post("/api/evaluation-prompts", (req, res) => {
+  try {
+    const { name, content } = req.body;
+
+    if (!name || !content) {
+      return res.status(400).json({
+        error: 'Missing required parameters: name and content'
+      });
+    }
+
+    const newPrompt = {
+      id: nextPromptId++,
+      name: name.trim(),
+      content: content.trim(),
+      createdAt: new Date().toISOString()
+    };
+
+    evaluationPrompts.push(newPrompt);
+
+    console.log(`💾 Saved evaluation prompt: "${name}"`);
+    res.json({
+      success: true,
+      prompt: newPrompt
+    });
+
+  } catch (error) {
+    console.error('❌ Error saving prompt:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Get saved sample sets
+app.get("/api/sample-sets", (req, res) => {
+  res.json({
+    success: true,
+    sampleSets: sampleSets
+  });
+});
+
+// Get current working set from database
+app.get("/api/current-samples", async (req, res) => {
+  try {
+    const { data: samples, error } = await supabase
+      .from('current_working_samples')
+      .select('*')
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('❌ Error fetching current samples:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to fetch current samples'
+      });
+    }
+
+    // Transform database format to frontend format
+    const formattedSamples = samples.map(sample => ({
+      id: sample.id,
+      generated: {
+        url: sample.generated_image_url
+      },
+      reference: {
+        url: sample.reference_image_url
+      }
+    }));
+
+    res.json({
+      success: true,
+      samples: formattedSamples
+    });
+  } catch (error) {
+    console.error('❌ Error in current-samples endpoint:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch current samples'
+    });
+  }
+});
+
+// Upload sample images to Supabase and add to current working set
+app.post("/api/upload-sample-images", upload.fields([
+  { name: 'generated', maxCount: 1 },
+  { name: 'reference', maxCount: 1 }
+]), async (req, res) => {
+  try {
+    console.log('📤 Upload request received');
+    console.log('Files:', req.files);
+    console.log('Body:', req.body);
+
+    if (!req.files || !req.files.generated || !req.files.reference) {
+      console.log('❌ Missing files in request');
+      return res.status(400).json({
+        error: 'Missing required files: generated and reference images',
+        received: req.files ? Object.keys(req.files) : 'no files'
+      });
+    }
+
+    const generatedFile = req.files.generated[0];
+    const referenceFile = req.files.reference[0];
+
+    // Upload generated image to Supabase
+    const generatedFileName = `evaluation_samples/generated_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${generatedFile.originalname.split('.').pop()}`;
+    const { data: generatedUpload, error: generatedError } = await supabase.storage
+      .from("generated-images")
+      .upload(generatedFileName, generatedFile.buffer, {
+        contentType: generatedFile.mimetype,
+        cacheControl: "3600",
+      });
+
+    if (generatedError) {
+      console.error("❌ Error uploading generated image:", generatedError);
+      return res.status(500).json({ error: 'Failed to upload generated image' });
+    }
+
+    // Upload reference image to Supabase
+    const referenceFileName = `evaluation_samples/reference_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${referenceFile.originalname.split('.').pop()}`;
+    const { data: referenceUpload, error: referenceError } = await supabase.storage
+      .from("generated-images")
+      .upload(referenceFileName, referenceFile.buffer, {
+        contentType: referenceFile.mimetype,
+        cacheControl: "3600",
+      });
+
+    if (referenceError) {
+      console.error("❌ Error uploading reference image:", referenceError);
+      return res.status(500).json({ error: 'Failed to upload reference image' });
+    }
+
+    // Create public URLs
+    const generatedUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/generated-images/${generatedUpload.path}`;
+    const referenceUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/generated-images/${referenceUpload.path}`;
+
+    // Add sample to database
+    const { data: newSample, error: insertError } = await supabase
+      .from('current_working_samples')
+      .insert({
+        generated_image_url: generatedUrl,
+        reference_image_url: referenceUrl
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      console.error('❌ Error saving sample to database:', insertError);
+      return res.status(500).json({ error: 'Failed to save sample to database' });
+    }
+
+    // Get current count for response
+    const { count } = await supabase
+      .from('current_working_samples')
+      .select('*', { count: 'exact', head: true });
+
+    console.log(`📝 Uploaded and added sample to database (${count} total)`);
+    res.json({
+      success: true,
+      sample: newSample,
+      generatedUrl: generatedUrl,
+      referenceUrl: referenceUrl,
+      totalSamples: count
+    });
+
+  } catch (error) {
+    console.error('❌ Error uploading sample images:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Multer error handling middleware
+app.use((error, req, res, next) => {
+  if (error instanceof multer.MulterError) {
+    console.error('❌ Multer error:', error.message);
+    return res.status(400).json({
+      error: `File upload error: ${error.message}`,
+      code: error.code
+    });
+  }
+  next(error);
+});
+
+// Clear current working set
+app.delete("/api/current-samples", async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from('current_working_samples')
+      .delete()
+      .neq('id', 0); // Delete all rows
+
+    if (error) {
+      console.error('❌ Error clearing current samples:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to clear current samples'
+      });
+    }
+
+    console.log('🗑️ Cleared current working set from database');
+    res.json({
+      success: true,
+      message: 'Working set cleared'
+    });
+  } catch (error) {
+    console.error('❌ Error in clear samples endpoint:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to clear current samples'
+    });
+  }
+});
+
+// Save current working set as named sample set
+app.post("/api/sample-sets", (req, res) => {
+  try {
+    const { name } = req.body;
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({
+        error: 'Missing required parameter: name'
+      });
+    }
+
+    if (currentWorkingSet.length === 0) {
+      return res.status(400).json({
+        error: 'No samples in current working set to save'
+      });
+    }
+
+    const newSampleSet = {
+      id: nextSampleSetId++,
+      name: name.trim(),
+      samples: [...currentWorkingSet], // Copy the current working set
+      createdAt: new Date().toISOString()
+    };
+
+    sampleSets.push(newSampleSet);
+
+    console.log(`💾 Saved sample set: "${name}" with ${currentWorkingSet.length} samples`);
+    res.json({
+      success: true,
+      sampleSet: newSampleSet
+    });
+
+  } catch (error) {
+    console.error('❌ Error saving sample set:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Load saved sample set to current working set
+app.post("/api/sample-sets/:id/load", (req, res) => {
+  try {
+    const sampleSetId = parseInt(req.params.id);
+    const sampleSet = sampleSets.find(set => set.id === sampleSetId);
+
+    if (!sampleSet) {
+      return res.status(404).json({
+        error: 'Sample set not found'
+      });
+    }
+
+    currentWorkingSet = [...sampleSet.samples]; // Copy samples to working set
+
+    console.log(`📂 Loaded sample set "${sampleSet.name}" to working set (${currentWorkingSet.length} samples)`);
+    res.json({
+      success: true,
+      message: `Loaded "${sampleSet.name}" to working set`,
+      sampleCount: currentWorkingSet.length
+    });
+
+  } catch (error) {
+    console.error('❌ Error loading sample set:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });

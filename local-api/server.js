@@ -2684,19 +2684,26 @@ app.post("/api/vertex-ai/optimize", async (req, res) => {
       const datasetUri = `gs://${bucketName}/${fileName}`;
       console.log(`📄 Training data uploaded: ${datasetUri}`);
 
-      // Create and upload Vertex AI Prompt Optimizer config
+      // Create correct Vertex AI Prompt Optimizer config from Google's specification
+      const outputPath = `gs://${bucketName}/results-${Date.now()}`;
+
       const config = {
         project: projectId,
-        location: location,
-        system_instruction: basePrompts[0] || "Generate a cute dog photo",
-        target_model: `projects/${projectId}/locations/${location}/publishers/google/models/${targetModel}`,
-        source_model: `projects/${projectId}/locations/${location}/publishers/google/models/gemini-1.5-flash`,
-        evaluation_dataset: datasetUri,
-        optimization_mode: optimizationMode,
-        evaluation_metrics: evaluationMetrics,
-        prompt_template: "{{input_text}}",
-        output_path: `gs://${bucketName}/results-${Date.now()}`
+        target_model: targetModel, // "gemini-2.5-flash" or "gemini-2.5-pro"
+        target_model_location: location, // "us-central1"
+        input_data_path: datasetUri,
+        output_path: outputPath,
+        system_instruction: basePrompts[0] || "You are a helpful AI assistant.",
+        prompt_template: "Question: {input}\nAnswer: {target}",
+        optimization_mode: "instruction",
+        num_steps: 10,
+        eval_metric: evaluationMetrics[0] === "bleu" ? "bleu" : "question_answering_quality",
+        target_model_qps: 3.0,
+        eval_qps: 3.0,
+        thinking_budget: 0
       };
+
+      console.log(`📋 Correct config created:`, JSON.stringify(config, null, 2));
 
       const configFile = bucket.file(configFileName);
       await configFile.save(JSON.stringify(config, null, 2), {
@@ -2858,11 +2865,26 @@ app.get("/api/vertex-ai/jobs/:jobId", async (req, res) => {
       };
 
       // Add error details if failed
-      if (job.state === 'JOB_STATE_FAILED' && job.error) {
+      if (job.state === 'JOB_STATE_FAILED') {
         response.error = {
-          code: job.error.code,
-          message: job.error.message,
+          code: job.error?.code || 'UNKNOWN',
+          message: job.error?.message || 'No error message available',
+          details: job.error?.details || [],
         };
+
+        // Add job logs and additional debugging info
+        response.debugging = {
+          jobSpec: job.jobSpec,
+          startTime: job.startTime,
+          endTime: job.endTime,
+          labels: job.labels,
+        };
+
+        console.error(`❌ Job ${jobId} failed:`, {
+          error: response.error,
+          jobName: job.name,
+          displayName: job.displayName,
+        });
       }
 
       res.json(response);
@@ -2884,6 +2906,64 @@ app.get("/api/vertex-ai/jobs/:jobId", async (req, res) => {
     console.error("❌ Vertex AI job status check error:", error);
     res.status(500).json({
       error: "Job status check failed",
+      details: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Get detailed job logs and debugging information
+app.get("/api/vertex-ai/jobs/:jobId/logs", async (req, res) => {
+  console.log("🔍 Fetching detailed job logs");
+
+  try {
+    const { jobId } = req.params;
+    const jobName = `projects/${projectId}/locations/${location}/customJobs/${jobId}`;
+
+    try {
+      const [job] = await jobServiceClient.getCustomJob({ name: jobName });
+
+      // Return comprehensive job information
+      const jobDetails = {
+        jobId,
+        name: job.name,
+        displayName: job.displayName,
+        state: job.state,
+        createTime: job.createTime,
+        startTime: job.startTime,
+        endTime: job.endTime,
+        updateTime: job.updateTime,
+        error: job.error || null,
+        jobSpec: job.jobSpec,
+        labels: job.labels || {},
+        encryptionSpec: job.encryptionSpec || null,
+        webAccessUris: job.webAccessUris || {},
+      };
+
+      console.log("📋 Full job details:", JSON.stringify(jobDetails, null, 2));
+
+      res.json({
+        success: true,
+        jobDetails,
+        timestamp: new Date().toISOString(),
+      });
+
+    } catch (jobError) {
+      if (jobError.code === 5) { // NOT_FOUND
+        res.status(404).json({
+          error: "Job not found",
+          details: `Job ${jobId} does not exist`,
+          timestamp: new Date().toISOString()
+        });
+      } else {
+        throw jobError;
+      }
+    }
+
+  } catch (error) {
+    console.error("❌ Failed to fetch job logs:", error);
+    res.status(500).json({
+      error: "Failed to fetch job logs",
       details: error.message,
       timestamp: new Date().toISOString()
     });
@@ -2926,22 +3006,21 @@ app.post("/api/vertex-ai/format-data", async (req, res) => {
 
     console.log(`📄 Found ${trainingSamples.length} training samples`);
 
-    // Format for Vertex AI Prompt Optimizer JSONL
+    // Format for Vertex AI Prompt Optimizer JSONL with required input/target fields
     const formattedSamples = trainingSamples.map((sample) => {
-      // For image generation tasks, we format as:
-      // Input: customer image description/prompt
-      // Output: what the model should generate (represented by OpenAI result)
+      // For prompt optimization, we need 'input' and 'target' fields
+      // that match the prompt_template: "Question: {input}\nAnswer: {target}"
       return {
-        input_text: basePrompts[0] || "Generate a cute dog photo", // Base prompt
-        input_image: sample.uploaded_image_url, // Customer image
-        output_text: "High-quality generated dog image", // Expected output description
+        input: basePrompts[0] || "Generate a cute dog photo", // Maps to {input} in template
+        target: "High-quality generated dog image", // Maps to {target} in template
         reference_image: sample.openai_image_url, // Reference "gold standard"
         sample_id: sample.id,
         metadata: {
           customer_id: sample.customer_id,
           product_type: sample.product_type,
           source: sample.source,
-          created_at: sample.created_at
+          created_at: sample.created_at,
+          uploaded_image: sample.uploaded_image_url
         }
       };
     });
@@ -2957,12 +3036,11 @@ app.post("/api/vertex-ai/format-data", async (req, res) => {
       format: "JSONL",
       basePrompts: basePrompts || ["Generate a cute dog photo"],
       sampleStructure: {
-        input_text: "Base prompt for generation",
-        input_image: "Customer uploaded image URL",
-        output_text: "Expected output description",
+        input: "Base prompt for generation (maps to {input} in template)",
+        target: "Expected output description (maps to {target} in template)",
         reference_image: "OpenAI generated reference image URL",
         sample_id: "Database sample ID",
-        metadata: "Additional sample information"
+        metadata: "Additional sample information including uploaded_image"
       },
       timestamp: new Date().toISOString()
     };

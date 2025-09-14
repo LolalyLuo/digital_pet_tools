@@ -193,6 +193,62 @@ function bufferToBase64(buffer) {
   return buffer.toString("base64");
 }
 
+// Helper function to upload GCS image to Supabase cloud-images bucket
+async function uploadGCSImageToSupabase(gcsUrl, imageId) {
+  try {
+    console.log(`📤 Uploading image ${imageId} from GCS to Supabase...`);
+
+    // Parse HTTPS GCS URL: https://storage.googleapis.com/bucket-name/path/to/file
+    const httpsMatch = gcsUrl.match(/https:\/\/storage\.googleapis\.com\/([^\/]+)\/(.+)/);
+    if (!httpsMatch) {
+      throw new Error('Invalid GCS HTTPS URL format');
+    }
+
+    const bucketName = httpsMatch[1];
+    const filePath = httpsMatch[2];
+
+    // Download from GCS using storage client
+    const bucket = storageClient.bucket(bucketName);
+    const file = bucket.file(filePath);
+
+    const [exists] = await file.exists();
+    if (!exists) {
+      throw new Error('File does not exist in GCS');
+    }
+
+    // Get file extension
+    const fileExtension = filePath.split('.').pop() || 'jpg';
+    const fileName = `vertex-ai-${imageId}.${fileExtension}`;
+
+    // Download file content
+    const [fileBuffer] = await file.download();
+
+    // Upload to Supabase storage
+    const { data, error } = await supabase.storage
+      .from('cloud-images')
+      .upload(fileName, fileBuffer, {
+        contentType: `image/${fileExtension}`,
+        upsert: true
+      });
+
+    if (error) {
+      throw new Error(`Supabase upload failed: ${error.message}`);
+    }
+
+    // Get public URL
+    const { data: { publicUrl } } = supabase.storage
+      .from('cloud-images')
+      .getPublicUrl(fileName);
+
+    console.log(`✅ Successfully uploaded image ${imageId} to Supabase: ${publicUrl}`);
+    return publicUrl;
+
+  } catch (error) {
+    console.error(`❌ Failed to upload image ${imageId} to Supabase:`, error.message);
+    throw error;
+  }
+}
+
 // Helper function to fetch template images with similar examples
 async function fetchTemplateImagesWithSimilar(templateNumbers) {
   // First get the base template to extract similar_examples
@@ -1740,6 +1796,61 @@ app.delete("/api/evaluation-prompts/:id", async (req, res) => {
   }
 });
 
+// Image proxy endpoint to serve GCS images
+app.get("/api/image-proxy", async (req, res) => {
+  try {
+    const { url } = req.query;
+    if (!url) {
+      return res.status(400).json({ error: 'URL parameter required' });
+    }
+
+    // Parse GCS URL to extract bucket and file path
+    const gcsMatch = url.match(/gs:\/\/([^\/]+)\/(.+)/);
+    if (!gcsMatch) {
+      return res.status(400).json({ error: 'Invalid GCS URL format' });
+    }
+
+    const bucketName = gcsMatch[1];
+    const filePath = gcsMatch[2];
+
+    console.log(`🖼️ Proxying image: ${bucketName}/${filePath}`);
+
+    // Download image from GCS
+    const bucket = storageClient.bucket(bucketName);
+    const file = bucket.file(filePath);
+
+    const [exists] = await file.exists();
+    if (!exists) {
+      return res.status(404).json({ error: 'Image not found' });
+    }
+
+    // Get file metadata to set proper content type
+    const [metadata] = await file.getMetadata();
+    const contentType = metadata.contentType || 'image/jpeg';
+
+    // Set appropriate headers
+    res.set({
+      'Content-Type': contentType,
+      'Cache-Control': 'public, max-age=86400' // Cache for 1 day
+    });
+
+    // Stream the file to the response
+    const stream = file.createReadStream();
+    stream.pipe(res);
+
+    stream.on('error', (error) => {
+      console.error('Error streaming image:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to stream image' });
+      }
+    });
+
+  } catch (error) {
+    console.error('Image proxy error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Get saved sample sets
 app.get("/api/sample-sets", (req, res) => {
   res.json({
@@ -2787,6 +2898,35 @@ app.post("/api/vertex-ai/optimize", async (req, res) => {
 
         console.log(`✅ Vertex AI optimization job created: ${jobId}`);
 
+        // Store job in Supabase for persistence
+        try {
+          const jobRecord = {
+            job_id: jobId,
+            display_name: customJobSpec.displayName,
+            training_data_set: trainingDataSet,
+            base_prompts: basePrompts,
+            optimization_mode: optimizationMode,
+            target_model: targetModel,
+            status: 'submitted',
+            vertex_job_name: job.name,
+            vertex_job_state: job.state || 'JOB_STATE_PENDING'
+          };
+
+          const { data: insertedJob, error: insertError } = await supabase
+            .from('vertex_ai_jobs')
+            .insert(jobRecord)
+            .select()
+            .single();
+
+          if (insertError) {
+            console.error('❌ Failed to store job in Supabase:', insertError);
+          } else {
+            console.log(`💾 Job stored in Supabase with ID: ${insertedJob.id}`);
+          }
+        } catch (supabaseError) {
+          console.error('❌ Supabase job storage error:', supabaseError);
+        }
+
         res.json({
           jobId: jobId,
           status: "submitted",
@@ -2818,6 +2958,46 @@ app.post("/api/vertex-ai/optimize", async (req, res) => {
       details: error.message,
       timestamp: new Date().toISOString()
     });
+  }
+});
+
+// Get all jobs from Supabase
+app.get("/api/vertex-ai/jobs", async (req, res) => {
+  console.log("📋 Getting all Vertex AI jobs from Supabase");
+
+  try {
+    const { data: jobs, error } = await supabase
+      .from('vertex_ai_jobs')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('❌ Failed to fetch jobs from Supabase:', error);
+      return res.status(500).json({ error: 'Failed to fetch jobs', details: error.message });
+    }
+
+    // Format jobs for UI
+    const formattedJobs = jobs.map(job => ({
+      jobId: job.job_id,
+      status: job.status,
+      progress: job.progress,
+      message: job.message,
+      trainingDataSet: job.training_data_set,
+      basePrompts: Array.isArray(job.base_prompts) ? job.base_prompts.length : 1,
+      optimizationMode: job.optimization_mode,
+      targetModel: job.target_model,
+      submittedAt: new Date(job.created_at).toLocaleString(),
+      lastChecked: job.updated_at ? new Date(job.updated_at).toLocaleString() : null,
+      startedAt: job.started_at ? new Date(job.started_at).toLocaleString() : null,
+      completedAt: job.completed_at ? new Date(job.completed_at).toLocaleString() : null
+    }));
+
+    console.log(`📊 Retrieved ${formattedJobs.length} jobs from Supabase`);
+    res.json({ jobs: formattedJobs });
+
+  } catch (err) {
+    console.error('❌ Error fetching jobs:', err);
+    res.status(500).json({ error: 'Internal server error', details: err.message });
   }
 });
 
@@ -2909,6 +3089,41 @@ app.get("/api/vertex-ai/jobs/:jobId", async (req, res) => {
           jobName: job.name,
           displayName: job.displayName,
         });
+      }
+
+      // Update job status in Supabase
+      try {
+        const updateData = {
+          status,
+          progress,
+          vertex_job_state: job.state,
+          updated_at: new Date().toISOString()
+        };
+
+        if (job.startTime && !job.endTime) {
+          updateData.started_at = new Date(job.startTime.seconds * 1000).toISOString();
+        }
+
+        if (job.endTime) {
+          updateData.completed_at = new Date(job.endTime.seconds * 1000).toISOString();
+        }
+
+        if (job.state === 'JOB_STATE_FAILED' && job.error) {
+          updateData.message = `Failed: ${job.error.message || 'Unknown error'}`;
+        }
+
+        const { error: updateError } = await supabase
+          .from('vertex_ai_jobs')
+          .update(updateData)
+          .eq('job_id', jobId);
+
+        if (updateError) {
+          console.error('❌ Failed to update job in Supabase:', updateError);
+        } else {
+          console.log(`💾 Job ${jobId} updated in Supabase with status: ${status}`);
+        }
+      } catch (supabaseError) {
+        console.error('❌ Supabase job update error:', supabaseError);
       }
 
       res.json(response);
@@ -3004,44 +3219,365 @@ app.get("/api/vertex-ai/results/:jobId", async (req, res) => {
 
     console.log(`📄 Getting results for job: ${jobId}`);
 
-    // TODO: Implement real Google Cloud results retrieval
-    // For now, return mock results
-    const mockResults = {
-      jobId,
-      status: "completed",
-      originalPrompts: [
-        "Generate a cute dog photo"
-      ],
-      optimizedPrompts: [
-        {
-          prompt: "Create a high-quality, adorable photograph of a friendly dog with excellent lighting, sharp focus, and professional composition",
-          confidenceScore: 0.89,
-          improvements: [
-            "Added specificity for image quality",
-            "Included lighting and composition guidance",
-            "Enhanced emotional appeal"
-          ]
-        },
-        {
-          prompt: "Generate an endearing canine portrait featuring a happy, well-groomed dog in natural lighting with bokeh background",
-          confidenceScore: 0.85,
-          improvements: [
-            "Used professional photography terms",
-            "Specified background style",
-            "Emphasized emotional state"
-          ]
-        }
-      ],
-      performanceMetrics: {
-        averageImprovement: "23%",
-        bleuScore: 0.76,
-        rougeScore: 0.82
-      },
-      completedAt: new Date().toISOString(),
-      message: "Optimization completed successfully (MOCK - real implementation pending)"
-    };
+    // First, check if the job is completed in our database
+    const { data: jobData, error: jobError } = await supabase
+      .from('vertex_ai_jobs')
+      .select('*')
+      .eq('job_id', jobId)
+      .single();
 
-    res.json(mockResults);
+    if (jobError) {
+      console.error('❌ Failed to fetch job from Supabase:', jobError);
+      return res.status(404).json({ error: 'Job not found', details: jobError.message });
+    }
+
+    if (jobData.status !== 'completed') {
+      return res.status(400).json({
+        error: 'Job not completed',
+        status: jobData.status,
+        message: 'Job must be completed before results can be retrieved'
+      });
+    }
+
+    // Clear cached results and always re-fetch from Cloud Storage for debugging
+    // TODO: Re-enable caching once results parsing is working correctly
+    console.log(`🔄 Re-fetching results from Cloud Storage for job: ${jobId} (caching disabled for debugging)`);
+
+    // Uncomment below to use cached results:
+    // if (jobData.optimized_prompts) {
+    //   console.log(`📋 Returning cached results for job: ${jobId}`);
+    //   return res.json({
+    //     jobId,
+    //     status: 'completed',
+    //     originalPrompts: jobData.base_prompts,
+    //     optimizedPrompts: jobData.optimized_prompts,
+    //     performanceMetrics: jobData.performance_metrics || {
+    //       averageImprovement: "Unknown",
+    //       bleuScore: 0,
+    //       rougeScore: 0
+    //     },
+    //     completedAt: jobData.completed_at,
+    //   });
+    // }
+
+    // Try to fetch results from Vertex AI job output locations
+    try {
+      console.log(`📥 Fetching optimization results for job: ${jobId}`);
+
+      const bucketName = `vertex-ai-optimizer-${projectId}`;
+
+      // List all results directories to find the matching one
+      const bucket = storageClient.bucket(bucketName);
+      const [files] = await bucket.getFiles({ prefix: 'results-' });
+
+      let foundResults = null;
+      let resultTimestamp = null;
+
+      // Get job creation time from database to match with results
+      const jobCreatedTime = new Date(jobData.created_at).getTime();
+      console.log(`🕐 Job ${jobId} created at: ${jobData.created_at} (${jobCreatedTime})`);
+
+      // Look for results directories and find one that matches this job by timestamp
+      let bestMatch = null;
+      let smallestTimeDiff = Infinity;
+
+      for (const file of files) {
+        const fileName = file.name;
+
+        // Check if this is an optimized_results.json file
+        if (fileName.endsWith('/instruction/optimized_results.json')) {
+          // Extract timestamp from path (results-{timestamp}/instruction/...)
+          const timestampMatch = fileName.match(/results-(\d+)\//);
+          if (timestampMatch) {
+            const resultTimestamp = parseInt(timestampMatch[1]);
+            const timeDiff = Math.abs(resultTimestamp - jobCreatedTime);
+
+            console.log(`📊 Checking result timestamp ${resultTimestamp}, diff: ${timeDiff}ms`);
+
+            // Find the closest match within 24 hours
+            if (timeDiff < smallestTimeDiff && timeDiff < 24 * 60 * 60 * 1000) {
+              smallestTimeDiff = timeDiff;
+              bestMatch = { fileName, resultTimestamp };
+            }
+          }
+        }
+      }
+
+      if (bestMatch) {
+        const { fileName, resultTimestamp: matchedTimestamp } = bestMatch;
+        console.log(`🎯 Best timestamp match for job ${jobId}: ${fileName} (diff: ${smallestTimeDiff}ms)`);
+
+        // Process the matched results file
+        try {
+          console.log(`🔍 Processing matched file: ${fileName}`);
+          const file = bucket.file(fileName);
+          const [contents] = await file.download();
+          const optimizedData = JSON.parse(contents.toString());
+
+          // Also get the eval results for additional data
+          const evalFileName = fileName.replace('optimized_results.json', 'eval_results.json');
+          const evalFile = bucket.file(evalFileName);
+          const [evalExists] = await evalFile.exists();
+
+          let evalData = null;
+          if (evalExists) {
+            const [evalContents] = await evalFile.download();
+            evalData = JSON.parse(evalContents.toString());
+          }
+
+          resultTimestamp = matchedTimestamp;
+
+            // Parse all optimization attempts and their results
+            const optimizedPrompts = [];
+            const allMetrics = {};
+
+            // Start with the final optimized result
+            optimizedPrompts.push({
+              prompt: optimizedData.prompt,
+              step: optimizedData.step || 0,
+              confidenceScore: optimizedData.metrics?.['image_similarity_score/mean'] || 0,
+              isOptimized: true,
+              improvements: [
+                "Final optimized version using Vertex AI",
+                "Enhanced based on training data patterns",
+                `Achieved ${(optimizedData.metrics?.['image_similarity_score/mean'] * 100 || 0).toFixed(1)}% similarity score`
+              ]
+            });
+
+            // Parse evaluation data to get all attempted prompts and their scores
+            if (evalData && Array.isArray(evalData)) {
+              for (const evalSet of evalData) {
+                if (evalSet.summary_results) {
+                  // Store overall metrics
+                  const setMetrics = evalSet.summary_results;
+                  for (const [key, value] of Object.entries(setMetrics)) {
+                    if (key !== 'row_count') {
+                      allMetrics[key] = value;
+                    }
+                  }
+                }
+
+                // Parse individual prompt attempts from metrics_table
+                if (evalSet.metrics_table) {
+                  try {
+                    const metricsTable = JSON.parse(evalSet.metrics_table);
+
+                    // Group by unique prompts to see evolution
+                    const promptAttempts = new Map();
+
+                    for (const entry of metricsTable) {
+                      const prompt = entry.prompt;
+                      if (prompt && prompt !== optimizedData.prompt) { // Don't duplicate the final optimized one
+
+                        if (!promptAttempts.has(prompt)) {
+                          promptAttempts.set(prompt, {
+                            prompt: prompt,
+                            scores: [],
+                            samples: [],
+                            avgScore: 0,
+                            isOptimized: false
+                          });
+                        }
+
+                        const attempt = promptAttempts.get(prompt);
+                        if (entry['image_similarity_score/score'] !== undefined) {
+                          attempt.scores.push(entry['image_similarity_score/score']);
+                          attempt.samples.push({
+                            input: entry.input,
+                            unique_id: entry.unique_id,
+                            response: entry.response,
+                            score: entry['image_similarity_score/score']
+                          });
+                        }
+                      }
+                    }
+
+                    // Calculate averages and add to optimized prompts
+                    for (const [prompt, data] of promptAttempts) {
+                      if (data.scores.length > 0) {
+                        data.avgScore = data.scores.reduce((a, b) => a + b, 0) / data.scores.length;
+                        data.confidenceScore = data.avgScore;
+
+                        optimizedPrompts.unshift({ // Add to beginning to show progression
+                          ...data,
+                          improvements: [
+                            `Tested on ${data.samples.length} samples`,
+                            `Average score: ${(data.avgScore * 100).toFixed(1)}%`,
+                            "Intermediate optimization attempt"
+                          ]
+                        });
+                      }
+                    }
+                  } catch (parseError) {
+                    console.warn(`Warning: Could not parse metrics table: ${parseError.message}`);
+                  }
+                }
+              }
+            }
+
+            // Sort prompts by score to show progression (lowest to highest)
+            optimizedPrompts.sort((a, b) => {
+              return (a.confidenceScore || 0) - (b.confidenceScore || 0);
+            });
+
+            foundResults = {
+              jobId,
+              originalPrompts: jobData.base_prompts,
+              optimizedPrompts,
+              performanceMetrics: {
+                imageSimilarityScore: optimizedData.metrics?.['image_similarity_score/mean'] || 0,
+                evaluationSamples: evalData?.[0]?.summary_results?.row_count || "Unknown",
+                ...allMetrics
+              },
+              completedAt: new Date().toISOString(),
+              resultTimestamp
+            };
+
+            // Extract actual optimization run timestamps from unique_ids in eval data
+            let optimizationTimestamp = null;
+            if (evalData && Array.isArray(evalData)) {
+              for (const evalSet of evalData) {
+                if (evalSet.metrics_table) {
+                  try {
+                    const metricsTable = JSON.parse(evalSet.metrics_table);
+                    for (const entry of metricsTable) {
+                      if (entry.unique_id) {
+                        const timestampMatch = entry.unique_id.match(/^(\d+)_/);
+                        if (timestampMatch) {
+                          optimizationTimestamp = parseInt(timestampMatch[1]);
+                          break;
+                        }
+                      }
+                    }
+                    if (optimizationTimestamp) break;
+                  } catch (e) {}
+                }
+                if (optimizationTimestamp) break;
+              }
+            }
+
+            // Fetch generated images from Supabase optimizer_generations table for this optimization run
+            try {
+              console.log(`🔍 Fetching generated images from Supabase for optimization run...`);
+
+              if (optimizationTimestamp) {
+                const { data: generatedImages, error: imagesError } = await supabase
+                  .from('optimizer_generations')
+                  .select('*')
+                  .gte('created_at', new Date(optimizationTimestamp - 1000 * 60).toISOString()) // 1 minute before
+                  .lte('created_at', new Date(optimizationTimestamp + 1000 * 60 * 10).toISOString()) // 10 minutes after
+                  .order('created_at', { ascending: true });
+
+                if (!imagesError && generatedImages && generatedImages.length > 0) {
+                  console.log(`📸 Found ${generatedImages.length} generated images for this optimization run`);
+
+                  // Group images by prompt used
+                  const imagesByPrompt = new Map();
+                  for (const img of generatedImages) {
+                    const promptKey = img.prompt_used || 'unknown';
+                    if (!imagesByPrompt.has(promptKey)) {
+                      imagesByPrompt.set(promptKey, []);
+                    }
+
+                    // Upload GCS image to Supabase and get public URL
+                    let supabaseImageUrl = img.generated_image_url; // fallback
+                    try {
+                      if (img.generated_image_url && img.generated_image_url.includes('storage.googleapis.com')) {
+                        supabaseImageUrl = await uploadGCSImageToSupabase(img.generated_image_url, img.id);
+
+                        // Update the database record with the new Supabase URL for caching
+                        try {
+                          await supabase
+                            .from('optimizer_generations')
+                            .update({ generated_image_url: supabaseImageUrl })
+                            .eq('id', img.id);
+                          console.log(`✅ Updated database record ${img.id} with Supabase URL`);
+                        } catch (updateError) {
+                          console.warn(`Warning: Failed to update database record ${img.id}: ${updateError.message}`);
+                        }
+                      }
+                    } catch (uploadError) {
+                      console.warn(`Failed to upload image ${img.id} to Supabase: ${uploadError.message}`);
+                    }
+
+                    imagesByPrompt.get(promptKey).push({
+                      id: img.id,
+                      generatedImageUrl: supabaseImageUrl,
+                      uploadedImageUrl: img.uploaded_image_url,
+                      referenceImageUrl: img.reference_image_url,
+                      trainingSampleId: img.training_sample_id,
+                      createdAt: img.created_at
+                    });
+                  }
+
+                  // Add images to each optimized prompt
+                  for (const optimizedPrompt of optimizedPrompts) {
+                    const matchingImages = imagesByPrompt.get(optimizedPrompt.prompt) || [];
+                    optimizedPrompt.generatedImages = matchingImages;
+                    optimizedPrompt.imageCount = matchingImages.length;
+
+                    if (matchingImages.length > 0) {
+                      optimizedPrompt.improvements.push(`Generated ${matchingImages.length} sample images`);
+                    }
+                  }
+
+                  // Add total image count to performance metrics
+                  foundResults.performanceMetrics.totalImagesGenerated = generatedImages.length;
+                } else {
+                  console.log(`⚠️ No generated images found in Supabase for this optimization run`);
+                }
+              } else {
+                console.log(`⚠️ No optimization timestamp found, cannot fetch images`);
+              }
+
+            } catch (imagesError) {
+              console.warn(`Warning: Could not fetch generated images: ${imagesError.message}`);
+            }
+
+          console.log(`✅ Found results for job ${jobId} at timestamp ${resultTimestamp} with ${optimizedPrompts.length} prompt attempts`);
+
+        } catch (fileError) {
+          console.log(`❌ Error processing ${fileName}: ${fileError.message}`);
+        }
+      } else {
+        console.log(`❌ No matching results found for job ${jobId} created at ${jobData.created_at}`);
+      }
+
+      if (foundResults) {
+        // Store results in Supabase for caching
+        await supabase
+          .from('vertex_ai_jobs')
+          .update({
+            optimized_prompts: foundResults.optimizedPrompts,
+            performance_metrics: foundResults.performanceMetrics
+          })
+          .eq('job_id', jobId);
+
+        console.log(`✅ Retrieved and cached results for job: ${jobId}`);
+
+        return res.json({
+          jobId,
+          status: 'completed',
+          originalPrompts: jobData.base_prompts,
+          optimizedPrompts: foundResults.optimizedPrompts,
+          performanceMetrics: foundResults.performanceMetrics,
+          completedAt: foundResults.completedAt
+        });
+      }
+
+    } catch (fetchError) {
+      console.error(`❌ Error fetching results: ${fetchError.message}`);
+    }
+
+    // No results available
+    console.log(`❌ No optimization results found for job: ${jobId}`);
+
+    return res.status(404).json({
+      error: 'Results not found',
+      message: 'Optimization results are not available for this job',
+      jobId,
+      status: jobData.status
+    });
 
   } catch (error) {
     console.error("❌ Vertex AI results retrieval error:", error);

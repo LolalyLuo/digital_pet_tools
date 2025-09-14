@@ -403,7 +403,7 @@ Return ONLY a JSON object with this exact format:
   );
 
   return (
-    <div className="flex flex-col h-screen bg-gray-100">
+    <div className="flex flex-col bg-gray-100">
       <div className="flex-1 flex overflow-hidden">
         {/* Left Panel - Configuration */}
         <div className="w-1/2 bg-white shadow-sm p-6 overflow-y-auto">

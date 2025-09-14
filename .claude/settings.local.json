@@ -10,7 +10,12 @@
       "Bash(gsutil ls:*)",
       "Bash(gcloud storage ls:*)",
       "Bash(gcloud storage cat:*)",
-      "Bash(gcloud functions call:*)"
+      "Bash(gcloud functions call:*)",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_click",
+      "mcp__playwright__browser_console_messages",
+      "mcp__playwright__browser_evaluate",
+      "mcp__playwright__browser_snapshot"
     ],
     "deny": [],
     "ask": []

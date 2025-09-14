@@ -24,6 +24,7 @@ const VertexAIOptimizer = () => {
 
   useEffect(() => {
     loadDataSets();
+    loadJobs();
   }, []);
 
   const loadDataSets = async () => {
@@ -47,6 +48,23 @@ const VertexAIOptimizer = () => {
     }
   };
 
+  const loadJobs = async () => {
+    try {
+      const response = await fetch("http://localhost:3001/api/vertex-ai/jobs");
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      setJobs(data.jobs || []);
+
+      console.log(`📊 Loaded ${data.jobs?.length || 0} jobs from server`);
+    } catch (err) {
+      console.error("Error loading jobs:", err);
+      setError(`Failed to load jobs: ${err.message}`);
+    }
+  };
 
   const submitOptimizationJob = async () => {
     if (!currentDataSet) {
@@ -65,18 +83,21 @@ const VertexAIOptimizer = () => {
     try {
       console.log("🚀 Submitting Vertex AI optimization job...");
 
-      const response = await fetch("http://localhost:3001/api/vertex-ai/optimize", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          trainingDataSet: currentDataSet,
-          basePrompts: [basePrompt],
-          optimizationMode: "data-driven",
-          targetModel: "gemini-2.5-flash",
-        }),
-      });
+      const response = await fetch(
+        "http://localhost:3001/api/vertex-ai/optimize",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            trainingDataSet: currentDataSet,
+            basePrompts: [basePrompt],
+            optimizationMode: "data-driven",
+            targetModel: "gemini-2.5-flash",
+          }),
+        }
+      );
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -84,16 +105,10 @@ const VertexAIOptimizer = () => {
 
       const data = await response.json();
 
-      // Add job to local list
-      const newJob = {
-        ...data,
-        submittedAt: new Date().toLocaleString(),
-      };
-
-      setJobs(prev => [newJob, ...prev]);
-
       console.log(`✅ Job submitted: ${data.jobId}`);
 
+      // Reload jobs from server to get the persisted data
+      await loadJobs();
     } catch (err) {
       setError(`Job submission failed: ${err.message}`);
       console.error("Job submission error:", err);
@@ -104,7 +119,9 @@ const VertexAIOptimizer = () => {
 
   const checkJobStatus = async (jobId) => {
     try {
-      const response = await fetch(`http://localhost:3001/api/vertex-ai/jobs/${jobId}`);
+      const response = await fetch(
+        `http://localhost:3001/api/vertex-ai/jobs/${jobId}`
+      );
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -112,14 +129,10 @@ const VertexAIOptimizer = () => {
 
       const data = await response.json();
 
-      // Update job in local list
-      setJobs(prev =>
-        prev.map(job =>
-          job.jobId === jobId
-            ? { ...job, ...data, lastChecked: new Date().toLocaleString() }
-            : job
-        )
-      );
+      console.log(`🔄 Status check for ${jobId}:`, data);
+
+      // Reload all jobs to get updated data from server
+      await loadJobs();
 
       return data;
     } catch (err) {
@@ -132,7 +145,9 @@ const VertexAIOptimizer = () => {
     try {
       setLoading(true);
 
-      const response = await fetch(`http://localhost:3001/api/vertex-ai/results/${jobId}`);
+      const response = await fetch(
+        `http://localhost:3001/api/vertex-ai/results/${jobId}`
+      );
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -140,7 +155,6 @@ const VertexAIOptimizer = () => {
 
       const data = await response.json();
       setSelectedJob({ ...data, jobId });
-
     } catch (err) {
       setError(`Failed to load results: ${err.message}`);
     } finally {
@@ -171,10 +185,10 @@ const VertexAIOptimizer = () => {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gray-100">
+    <div className="flex flex-col bg-gray-100">
       <div className="flex-1 flex overflow-hidden">
         {/* Left Panel - Configuration */}
-        <div className="w-1/2 bg-white shadow-sm p-6 overflow-y-auto">
+        <div className="bg-white shadow-sm p-6 overflow-y-auto">
           <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center">
             <Settings className="mr-2" size={24} />
             Vertex AI Prompt Optimizer
@@ -220,7 +234,6 @@ const VertexAIOptimizer = () => {
             />
           </div>
 
-
           {/* Actions */}
           <div className="space-y-3">
             <button
@@ -245,7 +258,6 @@ const VertexAIOptimizer = () => {
               )}
             </button>
           </div>
-
         </div>
 
         {/* Right Panel - Jobs & Results */}
@@ -268,7 +280,9 @@ const VertexAIOptimizer = () => {
                 // Show detailed results
                 <div>
                   <div className="flex items-center justify-between mb-4">
-                    <h4 className="text-lg font-medium">Job Results: {selectedJob.jobId}</h4>
+                    <h4 className="text-lg font-medium">
+                      Job Results: {selectedJob.jobId}
+                    </h4>
                     <button
                       onClick={() => setSelectedJob(null)}
                       className="text-gray-500 hover:text-gray-700"
@@ -279,51 +293,158 @@ const VertexAIOptimizer = () => {
 
                   <div className="space-y-6">
                     <div className="bg-green-50 p-4 rounded-lg">
-                      <h5 className="font-medium text-green-800 mb-2">Performance Metrics</h5>
-                      <div className="grid grid-cols-3 gap-4 text-sm">
+                      <h5 className="font-medium text-green-800 mb-2">
+                        Performance Metrics
+                      </h5>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
                         <div>
-                          <span className="text-green-600">Average Improvement</span>
-                          <p className="font-medium">{selectedJob.performanceMetrics?.averageImprovement}</p>
+                          <span className="text-green-600">Score</span>
+                          <p className="font-medium">
+                            {(
+                              selectedJob.performanceMetrics
+                                ?.imageSimilarityScore * 100 || 0
+                            ).toFixed(1)}
+                            %
+                          </p>
                         </div>
                         <div>
-                          <span className="text-green-600">BLEU Score</span>
-                          <p className="font-medium">{selectedJob.performanceMetrics?.bleuScore}</p>
+                          <span className="text-green-600">
+                            Evaluation Samples
+                          </span>
+                          <p className="font-medium">
+                            {selectedJob.performanceMetrics?.evaluationSamples}
+                          </p>
                         </div>
                         <div>
-                          <span className="text-green-600">ROUGE Score</span>
-                          <p className="font-medium">{selectedJob.performanceMetrics?.rougeScore}</p>
+                          <span className="text-green-600">
+                            Images Generated
+                          </span>
+                          <p className="font-medium">
+                            {selectedJob.performanceMetrics
+                              ?.totalImagesGenerated || 0}
+                          </p>
                         </div>
                       </div>
                     </div>
 
                     <div>
-                      <h5 className="font-medium text-gray-800 mb-3">Optimized Prompts</h5>
+                      <h5 className="font-medium text-gray-800 mb-3">
+                        Optimization Progression
+                      </h5>
                       <div className="space-y-4">
-                        {selectedJob.optimizedPrompts?.map((optimized, index) => (
-                          <div key={index} className="border rounded-lg p-4">
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="font-medium text-gray-700">
-                                Prompt #{index + 1}
-                              </span>
-                              <span className="text-sm text-blue-600">
-                                Confidence: {Math.round(optimized.confidenceScore * 100)}%
-                              </span>
+                        {selectedJob.optimizedPrompts?.map(
+                          (optimized, index) => (
+                            <div
+                              key={index}
+                              className={`border rounded-lg p-4 ${
+                                optimized.isOptimized
+                                  ? "border-green-500 bg-green-50"
+                                  : "border-gray-200"
+                              }`}
+                            >
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium text-gray-700">
+                                    {optimized.isOptimized
+                                      ? "🎯 Final Optimized"
+                                      : `📝 Attempt ${index + 1}`}
+                                  </span>
+                                  {optimized.step !== undefined && (
+                                    <span className="text-xs text-gray-500">
+                                      Step {optimized.step}
+                                    </span>
+                                  )}
+                                </div>
+                                <span
+                                  className={`text-sm ${
+                                    optimized.isOptimized
+                                      ? "text-green-600 font-semibold"
+                                      : "text-blue-600"
+                                  }`}
+                                >
+                                  Score:{" "}
+                                  {Math.round(
+                                    (optimized.confidenceScore || 0) * 100
+                                  )}
+                                  %
+                                </span>
+                              </div>
+
+                              <div
+                                className={`p-3 rounded mb-3 ${
+                                  optimized.isOptimized
+                                    ? "bg-green-100"
+                                    : "bg-blue-50"
+                                }`}
+                              >
+                                <p
+                                  className={`text-sm font-medium ${
+                                    optimized.isOptimized
+                                      ? "text-green-800"
+                                      : "text-blue-800"
+                                  }`}
+                                >
+                                  {optimized.prompt}
+                                </p>
+                              </div>
+
+                              {optimized.generatedImages &&
+                                optimized.generatedImages.length > 0 && (
+                                  <div className="mb-3">
+                                    <p className="text-xs text-gray-600 mb-2">
+                                      Generated Images (
+                                      {optimized.generatedImages.length}):
+                                    </p>
+                                    <div className="flex gap-2 overflow-x-auto">
+                                      {optimized.generatedImages.map(
+                                        (img, imgIndex) => (
+                                          <div
+                                            key={imgIndex}
+                                            className="flex-shrink-0"
+                                          >
+                                            <img
+                                              src={img.generatedImageUrl}
+                                              alt={`Generated ${imgIndex + 1}`}
+                                              className="w-16 h-16 object-cover rounded border cursor-pointer hover:scale-110 transition-transform"
+                                              onClick={() =>
+                                                window.open(
+                                                  img.generatedImageUrl,
+                                                  "_blank"
+                                                )
+                                              }
+                                              title={`Sample ${img.trainingSampleId} - Click to view full size`}
+                                            />
+                                          </div>
+                                        )
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+
+                              <div>
+                                <p className="text-xs text-gray-600 mb-1">
+                                  Details:
+                                </p>
+                                <ul className="text-xs text-gray-700 space-y-1">
+                                  {optimized.improvements?.map(
+                                    (improvement, i) => (
+                                      <li key={i}>• {improvement}</li>
+                                    )
+                                  )}
+                                  {optimized.samples &&
+                                    optimized.samples.length > 0 && (
+                                      <li>
+                                        • Tested on samples:{" "}
+                                        {optimized.samples
+                                          .map((s) => s.unique_id)
+                                          .join(", ")}
+                                      </li>
+                                    )}
+                                </ul>
+                              </div>
                             </div>
-                            <div className="bg-blue-50 p-3 rounded mb-3">
-                              <p className="text-sm font-medium text-blue-800">
-                                {optimized.prompt}
-                              </p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-gray-600 mb-1">Improvements:</p>
-                              <ul className="text-xs text-gray-700 space-y-1">
-                                {optimized.improvements?.map((improvement, i) => (
-                                  <li key={i}>• {improvement}</li>
-                                ))}
-                              </ul>
-                            </div>
-                          </div>
-                        ))}
+                          )
+                        )}
                       </div>
                     </div>
                   </div>
@@ -334,7 +455,8 @@ const VertexAIOptimizer = () => {
                   <Settings size={48} className="mx-auto mb-4 text-gray-300" />
                   <p>No optimization jobs yet</p>
                   <p className="text-sm">
-                    Configure your settings and submit your first job to get started
+                    Configure your settings and submit your first job to get
+                    started
                   </p>
                 </div>
               ) : (
@@ -348,7 +470,11 @@ const VertexAIOptimizer = () => {
                           <span className="font-medium text-gray-800">
                             {job.jobId}
                           </span>
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(job.status)}`}>
+                          <span
+                            className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(
+                              job.status
+                            )}`}
+                          >
                             {job.status}
                           </span>
                         </div>
@@ -373,13 +499,26 @@ const VertexAIOptimizer = () => {
                       </div>
 
                       <div className="text-sm text-gray-600 space-y-1">
-                        <p><strong>Data Set:</strong> {job.trainingDataSet}</p>
-                        <p><strong>Prompts:</strong> {job.basePrompts} base prompts</p>
-                        <p><strong>Mode:</strong> {job.optimizationMode}</p>
-                        <p><strong>Target:</strong> {job.targetModel}</p>
-                        <p><strong>Submitted:</strong> {job.submittedAt}</p>
+                        <p>
+                          <strong>Data Set:</strong> {job.trainingDataSet}
+                        </p>
+                        <p>
+                          <strong>Prompts:</strong> {job.basePrompts} base
+                          prompts
+                        </p>
+                        <p>
+                          <strong>Mode:</strong> {job.optimizationMode}
+                        </p>
+                        <p>
+                          <strong>Target:</strong> {job.targetModel}
+                        </p>
+                        <p>
+                          <strong>Submitted:</strong> {job.submittedAt}
+                        </p>
                         {job.lastChecked && (
-                          <p><strong>Last Checked:</strong> {job.lastChecked}</p>
+                          <p>
+                            <strong>Last Checked:</strong> {job.lastChecked}
+                          </p>
                         )}
                         {job.progress !== undefined && (
                           <div className="mt-2">

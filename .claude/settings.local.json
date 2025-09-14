@@ -6,7 +6,11 @@
       "Bash(SUPABASE_URL=\"https://njxpguzxsodxtrbkxusz.supabase.co\" SUPABASE_SERVICE_ROLE_KEY=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5qeHBndXp4c29keHRyYmt4dXN6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NzU2OTQ1NywiZXhwIjoyMDczMTQ1NDU3fQ.dM01I07kRotVmh3kaZ3Oe76VxcLtx6PLanbJ8PasUv4\" ./deploy.sh)",
       "Bash(python test:*)",
       "Bash(gcloud functions add-iam-policy-binding:*)",
-      "Bash(gcloud functions logs read:*)"
+      "Bash(gcloud functions logs read:*)",
+      "Bash(gsutil ls:*)",
+      "Bash(gcloud storage ls:*)",
+      "Bash(gcloud storage cat:*)",
+      "Bash(gcloud functions call:*)"
     ],
     "deny": [],
     "ask": []

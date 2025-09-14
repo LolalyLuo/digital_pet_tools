@@ -2641,19 +2641,41 @@ app.post("/api/vertex-ai/optimize", async (req, res) => {
     console.log(`⚙️ Optimization Mode: ${optimizationMode}`);
     console.log(`🎯 Target Model: ${targetModel}`);
 
-    // Step 1: Format training data as JSONL
+    // Step 1: Format training data as JSONL inline
     console.log("📋 Formatting training data...");
-    const formatResponse = await fetch(`http://localhost:${PORT}/api/vertex-ai/format-data`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ trainingDataSet, basePrompts })
-    });
 
-    if (!formatResponse.ok) {
-      throw new Error("Failed to format training data");
+    if (!trainingDataSet) {
+      throw new Error("Training data set is required");
     }
 
-    const formattedData = await formatResponse.json();
+    console.log(`📊 Fetching samples for data set: ${trainingDataSet}`);
+
+    const { data: trainingSamples, error } = await supabase
+      .from('training_samples')
+      .select('id, uploaded_image_url, openai_image_url, data_set_name')
+      .eq('data_set_name', trainingDataSet)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      throw new Error(`Failed to fetch training samples: ${error.message}`);
+    }
+
+    if (!trainingSamples || trainingSamples.length === 0) {
+      throw new Error(`No training samples found for data set: ${trainingDataSet}`);
+    }
+
+    console.log(`📄 Found ${trainingSamples.length} training samples`);
+
+    // Format for Vertex AI Prompt Optimizer JSONL for image generation evaluation
+    const formattedSamples = trainingSamples.map((sample) => {
+      return {
+        input: `${sample.uploaded_image_url},${sample.openai_image_url}`,
+        target: "{}",
+        unique_id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}_sample_${sample.id}`
+      };
+    });
+
+    const jsonlData = formattedSamples.map(sample => JSON.stringify(sample)).join('\n');
 
     // Step 2: Upload training data and config to Cloud Storage
     console.log("☁️ Uploading training data and config to Cloud Storage...");
@@ -2675,7 +2697,7 @@ app.post("/api/vertex-ai/optimize", async (req, res) => {
 
       // Upload JSONL training data
       const dataFile = bucket.file(fileName);
-      await dataFile.save(formattedData.jsonlData, {
+      await dataFile.save(jsonlData, {
         metadata: {
           contentType: 'application/jsonl',
         },
@@ -2693,7 +2715,7 @@ app.post("/api/vertex-ai/optimize", async (req, res) => {
         target_model_location: location, // "us-central1"
         input_data_path: datasetUri,
         output_path: outputPath,
-        system_instruction: "You are an expert at creating detailed, artistic image generation prompts.",
+        system_instruction: basePrompts[0] || "Generate an image",
         prompt_template: "Create an image prompt: {input}\nOptimized prompt: {target}",
         optimization_mode: "instruction",
         num_steps: 1,
@@ -2972,106 +2994,6 @@ app.get("/api/vertex-ai/jobs/:jobId/logs", async (req, res) => {
   }
 });
 
-// Format training data for Vertex AI Prompt Optimizer
-app.post("/api/vertex-ai/format-data", async (req, res) => {
-  console.log("📋 Vertex AI data formatting request received");
-
-  try {
-    const { trainingDataSet, basePrompts } = req.body;
-
-    if (!trainingDataSet) {
-      return res.status(400).json({
-        error: "Missing required parameter",
-        details: "trainingDataSet is required"
-      });
-    }
-
-    console.log(`📊 Formatting data set: ${trainingDataSet}`);
-
-    // Get training samples from database
-    const { data: trainingSamples, error: dbError } = await supabase
-      .from("training_samples")
-      .select("*")
-      .eq("data_set_name", trainingDataSet)
-      .limit(100); // Limit for now
-
-    if (dbError) {
-      throw new Error(`Database error: ${dbError.message}`);
-    }
-
-    if (!trainingSamples || trainingSamples.length === 0) {
-      return res.status(404).json({
-        error: "No training samples found",
-        details: `No samples found for data set: ${trainingDataSet}`
-      });
-    }
-
-    console.log(`📄 Found ${trainingSamples.length} training samples`);
-
-    // Format for Vertex AI Prompt Optimizer JSONL for image generation evaluation
-    const formattedSamples = trainingSamples.map((sample) => {
-      // For image generation, we need the actual prompt that was used and reference data
-      // The target should contain the evaluation criteria/reference information
-      return {
-        input: basePrompts[0] || "Generate a cute dog photo", // The prompt to optimize
-        target: JSON.stringify({
-          reference_image_url: sample.openai_image_url,
-          uploaded_image_url: sample.uploaded_image_url,
-          expected_style: "soft watercolor aesthetic with hand-drawn texture",
-          quality_criteria: [
-            "visible brushstrokes",
-            "pastel colors",
-            "dreamy quality",
-            "pet looks peaceful and content"
-          ],
-          evaluation_type: "image_similarity_and_style"
-        }),
-        sample_id: sample.id,
-        metadata: {
-          customer_id: sample.customer_id,
-          product_type: sample.product_type,
-          source: sample.source,
-          created_at: sample.created_at
-        }
-      };
-    });
-
-    // Convert to JSONL format (one JSON object per line)
-    const jsonlData = formattedSamples
-      .map(sample => JSON.stringify(sample))
-      .join('\n');
-
-    const summary = {
-      dataSet: trainingDataSet,
-      sampleCount: formattedSamples.length,
-      format: "JSONL",
-      basePrompts: basePrompts || ["Generate a cute dog photo"],
-      sampleStructure: {
-        input: "Base prompt for generation (maps to {input} in template)",
-        target: "Expected output description (maps to {target} in template)",
-        reference_image: "OpenAI generated reference image URL",
-        sample_id: "Database sample ID",
-        metadata: "Additional sample information including uploaded_image"
-      },
-      timestamp: new Date().toISOString()
-    };
-
-    res.json({
-      summary,
-      jsonlData,
-      downloadSize: `${Math.round(jsonlData.length / 1024)} KB`,
-      message: "Training data formatted successfully for Vertex AI Prompt Optimizer"
-    });
-
-  } catch (error) {
-    console.error("❌ Vertex AI data formatting error:", error);
-    res.status(500).json({
-      error: "Data formatting failed",
-      details: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
 
 // Get optimization results
 app.get("/api/vertex-ai/results/:jobId", async (req, res) => {

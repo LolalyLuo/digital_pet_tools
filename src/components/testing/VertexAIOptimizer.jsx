@@ -6,7 +6,6 @@ import {
   RefreshCw,
   CheckCircle,
   Clock,
-  Database,
   Settings,
   BarChart3,
   Download,
@@ -19,13 +18,9 @@ const VertexAIOptimizer = () => {
   const [error, setError] = useState("");
   const [dataSets, setDataSets] = useState([]);
   const [currentDataSet, setCurrentDataSet] = useState("");
-  const [basePrompts, setBasePrompts] = useState(["Generate a cute dog photo"]);
-  const [newPrompt, setNewPrompt] = useState("");
-  const [optimizationMode, setOptimizationMode] = useState("data-driven");
-  const [targetModel, setTargetModel] = useState("gemini-2.5-flash");
+  const [basePrompt, setBasePrompt] = useState("Generate a cute dog photo");
   const [jobs, setJobs] = useState([]);
   const [selectedJob, setSelectedJob] = useState(null);
-  const [formattedData, setFormattedData] = useState(null);
 
   useEffect(() => {
     loadDataSets();
@@ -52,57 +47,6 @@ const VertexAIOptimizer = () => {
     }
   };
 
-  const addPrompt = () => {
-    if (newPrompt.trim() && !basePrompts.includes(newPrompt.trim())) {
-      setBasePrompts([...basePrompts, newPrompt.trim()]);
-      setNewPrompt("");
-    }
-  };
-
-  const removePrompt = (index) => {
-    setBasePrompts(basePrompts.filter((_, i) => i !== index));
-  };
-
-  const formatData = async () => {
-    if (!currentDataSet) {
-      setError("Please select a training data set");
-      return;
-    }
-
-    setLoading(true);
-    setError("");
-
-    try {
-      console.log("🔄 Formatting training data for Vertex AI...");
-
-      const response = await fetch("http://localhost:3001/api/vertex-ai/format-data", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          trainingDataSet: currentDataSet,
-          basePrompts: basePrompts,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      setFormattedData(data);
-
-      console.log("✅ Data formatted successfully");
-      console.log(`📊 ${data.summary.sampleCount} samples formatted`);
-
-    } catch (err) {
-      setError(`Data formatting failed: ${err.message}`);
-      console.error("Data formatting error:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const submitOptimizationJob = async () => {
     if (!currentDataSet) {
@@ -110,8 +54,8 @@ const VertexAIOptimizer = () => {
       return;
     }
 
-    if (basePrompts.length === 0) {
-      setError("Please add at least one base prompt");
+    if (!basePrompt.trim()) {
+      setError("Please enter a prompt");
       return;
     }
 
@@ -128,9 +72,9 @@ const VertexAIOptimizer = () => {
         },
         body: JSON.stringify({
           trainingDataSet: currentDataSet,
-          basePrompts: basePrompts,
-          optimizationMode: optimizationMode,
-          targetModel: targetModel,
+          basePrompts: [basePrompt],
+          optimizationMode: "data-driven",
+          targetModel: "gemini-2.5-flash",
         }),
       });
 
@@ -262,103 +206,28 @@ const VertexAIOptimizer = () => {
             </select>
           </div>
 
-          {/* Base Prompts */}
+          {/* Base Prompt */}
           <div className="mb-6">
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Base Prompts to Optimize
+              Prompt to Optimize
             </label>
-            <div className="space-y-2">
-              {basePrompts.map((prompt, index) => (
-                <div key={index} className="flex items-center gap-2">
-                  <span className="flex-1 px-2 py-1 text-sm bg-gray-50 border rounded">
-                    {prompt}
-                  </span>
-                  <button
-                    onClick={() => removePrompt(index)}
-                    className="px-2 py-1 text-red-600 hover:bg-red-50 rounded"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newPrompt}
-                  onChange={(e) => setNewPrompt(e.target.value)}
-                  placeholder="Add new prompt..."
-                  className="flex-1 px-2 py-1 text-sm border rounded"
-                  onKeyPress={(e) => e.key === 'Enter' && addPrompt()}
-                />
-                <button
-                  onClick={addPrompt}
-                  className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
-                >
-                  Add
-                </button>
-              </div>
-            </div>
+            <textarea
+              value={basePrompt}
+              onChange={(e) => setBasePrompt(e.target.value)}
+              placeholder="Enter your prompt to optimize..."
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 resize-none"
+              rows={4}
+            />
           </div>
 
-          {/* Configuration */}
-          <div className="mb-6 grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Optimization Mode
-              </label>
-              <select
-                value={optimizationMode}
-                onChange={(e) => setOptimizationMode(e.target.value)}
-                className="w-full px-2 py-1 border rounded text-sm"
-              >
-                <option value="data-driven">Data-Driven</option>
-                <option value="zero-shot">Zero-Shot</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Target Model
-              </label>
-              <select
-                value={targetModel}
-                onChange={(e) => setTargetModel(e.target.value)}
-                className="w-full px-2 py-1 border rounded text-sm"
-              >
-                <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
-              </select>
-            </div>
-          </div>
 
           {/* Actions */}
           <div className="space-y-3">
             <button
-              onClick={formatData}
-              disabled={loading || !currentDataSet}
-              className={`w-full px-4 py-2 rounded font-medium transition-colors flex items-center justify-center ${
-                loading || !currentDataSet
-                  ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                  : "bg-purple-600 text-white hover:bg-purple-700"
-              }`}
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="animate-spin mr-2" size={18} />
-                  Formatting...
-                </>
-              ) : (
-                <>
-                  <Database className="mr-2" size={18} />
-                  Format Training Data
-                </>
-              )}
-            </button>
-
-            <button
               onClick={submitOptimizationJob}
-              disabled={loading || !currentDataSet || basePrompts.length === 0}
+              disabled={loading || !currentDataSet || !basePrompt.trim()}
               className={`w-full px-4 py-2 rounded font-medium transition-colors flex items-center justify-center ${
-                loading || !currentDataSet || basePrompts.length === 0
+                loading || !currentDataSet || !basePrompt.trim()
                   ? "bg-gray-300 text-gray-500 cursor-not-allowed"
                   : "bg-green-600 text-white hover:bg-green-700"
               }`}
@@ -377,18 +246,6 @@ const VertexAIOptimizer = () => {
             </button>
           </div>
 
-          {/* Formatted Data Preview */}
-          {formattedData && (
-            <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-              <h4 className="font-medium text-gray-700 mb-2">Formatted Data Summary</h4>
-              <div className="text-sm space-y-1">
-                <p><strong>Data Set:</strong> {formattedData.summary.dataSet}</p>
-                <p><strong>Samples:</strong> {formattedData.summary.sampleCount}</p>
-                <p><strong>Size:</strong> {formattedData.downloadSize}</p>
-                <p><strong>Format:</strong> {formattedData.summary.format}</p>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Right Panel - Jobs & Results */}

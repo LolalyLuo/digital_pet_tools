@@ -2693,11 +2693,13 @@ app.post("/api/vertex-ai/optimize", async (req, res) => {
         target_model_location: location, // "us-central1"
         input_data_path: datasetUri,
         output_path: outputPath,
-        system_instruction: basePrompts[0] || "You are a helpful AI assistant.",
-        prompt_template: "Question: {input}\nAnswer: {target}",
+        system_instruction: "You are an expert at creating detailed, artistic image generation prompts.",
+        prompt_template: "Create an image prompt: {input}\nOptimized prompt: {target}",
         optimization_mode: "instruction",
-        num_steps: 10,
-        eval_metric: evaluationMetrics[0] === "bleu" ? "bleu" : "question_answering_quality",
+        num_steps: 1,
+        eval_metric: "custom_metric",
+        custom_metric_name: "image_similarity_score",
+        custom_metric_cloud_function_name: "evaluate-image-prompt",
         target_model_qps: 3.0,
         eval_qps: 3.0,
         thinking_budget: 0
@@ -3006,21 +3008,30 @@ app.post("/api/vertex-ai/format-data", async (req, res) => {
 
     console.log(`📄 Found ${trainingSamples.length} training samples`);
 
-    // Format for Vertex AI Prompt Optimizer JSONL with required input/target fields
+    // Format for Vertex AI Prompt Optimizer JSONL for image generation evaluation
     const formattedSamples = trainingSamples.map((sample) => {
-      // For prompt optimization, we need 'input' and 'target' fields
-      // that match the prompt_template: "Question: {input}\nAnswer: {target}"
+      // For image generation, we need the actual prompt that was used and reference data
+      // The target should contain the evaluation criteria/reference information
       return {
-        input: basePrompts[0] || "Generate a cute dog photo", // Maps to {input} in template
-        target: "High-quality generated dog image", // Maps to {target} in template
-        reference_image: sample.openai_image_url, // Reference "gold standard"
+        input: basePrompts[0] || "Generate a cute dog photo", // The prompt to optimize
+        target: JSON.stringify({
+          reference_image_url: sample.openai_image_url,
+          uploaded_image_url: sample.uploaded_image_url,
+          expected_style: "soft watercolor aesthetic with hand-drawn texture",
+          quality_criteria: [
+            "visible brushstrokes",
+            "pastel colors",
+            "dreamy quality",
+            "pet looks peaceful and content"
+          ],
+          evaluation_type: "image_similarity_and_style"
+        }),
         sample_id: sample.id,
         metadata: {
           customer_id: sample.customer_id,
           product_type: sample.product_type,
           source: sample.source,
-          created_at: sample.created_at,
-          uploaded_image: sample.uploaded_image_url
+          created_at: sample.created_at
         }
       };
     });

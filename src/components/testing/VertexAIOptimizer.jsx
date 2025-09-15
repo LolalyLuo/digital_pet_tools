@@ -588,16 +588,18 @@ const VertexAIOptimizer = () => {
                             <strong>Last Checked:</strong> {job.lastChecked}
                           </p>
                         )}
-                        {job.progress !== undefined && (
+                        {job.currentStep !== undefined && job.totalSteps !== undefined && job.status !== "completed" && job.status !== "failed" && (
                           <div className="mt-2">
                             <div className="flex justify-between text-xs mb-1">
                               <span>Progress</span>
-                              <span>{job.progress}%</span>
+                              <span>Step {job.currentStep} of {job.totalSteps}</span>
                             </div>
                             <div className="w-full bg-gray-200 rounded-full h-2">
                               <div
                                 className="bg-blue-600 h-2 rounded-full transition-all"
-                                style={{ width: `${job.progress}%` }}
+                                style={{
+                                  width: `${Math.round((job.currentStep / job.totalSteps) * 100)}%`
+                                }}
                               ></div>
                             </div>
                           </div>

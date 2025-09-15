@@ -3183,16 +3183,17 @@ app.post("/api/vertex-ai/optimize", async (req, res) => {
         target_model_location: location, // "us-central1"
         input_data_path: datasetUri,
         output_path: outputPath,
-        system_instruction: basePrompts[0] || "Generate an image",
+        system_instruction: basePrompts[0],
         prompt_template:
-          "Create an image prompt: {input}\nOptimized prompt: {target}",
+          "You are an expert at writing image editing prompts. Your task is to create an editing instruction that would transform the input image (described as: {input}) to match the desired outcome (described as: {target}).\n\nCurrent image: {input}\nDesired result: {target}\n\nCreate a clear, direct image editing prompt that tells an AI how to modify the current image to achieve the desired result. Your output should be a specific instruction focusing on what changes to make to colors, lighting, style, composition, and visual elements. Write as if giving instructions to an image editing AI that can see the current image.",
         optimization_mode: "instruction",
         num_steps: 20,
+        num_template_eval_per_step: 1,
         eval_metric: "custom_metric",
         custom_metric_name: "image_similarity_score",
         custom_metric_cloud_function_name: "evaluate-image-prompt",
-        target_model_qps: 3.0,
-        eval_qps: 3.0,
+        target_model_qps: 10.0,
+        eval_qps: 10.0,
         thinking_budget: 0,
       };
 
@@ -3339,29 +3340,110 @@ app.get("/api/vertex-ai/jobs", async (req, res) => {
         .json({ error: "Failed to fetch jobs", details: error.message });
     }
 
-    // Format jobs for UI
-    const formattedJobs = jobs.map((job) => ({
-      jobId: job.job_id,
-      status: job.status,
-      progress: job.progress,
-      message: job.message,
-      trainingDataSet: job.training_data_set,
-      basePrompts: Array.isArray(job.base_prompts)
-        ? job.base_prompts.length
-        : 1,
-      optimizationMode: job.optimization_mode,
-      targetModel: job.target_model,
-      submittedAt: new Date(job.created_at).toLocaleString(),
-      lastChecked: job.updated_at
-        ? new Date(job.updated_at).toLocaleString()
-        : null,
-      startedAt: job.started_at
-        ? new Date(job.started_at).toLocaleString()
-        : null,
-      completedAt: job.completed_at
-        ? new Date(job.completed_at).toLocaleString()
-        : null,
-    }));
+    // Format jobs for UI - fetch totalSteps from GCS config for each job
+    const formattedJobs = await Promise.all(
+      jobs.map(async (job) => {
+        let totalSteps = undefined;
+
+        // Try to get totalSteps and currentStep from GCS config if we have a jobId
+        let currentStep = 0;
+        if (job.job_id) {
+          try {
+            const jobName = `projects/${projectId}/locations/${location}/customJobs/${job.job_id}`;
+            const [vertexJob] = await jobServiceClient.getCustomJob({
+              name: jobName,
+            });
+
+            const args =
+              vertexJob.jobSpec?.workerPoolSpecs?.[0]?.containerSpec?.args ||
+              [];
+            const configArg = args.find((arg) =>
+              arg.startsWith("--config=gs://")
+            );
+
+            if (configArg) {
+              const configPath = configArg.replace("--config=", "");
+              const gcsMatch = configPath.match(/^gs:\/\/([^\/]+)\/(.+)$/);
+              if (gcsMatch) {
+                const [, bucketName, fileName] = gcsMatch;
+                const storageClient = new Storage();
+                const file = storageClient.bucket(bucketName).file(fileName);
+                const [configData] = await file.download();
+                const config = JSON.parse(configData.toString());
+                totalSteps = config.num_steps;
+
+                // Check output directory for current step from templates.json
+                const outputPath = config.output_path;
+                if (outputPath) {
+                  const outputMatch = outputPath.match(
+                    /^gs:\/\/([^\/]+)\/(.+)$/
+                  );
+                  if (outputMatch) {
+                    const [, outputBucket, outputPrefix] = outputMatch;
+                    try {
+                      const bucket = storageClient.bucket(outputBucket);
+                      const [files] = await bucket.getFiles({
+                        prefix: outputPrefix,
+                      });
+
+                      const templatesFile = files.find((f) =>
+                        f.name.endsWith("templates.json")
+                      );
+                      if (templatesFile) {
+                        try {
+                          const [templatesData] =
+                            await templatesFile.download();
+                          const templates = JSON.parse(
+                            templatesData.toString()
+                          );
+                          currentStep =
+                            templates.length > 0
+                              ? Math.max(...templates.map((t) => t.step))
+                              : 0;
+                        } catch (e) {
+                          // Silent fail for templates.json parsing
+                        }
+                      }
+                    } catch (e) {
+                      // Silent fail for output directory check
+                    }
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            console.log(
+              `⚠️ Could not fetch config for job ${job.job_id}: ${e.message}`
+            );
+          }
+        }
+
+        return {
+          jobId: job.job_id,
+          status: job.status,
+          progress: job.progress,
+          message: job.message,
+          trainingDataSet: job.training_data_set,
+          basePrompts: Array.isArray(job.base_prompts)
+            ? job.base_prompts.length
+            : 1,
+          optimizationMode: job.optimization_mode,
+          targetModel: job.target_model,
+          submittedAt: new Date(job.created_at).toLocaleString(),
+          lastChecked: job.updated_at
+            ? new Date(job.updated_at).toLocaleString()
+            : null,
+          startedAt: job.started_at
+            ? new Date(job.started_at).toLocaleString()
+            : null,
+          completedAt: job.completed_at
+            ? new Date(job.completed_at).toLocaleString()
+            : null,
+          totalSteps: totalSteps,
+          currentStep: currentStep,
+        };
+      })
+    );
 
     console.log(`📊 Retrieved ${formattedJobs.length} jobs from Supabase`);
     res.json({ jobs: formattedJobs });
@@ -3388,7 +3470,77 @@ app.get("/api/vertex-ai/jobs/:jobId", async (req, res) => {
     try {
       const [job] = await jobServiceClient.getCustomJob({ name: jobName });
 
-      console.log(`📊 Job state: ${job.state}`);
+      // Extract and log config from GCS
+      let totalSteps;
+      let currentStep = 0;
+      try {
+        const args =
+          job.jobSpec?.workerPoolSpecs?.[0]?.containerSpec?.args || [];
+        const configArg = args.find((arg) => arg.startsWith("--config=gs://"));
+
+        if (configArg) {
+          const configPath = configArg.replace("--config=", "");
+
+          // Parse GCS path: gs://bucket/path
+          const gcsMatch = configPath.match(/^gs:\/\/([^\/]+)\/(.+)$/);
+          if (gcsMatch) {
+            const [, bucketName, fileName] = gcsMatch;
+
+            // Fetch config from Google Cloud Storage
+            const storageClient = new Storage();
+
+            const file = storageClient.bucket(bucketName).file(fileName);
+            const [configData] = await file.download();
+            const config = JSON.parse(configData.toString());
+
+            totalSteps = config.num_steps;
+
+            // Check output directory for step progress files
+            const outputPath = config.output_path;
+            if (outputPath) {
+              console.log(`🔍 Checking output directory: ${outputPath}`);
+
+              const outputMatch = outputPath.match(/^gs:\/\/([^\/]+)\/(.+)$/);
+              if (outputMatch) {
+                const [, outputBucket, outputPrefix] = outputMatch;
+
+                try {
+                  const bucket = storageClient.bucket(outputBucket);
+                  const [files] = await bucket.getFiles({
+                    prefix: outputPrefix,
+                  });
+
+                  // Check templates.json for step information
+                  const templatesFile = files.find((f) =>
+                    f.name.endsWith("templates.json")
+                  );
+                  if (templatesFile) {
+                    try {
+                      const [templatesData] = await templatesFile.download();
+                      const templates = JSON.parse(templatesData.toString());
+
+                      // Get the current step count from the highest step number
+                      currentStep =
+                        templates.length > 0
+                          ? Math.max(...templates.map((t) => t.step))
+                          : 0;
+                      console.log(`📊 Current step: ${currentStep}`);
+                    } catch (e) {
+                      console.log(
+                        `⚠️ Could not read templates.json: ${e.message}`
+                      );
+                    }
+                  }
+                } catch (e) {
+                  console.log(`⚠️ Could not list output files: ${e.message}`);
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.log(`⚠️ Could not fetch config from GCS: ${e.message}`);
+      }
 
       let status,
         progress = 0;
@@ -3433,6 +3585,8 @@ app.get("/api/vertex-ai/jobs/:jobId", async (req, res) => {
         jobId,
         status,
         progress,
+        currentStep,
+        totalSteps,
         state: job.state,
         displayName: job.displayName,
         createTime: job.createTime,

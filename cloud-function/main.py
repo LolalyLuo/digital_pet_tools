@@ -57,7 +57,7 @@ def evaluate_image_prompt(request):
             raise Exception("No input image URL provided")
 
         # Step 1: Evaluate the single sample
-        score = evaluate_single_sample(
+        score, explanation = evaluate_single_sample(
             optimized_prompt, input_image_url, unique_id, reference_image_url
         )
 
@@ -69,6 +69,7 @@ def evaluate_image_prompt(request):
 
         result = {
             "image_similarity_score": score,
+            "explanation": explanation,
             "details": {
                 "samples_evaluated": 1,
                 "individual_scores": [score],
@@ -122,16 +123,16 @@ def evaluate_single_sample(
         )
 
         # Evaluate the generated image against the reference image
-        evaluation_score = evaluate_with_gemini_bytes(
+        evaluation_score, evaluation_explanation = evaluate_with_gemini_bytes(
             generated_image_bytes, reference_image_url
         )
 
         print(f"Sample {unique_id} evaluation score: {evaluation_score}")
-        return evaluation_score
+        return evaluation_score, evaluation_explanation
 
     except Exception as e:
         print(f"CRITICAL ERROR: Single sample evaluation failed: {e}")
-        return None
+        return None, None
 
 
 def store_generation_record(
@@ -500,7 +501,7 @@ Return your response in this exact JSON format:
         print(f"Score difference: {score_difference}")
         print(f"Final normalized score: {final_score}")
 
-        return final_score
+        return final_score, evaluation_text
 
     except Exception as e:
         print(f"CRITICAL ERROR: Gemini evaluation failed: {e}")

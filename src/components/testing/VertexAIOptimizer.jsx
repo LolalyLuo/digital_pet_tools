@@ -345,9 +345,9 @@ const VertexAIOptimizer = () => {
                               <div className="flex items-center justify-between mb-2">
                                 <div className="flex items-center gap-2">
                                   <span className="font-medium text-gray-700">
-                                    {optimized.isOptimized
-                                      ? "🎯 Final Optimized"
-                                      : `📝 Attempt ${index + 1}`}
+                                    {optimized.step === 0
+                                      ? "🎯 Original Prompt (Step 0)"
+                                      : `📝 Attempt ${optimized.step}`}
                                   </span>
                                   {optimized.step !== undefined && (
                                     <span className="text-xs text-gray-500">

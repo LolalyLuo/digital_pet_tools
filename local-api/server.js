@@ -9,7 +9,10 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import multer from "multer";
 // Import Vertex AI libraries
-import { JobServiceClient, PredictionServiceClient } from "@google-cloud/aiplatform";
+import {
+  JobServiceClient,
+  PredictionServiceClient,
+} from "@google-cloud/aiplatform";
 import { Storage } from "@google-cloud/storage";
 
 // Load environment variables
@@ -33,18 +36,21 @@ const upload = multer({
     fileSize: 50 * 1024 * 1024, // 50MB limit
   },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) {
+    if (file.mimetype.startsWith("image/")) {
       cb(null, true);
     } else {
-      cb(new Error('Only image files are allowed'), false);
+      cb(new Error("Only image files are allowed"), false);
     }
-  }
+  },
 });
 
 // Initialize Supabase client
-console.log('🔧 Initializing Supabase client...');
-console.log('📍 Supabase URL:', process.env.SUPABASE_URL);
-console.log('🔑 Service Role Key (first 20 chars):', process.env.SUPABASE_SERVICE_ROLE_KEY?.substring(0, 20) + '...');
+console.log("🔧 Initializing Supabase client...");
+console.log("📍 Supabase URL:", process.env.SUPABASE_URL);
+console.log(
+  "🔑 Service Role Key (first 20 chars):",
+  process.env.SUPABASE_SERVICE_ROLE_KEY?.substring(0, 20) + "..."
+);
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -57,16 +63,16 @@ const prodSupabase = createClient(
   process.env.PROD_SUPABASE_SERVICE_ROLE_KEY
 );
 
-console.log('✅ Supabase client initialized');
-console.log('✅ Production Supabase client initialized');
+console.log("✅ Supabase client initialized");
+console.log("✅ Production Supabase client initialized");
 
 // Initialize Vertex AI client
 const projectId = process.env.GOOGLE_CLOUD_PROJECT_ID;
-const location = process.env.VERTEX_AI_LOCATION || 'us-central1';
+const location = process.env.VERTEX_AI_LOCATION || "us-central1";
 
-console.log('🔧 Initializing Vertex AI client...');
-console.log('📍 Project ID:', projectId);
-console.log('📍 Location:', location);
+console.log("🔧 Initializing Vertex AI client...");
+console.log("📍 Project ID:", projectId);
+console.log("📍 Location:", location);
 
 // Initialize clients with explicit configuration
 const clientOptions = {
@@ -80,19 +86,21 @@ const storageClient = new Storage({
   projectId: projectId,
 });
 
-console.log('✅ Vertex AI client initialized');
+console.log("✅ Vertex AI client initialized");
 
 // Initialize database tables
 async function initializeDatabase() {
-  console.log('🔧 Checking database table...');
+  console.log("🔧 Checking database table...");
   // Test if the table exists by trying to select from it
   const { data, error } = await supabase
-    .from('current_working_samples')
-    .select('id')
+    .from("current_working_samples")
+    .select("id")
     .limit(1);
 
   if (error) {
-    console.log('⚠️  Table current_working_samples does not exist. Please create it manually in Supabase with this SQL:');
+    console.log(
+      "⚠️  Table current_working_samples does not exist. Please create it manually in Supabase with this SQL:"
+    );
     console.log(`
       CREATE TABLE current_working_samples (
         id SERIAL PRIMARY KEY,
@@ -102,17 +110,19 @@ async function initializeDatabase() {
       );
     `);
   } else {
-    console.log('✅ Current working samples table exists and is accessible');
+    console.log("✅ Current working samples table exists and is accessible");
   }
 
   // Check training samples table
   const { data: trainingData, error: trainingError } = await supabase
-    .from('training_samples')
-    .select('id')
+    .from("training_samples")
+    .select("id")
     .limit(1);
 
   if (trainingError) {
-    console.log('⚠️  Table training_samples does not exist. Please create it manually in Supabase with this SQL:');
+    console.log(
+      "⚠️  Table training_samples does not exist. Please create it manually in Supabase with this SQL:"
+    );
     console.log(`
       CREATE TABLE training_samples (
         id SERIAL PRIMARY KEY,
@@ -124,7 +134,7 @@ async function initializeDatabase() {
       );
     `);
   } else {
-    console.log('✅ Training samples table exists and is accessible');
+    console.log("✅ Training samples table exists and is accessible");
   }
 }
 
@@ -177,10 +187,16 @@ async function fetchImageAsBuffer(url) {
   try {
     const response = await fetch(url);
     if (!response.ok) {
-      console.error(`❌ Failed to fetch image: ${response.status} ${response.statusText}`);
+      console.error(
+        `❌ Failed to fetch image: ${response.status} ${response.statusText}`
+      );
       throw new Error(`Failed to fetch image: ${response.statusText}`);
     }
-    console.log(`✅ Image fetched successfully, size: ${response.headers.get('content-length')} bytes`);
+    console.log(
+      `✅ Image fetched successfully, size: ${response.headers.get(
+        "content-length"
+      )} bytes`
+    );
     return await response.buffer();
   } catch (error) {
     console.error(`❌ Error fetching image from ${url}:`, error.message);
@@ -199,9 +215,11 @@ async function uploadGCSImageToSupabase(gcsUrl, imageId) {
     console.log(`📤 Uploading image ${imageId} from GCS to Supabase...`);
 
     // Parse HTTPS GCS URL: https://storage.googleapis.com/bucket-name/path/to/file
-    const httpsMatch = gcsUrl.match(/https:\/\/storage\.googleapis\.com\/([^\/]+)\/(.+)/);
+    const httpsMatch = gcsUrl.match(
+      /https:\/\/storage\.googleapis\.com\/([^\/]+)\/(.+)/
+    );
     if (!httpsMatch) {
-      throw new Error('Invalid GCS HTTPS URL format');
+      throw new Error("Invalid GCS HTTPS URL format");
     }
 
     const bucketName = httpsMatch[1];
@@ -213,11 +231,11 @@ async function uploadGCSImageToSupabase(gcsUrl, imageId) {
 
     const [exists] = await file.exists();
     if (!exists) {
-      throw new Error('File does not exist in GCS');
+      throw new Error("File does not exist in GCS");
     }
 
     // Get file extension
-    const fileExtension = filePath.split('.').pop() || 'jpg';
+    const fileExtension = filePath.split(".").pop() || "jpg";
     const fileName = `vertex-ai-${imageId}.${fileExtension}`;
 
     // Download file content
@@ -225,10 +243,10 @@ async function uploadGCSImageToSupabase(gcsUrl, imageId) {
 
     // Upload to Supabase storage
     const { data, error } = await supabase.storage
-      .from('cloud-images')
+      .from("cloud-images")
       .upload(fileName, fileBuffer, {
         contentType: `image/${fileExtension}`,
-        upsert: true
+        upsert: true,
       });
 
     if (error) {
@@ -236,15 +254,19 @@ async function uploadGCSImageToSupabase(gcsUrl, imageId) {
     }
 
     // Get public URL
-    const { data: { publicUrl } } = supabase.storage
-      .from('cloud-images')
-      .getPublicUrl(fileName);
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from("cloud-images").getPublicUrl(fileName);
 
-    console.log(`✅ Successfully uploaded image ${imageId} to Supabase: ${publicUrl}`);
+    console.log(
+      `✅ Successfully uploaded image ${imageId} to Supabase: ${publicUrl}`
+    );
     return publicUrl;
-
   } catch (error) {
-    console.error(`❌ Failed to upload image ${imageId} to Supabase:`, error.message);
+    console.error(
+      `❌ Failed to upload image ${imageId} to Supabase:`,
+      error.message
+    );
     throw error;
   }
 }
@@ -329,6 +351,79 @@ async function fetchTemplateImagesWithSimilar(templateNumbers) {
   }
 
   return templateGroups;
+}
+
+// Generate detailed description of an image using Gemini API
+async function generateImageDescription(imageUrl, imageType = "source") {
+  try {
+    console.log(
+      `🔍 Generating description for ${imageType} image: ${imageUrl}`
+    );
+
+    // Check if description is already cached in Supabase
+    const { data: cachedDescription, error: cacheError } = await supabase
+      .from("image_descriptions")
+      .select("description")
+      .eq("image_url", imageUrl)
+      .single();
+
+    if (!cacheError && cachedDescription) {
+      console.log(`✅ Found cached description for ${imageType} image`);
+      return cachedDescription.description;
+    }
+
+    // Initialize Gemini AI
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+    // Fetch image
+    const response = await fetch(imageUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image: ${response.statusText}`);
+    }
+    const imageBuffer = await response.buffer();
+
+    // Create image part for Gemini
+    const imagePart = {
+      inlineData: {
+        data: imageBuffer.toString("base64"),
+        mimeType: response.headers.get("content-type") || "image/jpeg",
+      },
+    };
+
+    // Generate detailed description
+    const prompt = `Please provide a detailed description of this image. Focus on:
+1. The main subject (pet type, breed, pose, expression)
+2. Visual style and artistic approach (realistic, artistic, watercolor, etc.)
+3. Colors, lighting, and mood
+4. Background and setting
+5. Overall composition and quality
+
+Provide a detailed and comprehensive description that captures all the important visual elements, artistic techniques, and aesthetic qualities.`;
+
+    const result = await model.generateContent([prompt, imagePart]);
+    const description = result.response.text();
+
+    // Cache the description in Supabase
+    try {
+      await supabase.from("image_descriptions").insert({
+        image_url: imageUrl,
+        description: description,
+        image_type: imageType,
+      });
+      console.log(`💾 Cached description for ${imageType} image`);
+    } catch (insertError) {
+      console.log(`⚠️ Failed to cache description: ${insertError.message}`);
+    }
+
+    return description;
+  } catch (error) {
+    console.error(
+      `❌ Failed to generate description for ${imageType} image:`,
+      error
+    );
+    throw error;
+  }
 }
 
 // Generate image using Gemini API
@@ -561,8 +656,10 @@ async function processGeneratedImage({
       .substr(2, 9)}.png`;
 
     // Upload to Supabase Storage bucket 'generated-images'
-    console.log(`📤 Uploading image to storage: ${fileName} (${imageBuffer.length} bytes)`);
-    
+    console.log(
+      `📤 Uploading image to storage: ${fileName} (${imageBuffer.length} bytes)`
+    );
+
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from("generated-images")
       .upload(fileName, imageBuffer, {
@@ -572,23 +669,23 @@ async function processGeneratedImage({
 
     if (uploadError) {
       console.error("❌ Error: Failed to upload image to storage:");
-      console.error('📋 Upload error details:', {
+      console.error("📋 Upload error details:", {
         message: uploadError.message,
         statusCode: uploadError.statusCode,
         error: uploadError.error,
         fileName: fileName,
-        bufferSize: imageBuffer.length
+        bufferSize: imageBuffer.length,
       });
       return null;
     }
-    
-    console.log('✅ Image uploaded successfully to storage:', uploadData?.path);
+
+    console.log("✅ Image uploaded successfully to storage:", uploadData?.path);
 
     console.log("Image stored successfully");
 
     // Store result in database
-    console.log('💾 Storing image metadata in database...');
-    
+    console.log("💾 Storing image metadata in database...");
+
     const insertPayload = {
       photo_id: photoId,
       initial_prompt: initialPrompt,
@@ -599,9 +696,9 @@ async function processGeneratedImage({
       model: model,
       model_config: modelConfig,
     };
-    
-    console.log('📋 Insert payload:', insertPayload);
-    
+
+    console.log("📋 Insert payload:", insertPayload);
+
     const { data: insertData, error: insertError } = await supabase
       .from("generated_images")
       .insert(insertPayload)
@@ -610,17 +707,17 @@ async function processGeneratedImage({
 
     if (insertError) {
       console.error("❌ Error: Failed to store image in database:");
-      console.error('📋 Database error details:', {
+      console.error("📋 Database error details:", {
         message: insertError.message,
         code: insertError.code,
         details: insertError.details,
         hint: insertError.hint,
-        payload: insertPayload
+        payload: insertPayload,
       });
       return null;
     }
-    
-    console.log('✅ Image metadata stored in database:', insertData?.id);
+
+    console.log("✅ Image metadata stored in database:", insertData?.id);
 
     // Build full public URL for response
     const publicUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/generated-images/${fileName}`;
@@ -783,7 +880,7 @@ app.post("/api/generate-images", async (req, res) => {
           try {
             // Get photo details from database
             console.log(`🔍 Looking up photo data for ID: ${photoId}`);
-            
+
             const { data: photoData, error: photoError } = await supabase
               .from("uploaded_photos")
               .select("*")
@@ -792,17 +889,17 @@ app.post("/api/generate-images", async (req, res) => {
 
             if (photoError || !photoData) {
               console.error(`❌ Error: No photo data found for ID: ${photoId}`);
-              console.error('📋 Photo lookup error:', {
+              console.error("📋 Photo lookup error:", {
                 error: photoError,
-                photoId: photoId
+                photoId: photoId,
               });
               return null;
             }
-            
+
             console.log(`✅ Found photo data:`, {
               id: photoData.id,
               fileName: photoData.file_name,
-              filePath: photoData.file_path
+              filePath: photoData.file_path,
             });
 
             // Get pet image URL with transformation to ensure proper format and size
@@ -1018,15 +1115,15 @@ app.post("/api/generate-images", async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error in generate-images endpoint:");
-    console.error('📋 Error details:', {
+    console.error("📋 Error details:", {
       message: error.message,
       stack: error.stack,
-      name: error.name
+      name: error.name,
     });
     res.status(500).json({
       error: error.message,
       details: "Check server logs for more information",
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   }
 });
@@ -1034,50 +1131,64 @@ app.post("/api/generate-images", async (req, res) => {
 // LLM Image Evaluation endpoint
 app.post("/api/evaluate-image", async (req, res) => {
   try {
-    console.log('🔍 LLM Evaluation Request:', {
-      imageUrl: req.body.imageUrl?.substring(0, 100) + '...',
+    console.log("🔍 LLM Evaluation Request:", {
+      imageUrl: req.body.imageUrl?.substring(0, 100) + "...",
       prompt: req.body.prompt,
       criteria: req.body.criteria,
-      model: req.body.model
+      model: req.body.model,
     });
 
-    const { imageUrl, prompt, criteria = [], model = 'gpt-4', temperature = 0.3, maxTokens = 50 } = req.body;
+    const {
+      imageUrl,
+      prompt,
+      criteria = [],
+      model = "gpt-4",
+      temperature = 0.3,
+      maxTokens = 50,
+    } = req.body;
 
     if (!imageUrl || !prompt) {
-      console.error('❌ Missing required parameters:', { imageUrl: !!imageUrl, prompt: !!prompt });
-      return res.status(400).json({ error: 'Missing required parameters: imageUrl and prompt' });
+      console.error("❌ Missing required parameters:", {
+        imageUrl: !!imageUrl,
+        prompt: !!prompt,
+      });
+      return res
+        .status(400)
+        .json({ error: "Missing required parameters: imageUrl and prompt" });
     }
 
     // For GPT models, use OpenAI
-    if (model.startsWith('gpt')) {
+    if (model.startsWith("gpt")) {
       if (!process.env.OPENAI_API_KEY) {
-        return res.status(500).json({ error: 'OpenAI API key not configured' });
+        return res.status(500).json({ error: "OpenAI API key not configured" });
       }
 
       const response = await openai.chat.completions.create({
-        model: 'gpt-4o',
+        model: "gpt-4o",
         messages: [
           {
-            role: 'user',
+            role: "user",
             content: [
               {
-                type: 'text',
-                text: `${prompt}\n\nPlease evaluate this image and return ONLY a JSON object with this exact format:\n{\n  "overall_score": number (1-10),\n  "criteria_scores": {${criteria.map(c => `\n    "${c}": number (1-10)`).join(',')}\n  },\n  "feedback": "brief explanation"\n}`
+                type: "text",
+                text: `${prompt}\n\nPlease evaluate this image and return ONLY a JSON object with this exact format:\n{\n  "overall_score": number (1-10),\n  "criteria_scores": {${criteria
+                  .map((c) => `\n    "${c}": number (1-10)`)
+                  .join(",")}\n  },\n  "feedback": "brief explanation"\n}`,
               },
               {
-                type: 'image_url',
-                image_url: { url: imageUrl }
-              }
-            ]
-          }
+                type: "image_url",
+                image_url: { url: imageUrl },
+              },
+            ],
+          },
         ],
         max_tokens: maxTokens,
-        temperature: temperature
+        temperature: temperature,
       });
 
       const content = response.choices[0]?.message?.content;
       if (!content) {
-        throw new Error('No response from OpenAI');
+        throw new Error("No response from OpenAI");
       }
 
       try {
@@ -1087,20 +1198,22 @@ app.post("/api/evaluate-image", async (req, res) => {
         // Fallback if JSON parsing fails
         res.json({
           overall_score: 7.0,
-          criteria_scores: Object.fromEntries(criteria.map(c => [c, 7.0])),
-          feedback: content
+          criteria_scores: Object.fromEntries(criteria.map((c) => [c, 7.0])),
+          feedback: content,
         });
       }
     } else {
       // For other models, return a mock response for now
       res.json({
         overall_score: Math.random() * 4 + 6,
-        criteria_scores: Object.fromEntries(criteria.map(c => [c, Math.random() * 4 + 6])),
-        feedback: `Evaluated using ${model} - Mock evaluation for development`
+        criteria_scores: Object.fromEntries(
+          criteria.map((c) => [c, Math.random() * 4 + 6])
+        ),
+        feedback: `Evaluated using ${model} - Mock evaluation for development`,
       });
     }
   } catch (error) {
-    console.error('LLM evaluation error:', error);
+    console.error("LLM evaluation error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1111,7 +1224,9 @@ app.post("/api/evaluate-photo-similarity", async (req, res) => {
     const { generatedImageUrl, targetImages = [], threshold = 0.7 } = req.body;
 
     if (!generatedImageUrl) {
-      return res.status(400).json({ error: 'Missing required parameter: generatedImageUrl' });
+      return res
+        .status(400)
+        .json({ error: "Missing required parameter: generatedImageUrl" });
     }
 
     // This is a placeholder implementation
@@ -1120,140 +1235,149 @@ app.post("/api/evaluate-photo-similarity", async (req, res) => {
     // - Azure Computer Vision
     // - AWS Rekognition
     // - Or a custom ML model
-    
+
     const mockSimilarity = Math.random() * 0.4 + 0.6; // 0.6 to 1.0
-    
+
     res.json({
       overall_similarity: mockSimilarity,
       similarity_scores: {
         composition: Math.random() * 0.3 + 0.7,
         style: Math.random() * 0.3 + 0.7,
-        content: Math.random() * 0.3 + 0.7
+        content: Math.random() * 0.3 + 0.7,
       },
       best_match: targetImages[0] || null,
-      threshold_met: mockSimilarity >= threshold
+      threshold_met: mockSimilarity >= threshold,
     });
   } catch (error) {
-    console.error('Photo similarity evaluation error:', error);
+    console.error("Photo similarity evaluation error:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
 // Testing endpoint for file upload and generation
-app.post("/api/test/generate-images", upload.array('images', 10), async (req, res) => {
-  try {
-    const { prompts: promptsString, selectedModel = 'gemini-img2img' } = req.body;
-    const files = req.files;
-
-    if (!files || files.length === 0) {
-      return res.status(400).json({ error: 'No images uploaded' });
-    }
-
-    if (!promptsString) {
-      return res.status(400).json({ error: 'No prompts provided' });
-    }
-
-    let prompts;
+app.post(
+  "/api/test/generate-images",
+  upload.array("images", 10),
+  async (req, res) => {
     try {
-      prompts = JSON.parse(promptsString);
-    } catch (e) {
-      prompts = [promptsString]; // Single prompt as string
-    }
+      const { prompts: promptsString, selectedModel = "gemini-img2img" } =
+        req.body;
+      const files = req.files;
 
-    console.log(`🧪 Testing: ${files.length} files, ${prompts.length} prompts, model: ${selectedModel}`);
+      if (!files || files.length === 0) {
+        return res.status(400).json({ error: "No images uploaded" });
+      }
 
-    // Convert uploaded files to base64 for processing
-    const imageBuffers = files.map(file => ({
-      buffer: file.buffer,
-      mimetype: file.mimetype,
-      filename: file.filename || 'uploaded-image'
-    }));
+      if (!promptsString) {
+        return res.status(400).json({ error: "No prompts provided" });
+      }
 
-    // Use the same generation logic as the main endpoint
-    const results = [];
-    
-    for (let i = 0; i < Math.min(files.length, prompts.length); i++) {
-      const imageBuffer = imageBuffers[i];
-      const prompt = prompts[i];
-      
+      let prompts;
       try {
-        let imageUrl = null;
-        
-        if (selectedModel === 'gemini-img2img' && process.env.GEMINI_API_KEY) {
-          // Use Gemini for generation
-          const model = genAI.getGenerativeModel({ 
-            model: "gemini-2.5-flash-image-preview",
-            generationConfig: DEFAULT_MODEL_CONFIGS["gemini-img2img"]
-          });
-          
-          const base64Data = imageBuffer.buffer.toString('base64');
-          const imagePart = {
-            inlineData: {
-              data: base64Data,
-              mimeType: imageBuffer.mimetype
-            }
-          };
-          
-          const result = await model.generateContent([prompt, imagePart]);
-          const response = await result.response;
-          
-          // Handle Gemini response properly - look for inline image data
-          if (response.candidates && response.candidates[0]) {
-            const candidate = response.candidates[0];
-            if (candidate.content && candidate.content.parts) {
-              for (const part of candidate.content.parts) {
-                if (part.inlineData && part.inlineData.data) {
-                  console.log("✅ Gemini image generated successfully");
-                  imageUrl = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-                  break;
+        prompts = JSON.parse(promptsString);
+      } catch (e) {
+        prompts = [promptsString]; // Single prompt as string
+      }
+
+      console.log(
+        `🧪 Testing: ${files.length} files, ${prompts.length} prompts, model: ${selectedModel}`
+      );
+
+      // Convert uploaded files to base64 for processing
+      const imageBuffers = files.map((file) => ({
+        buffer: file.buffer,
+        mimetype: file.mimetype,
+        filename: file.filename || "uploaded-image",
+      }));
+
+      // Use the same generation logic as the main endpoint
+      const results = [];
+
+      for (let i = 0; i < Math.min(files.length, prompts.length); i++) {
+        const imageBuffer = imageBuffers[i];
+        const prompt = prompts[i];
+
+        try {
+          let imageUrl = null;
+
+          if (
+            selectedModel === "gemini-img2img" &&
+            process.env.GEMINI_API_KEY
+          ) {
+            // Use Gemini for generation
+            const model = genAI.getGenerativeModel({
+              model: "gemini-2.5-flash-image-preview",
+              generationConfig: DEFAULT_MODEL_CONFIGS["gemini-img2img"],
+            });
+
+            const base64Data = imageBuffer.buffer.toString("base64");
+            const imagePart = {
+              inlineData: {
+                data: base64Data,
+                mimeType: imageBuffer.mimetype,
+              },
+            };
+
+            const result = await model.generateContent([prompt, imagePart]);
+            const response = await result.response;
+
+            // Handle Gemini response properly - look for inline image data
+            if (response.candidates && response.candidates[0]) {
+              const candidate = response.candidates[0];
+              if (candidate.content && candidate.content.parts) {
+                for (const part of candidate.content.parts) {
+                  if (part.inlineData && part.inlineData.data) {
+                    console.log("✅ Gemini image generated successfully");
+                    imageUrl = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+                    break;
+                  }
                 }
               }
             }
+          } else if (selectedModel === "openai" && process.env.OPENAI_API_KEY) {
+            // Use OpenAI DALL-E for generation
+            const response = await openai.images.generate({
+              model: "dall-e-3",
+              prompt: prompt,
+              n: 1,
+              size: "1024x1024",
+              quality: "standard",
+            });
+
+            imageUrl = response.data[0]?.url;
           }
-        } else if (selectedModel === 'openai' && process.env.OPENAI_API_KEY) {
-          // Use OpenAI DALL-E for generation
-          const response = await openai.images.generate({
-            model: "dall-e-3",
-            prompt: prompt,
-            n: 1,
-            size: "1024x1024",
-            quality: "standard",
-          });
-          
-          imageUrl = response.data[0]?.url;
-        }
-        
-        if (imageUrl) {
+
+          if (imageUrl) {
+            results.push({
+              imageUrl: imageUrl,
+              prompt: prompt,
+              model: selectedModel,
+              index: i,
+            });
+          }
+        } catch (error) {
+          console.error(`❌ Generation error for image ${i}:`, error);
           results.push({
-            imageUrl: imageUrl,
+            error: error.message,
             prompt: prompt,
             model: selectedModel,
-            index: i
+            index: i,
           });
         }
-      } catch (error) {
-        console.error(`❌ Generation error for image ${i}:`, error);
-        results.push({
-          error: error.message,
-          prompt: prompt,
-          model: selectedModel,
-          index: i
-        });
       }
+
+      res.json({
+        success: true,
+        results: results,
+        count: results.length,
+        model: selectedModel,
+      });
+    } catch (error) {
+      console.error("❌ Testing generation error:", error);
+      res.status(500).json({ error: error.message });
     }
-    
-    res.json({
-      success: true,
-      results: results,
-      count: results.length,
-      model: selectedModel
-    });
-    
-  } catch (error) {
-    console.error('❌ Testing generation error:', error);
-    res.status(500).json({ error: error.message });
   }
-});
+);
 
 // Gemini Vision Evaluation endpoint
 app.post("/api/evaluate-gpt4-vision", async (req, res) => {
@@ -1262,40 +1386,54 @@ app.post("/api/evaluate-gpt4-vision", async (req, res) => {
 
     if (!generatedImageUrl || !referenceImageUrl) {
       return res.status(400).json({
-        error: 'Missing required parameters: generatedImageUrl and referenceImageUrl'
+        error:
+          "Missing required parameters: generatedImageUrl and referenceImageUrl",
       });
     }
 
     if (!process.env.GEMINI_API_KEY) {
-      return res.status(500).json({ error: 'Gemini API key not configured' });
+      return res.status(500).json({ error: "Gemini API key not configured" });
     }
 
-    console.log('🔍 Evaluating images with Gemini Vision...');
-    console.log('📋 Generated image URL:', generatedImageUrl);
-    console.log('📋 Reference image URL:', referenceImageUrl);
-    console.log('📝 Using prompt:', customPrompt.substring(0, 100) + '...');
+    console.log("🔍 Evaluating images with Gemini Vision...");
+    console.log("📋 Generated image URL:", generatedImageUrl);
+    console.log("📋 Reference image URL:", referenceImageUrl);
+    console.log("📝 Using prompt:", customPrompt.substring(0, 100) + "...");
 
     // Test if images are accessible
-    console.log('🔗 Testing image accessibility...');
+    console.log("🔗 Testing image accessibility...");
     try {
       const [genResponse, refResponse] = await Promise.all([
-        fetch(generatedImageUrl, { method: 'HEAD' }),
-        fetch(referenceImageUrl, { method: 'HEAD' })
+        fetch(generatedImageUrl, { method: "HEAD" }),
+        fetch(referenceImageUrl, { method: "HEAD" }),
       ]);
-      console.log(`📊 Generated image status: ${genResponse.status} (${genResponse.headers.get('content-type')})`);
-      console.log(`📊 Reference image status: ${refResponse.status} (${refResponse.headers.get('content-type')})`);
+      console.log(
+        `📊 Generated image status: ${
+          genResponse.status
+        } (${genResponse.headers.get("content-type")})`
+      );
+      console.log(
+        `📊 Reference image status: ${
+          refResponse.status
+        } (${refResponse.headers.get("content-type")})`
+      );
 
       if (!genResponse.ok || !refResponse.ok) {
-        console.warn('⚠️ One or both images are not accessible!');
+        console.warn("⚠️ One or both images are not accessible!");
       }
     } catch (fetchError) {
-      console.error('❌ Image accessibility test failed:', fetchError.message);
+      console.error("❌ Image accessibility test failed:", fetchError.message);
     }
 
-    console.log('🔑 Gemini API Key available:', !!process.env.GEMINI_API_KEY);
-    console.log('🔑 API Key first 10 chars:', process.env.GEMINI_API_KEY?.substring(0, 10) + '...');
+    console.log("🔑 Gemini API Key available:", !!process.env.GEMINI_API_KEY);
+    console.log(
+      "🔑 API Key first 10 chars:",
+      process.env.GEMINI_API_KEY?.substring(0, 10) + "..."
+    );
 
-    const evaluationPrompt = customPrompt || `Compare these two dog images and provide a detailed evaluation.
+    const evaluationPrompt =
+      customPrompt ||
+      `Compare these two dog images and provide a detailed evaluation.
 
 Rate the generated image (first image) compared to the reference image (second image) on:
 1. Overall cuteness (1-10) - How appealing, adorable, and charming is the generated image?
@@ -1311,17 +1449,21 @@ Return your response as a JSON object with this exact format:
 }`;
 
     // Download images to pass to Gemini
-    console.log('📥 Downloading images for Gemini...');
+    console.log("📥 Downloading images for Gemini...");
     const [genImageResponse, refImageResponse] = await Promise.all([
       fetch(generatedImageUrl),
-      fetch(referenceImageUrl)
+      fetch(referenceImageUrl),
     ]);
 
-    console.log(`📥 Generated image download: ${genImageResponse.status} ${genImageResponse.statusText}`);
-    console.log(`📥 Reference image download: ${refImageResponse.status} ${refImageResponse.statusText}`);
+    console.log(
+      `📥 Generated image download: ${genImageResponse.status} ${genImageResponse.statusText}`
+    );
+    console.log(
+      `📥 Reference image download: ${refImageResponse.status} ${refImageResponse.statusText}`
+    );
 
     if (!genImageResponse.ok || !refImageResponse.ok) {
-      throw new Error('Failed to download images for Gemini evaluation');
+      throw new Error("Failed to download images for Gemini evaluation");
     }
 
     const genImageBuffer = await genImageResponse.arrayBuffer();
@@ -1330,13 +1472,15 @@ Return your response as a JSON object with this exact format:
     console.log(`📦 Generated image size: ${genImageBuffer.byteLength} bytes`);
     console.log(`📦 Reference image size: ${refImageBuffer.byteLength} bytes`);
 
-    const genMimeType = genImageResponse.headers.get('content-type') || 'image/jpeg';
-    const refMimeType = refImageResponse.headers.get('content-type') || 'image/jpeg';
+    const genMimeType =
+      genImageResponse.headers.get("content-type") || "image/jpeg";
+    const refMimeType =
+      refImageResponse.headers.get("content-type") || "image/jpeg";
 
     console.log(`🎨 Generated image MIME: ${genMimeType}`);
     console.log(`🎨 Reference image MIME: ${refMimeType}`);
 
-    console.log('🤖 Initializing Gemini model...');
+    console.log("🤖 Initializing Gemini model...");
     const model = genAI.getGenerativeModel({
       model: "gemini-2.5-flash-image-preview",
       generationConfig: {
@@ -1344,25 +1488,25 @@ Return your response as a JSON object with this exact format:
         topK: 32,
         topP: 1,
         maxOutputTokens: 1000,
-      }
+      },
     });
 
-    console.log('📝 Preparing Gemini request payload...');
+    console.log("📝 Preparing Gemini request payload...");
     const genImageData = {
       inlineData: {
-        data: Buffer.from(genImageBuffer).toString('base64'),
+        data: Buffer.from(genImageBuffer).toString("base64"),
         mimeType: genMimeType,
       },
     };
 
     const refImageData = {
       inlineData: {
-        data: Buffer.from(refImageBuffer).toString('base64'),
+        data: Buffer.from(refImageBuffer).toString("base64"),
         mimeType: refMimeType,
       },
     };
 
-    console.log('📤 Payload structure:', {
+    console.log("📤 Payload structure:", {
       hasText: !!evaluationPrompt,
       hasImage1: !!genImageData.inlineData.data,
       hasImage2: !!refImageData.inlineData.data,
@@ -1370,24 +1514,38 @@ Return your response as a JSON object with this exact format:
       image2Size: refImageData.inlineData.data.length,
     });
 
-    console.log('🚀 Calling Gemini API...');
-    const response = await model.generateContent([evaluationPrompt, genImageData, refImageData]);
+    console.log("🚀 Calling Gemini API...");
+    const response = await model.generateContent([
+      evaluationPrompt,
+      genImageData,
+      refImageData,
+    ]);
 
-    console.log('📨 Gemini response received');
-    console.log('📊 Response object keys:', Object.keys(response));
-    console.log('📊 Response.response keys:', response.response ? Object.keys(response.response) : 'no response property');
+    console.log("📨 Gemini response received");
+    console.log("📊 Response object keys:", Object.keys(response));
+    console.log(
+      "📊 Response.response keys:",
+      response.response
+        ? Object.keys(response.response)
+        : "no response property"
+    );
 
     let evaluationText;
     try {
       evaluationText = response.response.text();
-      console.log('✅ Successfully extracted text from response');
-      console.log('📝 Response length:', evaluationText?.length || 0);
+      console.log("✅ Successfully extracted text from response");
+      console.log("📝 Response length:", evaluationText?.length || 0);
     } catch (textError) {
-      console.error('❌ Error extracting text from response:', textError);
-      console.log('🔍 Full response object:', JSON.stringify(response, null, 2));
-      throw new Error(`Failed to extract text from Gemini response: ${textError.message}`);
+      console.error("❌ Error extracting text from response:", textError);
+      console.log(
+        "🔍 Full response object:",
+        JSON.stringify(response, null, 2)
+      );
+      throw new Error(
+        `Failed to extract text from Gemini response: ${textError.message}`
+      );
     }
-    console.log('📝 Gemini Vision evaluation completed, parsing response...');
+    console.log("📝 Gemini Vision evaluation completed, parsing response...");
 
     // Try to parse JSON from the response
     let evaluation;
@@ -1398,25 +1556,39 @@ Return your response as a JSON object with this exact format:
       evaluation = JSON.parse(jsonString);
 
       // Validate that we have the required fields
-      if (!evaluation.visualAppeal || !evaluation.styleSimilarity || !evaluation.technicalQuality) {
-        throw new Error('Missing required evaluation fields');
+      if (
+        !evaluation.visualAppeal ||
+        !evaluation.styleSimilarity ||
+        !evaluation.technicalQuality
+      ) {
+        throw new Error("Missing required evaluation fields");
       }
     } catch (parseError) {
-      console.error('❌ Failed to parse Gemini Vision response as JSON:', parseError);
-      console.log('📄 Full response text:', evaluationText);
+      console.error(
+        "❌ Failed to parse Gemini Vision response as JSON:",
+        parseError
+      );
+      console.log("📄 Full response text:", evaluationText);
 
       // Check if Gemini refused to evaluate (common responses)
-      if (evaluationText.toLowerCase().includes("i'm sorry") ||
-          evaluationText.toLowerCase().includes("i can't") ||
-          evaluationText.toLowerCase().includes("i cannot") ||
-          evaluationText.toLowerCase().includes("unable to")) {
-
-        console.log('🚨 Gemini Vision declined to evaluate - skipping this sample');
-        throw new Error('Gemini Vision declined to evaluate this image pair');
+      if (
+        evaluationText.toLowerCase().includes("i'm sorry") ||
+        evaluationText.toLowerCase().includes("i can't") ||
+        evaluationText.toLowerCase().includes("i cannot") ||
+        evaluationText.toLowerCase().includes("unable to")
+      ) {
+        console.log(
+          "🚨 Gemini Vision declined to evaluate - skipping this sample"
+        );
+        throw new Error("Gemini Vision declined to evaluate this image pair");
       }
 
       // For other parsing errors, throw with details
-      throw new Error(`Gemini Vision evaluation failed: ${parseError.message}. Response: ${evaluationText.substring(0, 100)}...`);
+      throw new Error(
+        `Gemini Vision evaluation failed: ${
+          parseError.message
+        }. Response: ${evaluationText.substring(0, 100)}...`
+      );
     }
 
     // Check if this is a single-score evaluation (new format)
@@ -1426,42 +1598,56 @@ Return your response as a JSON object with this exact format:
       evaluation.score = Math.max(0, Math.min(10, evaluation.score));
 
       if (originalScore !== evaluation.score) {
-        console.log(`⚠️  Score clamped from ${originalScore} to ${evaluation.score}`);
+        console.log(
+          `⚠️  Score clamped from ${originalScore} to ${evaluation.score}`
+        );
       }
 
       const result = {
         success: true,
         evaluation: {
           score: evaluation.score,
-          reasoning: evaluation.reasoning || 'No reasoning provided'
+          reasoning: evaluation.reasoning || "No reasoning provided",
         },
         metadata: {
           model: "gemini-2.5-flash",
-          timestamp: new Date().toISOString()
-        }
+          timestamp: new Date().toISOString(),
+        },
       };
 
-      console.log('✅ Gemini Vision evaluation completed (single score):', {
+      console.log("✅ Gemini Vision evaluation completed (single score):", {
         score: result.evaluation.score,
-        model: result.metadata.model
+        model: result.metadata.model,
       });
       res.json(result);
     } else {
       // New structured format with separate criteria scores
       // Check if we have valid scores, reject if any are null/undefined
-      if (!evaluation.visualAppeal && evaluation.visualAppeal !== 0 ||
-          !evaluation.styleSimilarity && evaluation.styleSimilarity !== 0 ||
-          !evaluation.technicalQuality && evaluation.technicalQuality !== 0) {
+      if (
+        (!evaluation.visualAppeal && evaluation.visualAppeal !== 0) ||
+        (!evaluation.styleSimilarity && evaluation.styleSimilarity !== 0) ||
+        (!evaluation.technicalQuality && evaluation.technicalQuality !== 0)
+      ) {
         return res.status(400).json({
           success: false,
-          error: 'Gemini Vision refused to evaluate the images or could not provide valid scores',
-          reasoning: evaluation.reasoning
+          error:
+            "Gemini Vision refused to evaluate the images or could not provide valid scores",
+          reasoning: evaluation.reasoning,
         });
       }
 
-      evaluation.visualAppeal = Math.max(0, Math.min(10, evaluation.visualAppeal));
-      evaluation.styleSimilarity = Math.max(0, Math.min(10, evaluation.styleSimilarity));
-      evaluation.technicalQuality = Math.max(0, Math.min(10, evaluation.technicalQuality));
+      evaluation.visualAppeal = Math.max(
+        0,
+        Math.min(10, evaluation.visualAppeal)
+      );
+      evaluation.styleSimilarity = Math.max(
+        0,
+        Math.min(10, evaluation.styleSimilarity)
+      );
+      evaluation.technicalQuality = Math.max(
+        0,
+        Math.min(10, evaluation.technicalQuality)
+      );
 
       const result = {
         success: true,
@@ -1469,28 +1655,30 @@ Return your response as a JSON object with this exact format:
           visualAppeal: evaluation.visualAppeal,
           styleSimilarity: evaluation.styleSimilarity,
           technicalQuality: evaluation.technicalQuality,
-          reasoning: evaluation.reasoning
+          reasoning: evaluation.reasoning,
         },
         metadata: {
           model: "gemini-2.5-flash",
-          timestamp: new Date().toISOString()
-        }
+          timestamp: new Date().toISOString(),
+        },
       };
 
-      console.log('✅ Gemini Vision evaluation completed (structured format):', {
-        visualAppeal: result.evaluation.visualAppeal,
-        styleSimilarity: result.evaluation.styleSimilarity,
-        technicalQuality: result.evaluation.technicalQuality,
-        model: result.metadata.model
-      });
+      console.log(
+        "✅ Gemini Vision evaluation completed (structured format):",
+        {
+          visualAppeal: result.evaluation.visualAppeal,
+          styleSimilarity: result.evaluation.styleSimilarity,
+          technicalQuality: result.evaluation.technicalQuality,
+          model: result.metadata.model,
+        }
+      );
       res.json(result);
     }
-
   } catch (error) {
-    console.error('❌ Gemini Vision evaluation error:', error);
+    console.error("❌ Gemini Vision evaluation error:", error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -1502,15 +1690,17 @@ app.post("/api/evaluate-samples", async (req, res) => {
 
     if (!samples || samples.length === 0) {
       return res.status(400).json({
-        error: 'Missing required parameter: samples array'
+        error: "Missing required parameter: samples array",
       });
     }
 
     if (!process.env.OPENAI_API_KEY) {
-      return res.status(500).json({ error: 'OpenAI API key not configured' });
+      return res.status(500).json({ error: "OpenAI API key not configured" });
     }
 
-    console.log(`🔍 Evaluating ${samples.length} samples with Gemini Vision...`);
+    console.log(
+      `🔍 Evaluating ${samples.length} samples with Gemini Vision...`
+    );
 
     const defaultPrompt = `Evaluate this AI-generated dog image compared to the reference image.
 
@@ -1542,27 +1732,27 @@ Return ONLY a JSON object with this exact format:
               content: [
                 {
                   type: "text",
-                  text: evaluationPrompt
+                  text: evaluationPrompt,
                 },
                 {
                   type: "image_url",
                   image_url: {
                     url: sample.generatedImageUrl,
-                    detail: "high"
-                  }
+                    detail: "high",
+                  },
                 },
                 {
                   type: "image_url",
                   image_url: {
                     url: sample.referenceImageUrl,
-                    detail: "high"
-                  }
-                }
-              ]
-            }
+                    detail: "high",
+                  },
+                },
+              ],
+            },
           ],
           max_tokens: 300,
-          temperature: 0.1
+          temperature: 0.1,
         });
 
         const evaluationText = response.choices[0].message.content;
@@ -1575,74 +1765,107 @@ Return ONLY a JSON object with this exact format:
           evaluation = JSON.parse(jsonString);
         } catch (parseError) {
           // Fallback: extract scores manually
-          const visualAppealMatch = evaluationText.match(/visualAppeal["\s]*:[\s]*(\d+\.?\d*)/i);
-          const styleSimilarityMatch = evaluationText.match(/styleSimilarity["\s]*:[\s]*(\d+\.?\d*)/i);
-          const technicalQualityMatch = evaluationText.match(/technicalQuality["\s]*:[\s]*(\d+\.?\d*)/i);
-          const scoreMatch = evaluationText.match(/score["\s]*:[\s]*(\d+\.?\d*)/i);
+          const visualAppealMatch = evaluationText.match(
+            /visualAppeal["\s]*:[\s]*(\d+\.?\d*)/i
+          );
+          const styleSimilarityMatch = evaluationText.match(
+            /styleSimilarity["\s]*:[\s]*(\d+\.?\d*)/i
+          );
+          const technicalQualityMatch = evaluationText.match(
+            /technicalQuality["\s]*:[\s]*(\d+\.?\d*)/i
+          );
+          const scoreMatch = evaluationText.match(
+            /score["\s]*:[\s]*(\d+\.?\d*)/i
+          );
 
           evaluation = {
-            visualAppeal: visualAppealMatch ? parseFloat(visualAppealMatch[1]) : null,
-            styleSimilarity: styleSimilarityMatch ? parseFloat(styleSimilarityMatch[1]) : null,
-            technicalQuality: technicalQualityMatch ? parseFloat(technicalQualityMatch[1]) : null,
+            visualAppeal: visualAppealMatch
+              ? parseFloat(visualAppealMatch[1])
+              : null,
+            styleSimilarity: styleSimilarityMatch
+              ? parseFloat(styleSimilarityMatch[1])
+              : null,
+            technicalQuality: technicalQualityMatch
+              ? parseFloat(technicalQualityMatch[1])
+              : null,
             score: scoreMatch ? parseFloat(scoreMatch[1]) : undefined,
-            reasoning: evaluationText
+            reasoning: evaluationText,
           };
 
-          console.log('🚨 Batch evaluation - Gemini Vision parsing failed for sample:');
-          console.log('📄 Full response:', evaluationText);
+          console.log(
+            "🚨 Batch evaluation - Gemini Vision parsing failed for sample:"
+          );
+          console.log("📄 Full response:", evaluationText);
         }
 
         // Handle both structured and legacy score formats
         if (evaluation.score !== undefined) {
           // Legacy single score format
           const rawScore = evaluation.score;
-          evaluation.score = Math.max(0.0, Math.min(10.0, parseFloat(rawScore)));
+          evaluation.score = Math.max(
+            0.0,
+            Math.min(10.0, parseFloat(rawScore))
+          );
 
           if (rawScore < 0 || rawScore > 10) {
-            console.log(`⚠️  Score ${rawScore} was out of range, clamped to ${evaluation.score}`);
+            console.log(
+              `⚠️  Score ${rawScore} was out of range, clamped to ${evaluation.score}`
+            );
           }
 
           results.push({
             sampleId: sample.id,
             score: evaluation.score,
-            reasoning: evaluation.reasoning || 'No reasoning provided',
+            reasoning: evaluation.reasoning || "No reasoning provided",
             samplePair: {
               id: sample.id,
               generated: { url: sample.generatedImageUrl },
-              reference: { url: sample.referenceImageUrl }
-            }
+              reference: { url: sample.referenceImageUrl },
+            },
           });
         } else {
           // New structured format
           // Skip this sample if GPT-4 refused to evaluate (null scores)
-          if (!evaluation.visualAppeal && evaluation.visualAppeal !== 0 ||
-              !evaluation.styleSimilarity && evaluation.styleSimilarity !== 0 ||
-              !evaluation.technicalQuality && evaluation.technicalQuality !== 0) {
-            console.log(`⚠️  Skipping sample ${sample.id} - Gemini Vision refused to evaluate`);
+          if (
+            (!evaluation.visualAppeal && evaluation.visualAppeal !== 0) ||
+            (!evaluation.styleSimilarity && evaluation.styleSimilarity !== 0) ||
+            (!evaluation.technicalQuality && evaluation.technicalQuality !== 0)
+          ) {
+            console.log(
+              `⚠️  Skipping sample ${sample.id} - Gemini Vision refused to evaluate`
+            );
             continue;
           }
 
-          evaluation.visualAppeal = Math.max(0.0, Math.min(10.0, evaluation.visualAppeal));
-          evaluation.styleSimilarity = Math.max(0.0, Math.min(10.0, evaluation.styleSimilarity));
-          evaluation.technicalQuality = Math.max(0.0, Math.min(10.0, evaluation.technicalQuality));
+          evaluation.visualAppeal = Math.max(
+            0.0,
+            Math.min(10.0, evaluation.visualAppeal)
+          );
+          evaluation.styleSimilarity = Math.max(
+            0.0,
+            Math.min(10.0, evaluation.styleSimilarity)
+          );
+          evaluation.technicalQuality = Math.max(
+            0.0,
+            Math.min(10.0, evaluation.technicalQuality)
+          );
 
           results.push({
             sampleId: sample.id,
             visualAppeal: evaluation.visualAppeal,
             styleSimilarity: evaluation.styleSimilarity,
             technicalQuality: evaluation.technicalQuality,
-            reasoning: evaluation.reasoning || 'No reasoning provided',
+            reasoning: evaluation.reasoning || "No reasoning provided",
             samplePair: {
               id: sample.id,
               generated: { url: sample.generatedImageUrl },
-              reference: { url: sample.referenceImageUrl }
-            }
+              reference: { url: sample.referenceImageUrl },
+            },
           });
         }
 
         // Add small delay between requests
-        await new Promise(resolve => setTimeout(resolve, 500));
-
+        await new Promise((resolve) => setTimeout(resolve, 500));
       } catch (sampleError) {
         console.error(`❌ Error evaluating sample ${sample.id}:`, sampleError);
         results.push({
@@ -1652,12 +1875,12 @@ Return ONLY a JSON object with this exact format:
           samplePair: {
             id: sample.id,
             generated: {
-              url: sample.generatedImageUrl
+              url: sample.generatedImageUrl,
             },
             reference: {
-              url: sample.referenceImageUrl
-            }
-          }
+              url: sample.referenceImageUrl,
+            },
+          },
         });
       }
     }
@@ -1666,14 +1889,13 @@ Return ONLY a JSON object with this exact format:
     res.json({
       success: true,
       results: results,
-      count: results.length
+      count: results.length,
     });
-
   } catch (error) {
-    console.error('❌ Batch evaluation error:', error);
+    console.error("❌ Batch evaluation error:", error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -1686,27 +1908,27 @@ let nextSampleSetId = 1;
 app.get("/api/evaluation-prompts", async (req, res) => {
   try {
     const { data, error } = await supabase
-      .from('evaluation_prompts')
-      .select('*')
-      .order('created_at', { ascending: true });
+      .from("evaluation_prompts")
+      .select("*")
+      .order("created_at", { ascending: true });
 
     if (error) {
-      console.error('❌ Error loading evaluation prompts:', error);
+      console.error("❌ Error loading evaluation prompts:", error);
       return res.json({
         success: true,
-        prompts: [] // Return empty array if table doesn't exist yet
+        prompts: [], // Return empty array if table doesn't exist yet
       });
     }
 
     res.json({
       success: true,
-      prompts: data || []
+      prompts: data || [],
     });
   } catch (err) {
-    console.error('❌ Error fetching evaluation prompts:', err);
+    console.error("❌ Error fetching evaluation prompts:", err);
     res.json({
       success: true,
-      prompts: [] // Fallback to empty array
+      prompts: [], // Fallback to empty array
     });
   }
 });
@@ -1718,42 +1940,41 @@ app.post("/api/evaluation-prompts", async (req, res) => {
 
     if (!name || !prompt) {
       return res.status(400).json({
-        error: 'Missing required parameters: name and prompt'
+        error: "Missing required parameters: name and prompt",
       });
     }
 
     const { data, error } = await supabase
-      .from('evaluation_prompts')
+      .from("evaluation_prompts")
       .insert([
         {
           name: name.trim(),
           prompt: prompt.trim(),
           weights: weights || null,
-          created_at: new Date().toISOString()
-        }
+          created_at: new Date().toISOString(),
+        },
       ])
       .select()
       .single();
 
     if (error) {
-      console.error('❌ Error saving evaluation prompt:', error);
+      console.error("❌ Error saving evaluation prompt:", error);
       return res.status(500).json({
         success: false,
-        error: error.message
+        error: error.message,
       });
     }
 
     console.log(`💾 Saved evaluation prompt: "${name}"`);
     res.json({
       success: true,
-      prompt: data
+      prompt: data,
     });
-
   } catch (error) {
-    console.error('❌ Error saving prompt:', error);
+    console.error("❌ Error saving prompt:", error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -1765,33 +1986,32 @@ app.delete("/api/evaluation-prompts/:id", async (req, res) => {
 
     if (!id) {
       return res.status(400).json({
-        error: 'Missing prompt ID'
+        error: "Missing prompt ID",
       });
     }
 
     const { error } = await supabase
-      .from('evaluation_prompts')
+      .from("evaluation_prompts")
       .delete()
-      .eq('id', id);
+      .eq("id", id);
 
     if (error) {
-      console.error('❌ Error deleting evaluation prompt:', error);
+      console.error("❌ Error deleting evaluation prompt:", error);
       return res.status(500).json({
         success: false,
-        error: error.message
+        error: error.message,
       });
     }
 
     console.log(`🗑️ Deleted evaluation prompt ID: ${id}`);
     res.json({
-      success: true
+      success: true,
     });
-
   } catch (error) {
-    console.error('❌ Error deleting prompt:', error);
+    console.error("❌ Error deleting prompt:", error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -1801,13 +2021,13 @@ app.get("/api/image-proxy", async (req, res) => {
   try {
     const { url } = req.query;
     if (!url) {
-      return res.status(400).json({ error: 'URL parameter required' });
+      return res.status(400).json({ error: "URL parameter required" });
     }
 
     // Parse GCS URL to extract bucket and file path
     const gcsMatch = url.match(/gs:\/\/([^\/]+)\/(.+)/);
     if (!gcsMatch) {
-      return res.status(400).json({ error: 'Invalid GCS URL format' });
+      return res.status(400).json({ error: "Invalid GCS URL format" });
     }
 
     const bucketName = gcsMatch[1];
@@ -1821,33 +2041,32 @@ app.get("/api/image-proxy", async (req, res) => {
 
     const [exists] = await file.exists();
     if (!exists) {
-      return res.status(404).json({ error: 'Image not found' });
+      return res.status(404).json({ error: "Image not found" });
     }
 
     // Get file metadata to set proper content type
     const [metadata] = await file.getMetadata();
-    const contentType = metadata.contentType || 'image/jpeg';
+    const contentType = metadata.contentType || "image/jpeg";
 
     // Set appropriate headers
     res.set({
-      'Content-Type': contentType,
-      'Cache-Control': 'public, max-age=86400' // Cache for 1 day
+      "Content-Type": contentType,
+      "Cache-Control": "public, max-age=86400", // Cache for 1 day
     });
 
     // Stream the file to the response
     const stream = file.createReadStream();
     stream.pipe(res);
 
-    stream.on('error', (error) => {
-      console.error('Error streaming image:', error);
+    stream.on("error", (error) => {
+      console.error("Error streaming image:", error);
       if (!res.headersSent) {
-        res.status(500).json({ error: 'Failed to stream image' });
+        res.status(500).json({ error: "Failed to stream image" });
       }
     });
-
   } catch (error) {
-    console.error('Image proxy error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error("Image proxy error:", error);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -1855,7 +2074,7 @@ app.get("/api/image-proxy", async (req, res) => {
 app.get("/api/sample-sets", (req, res) => {
   res.json({
     success: true,
-    sampleSets: sampleSets
+    sampleSets: sampleSets,
   });
 });
 
@@ -1863,140 +2082,155 @@ app.get("/api/sample-sets", (req, res) => {
 app.get("/api/current-samples", async (req, res) => {
   try {
     const { data: samples, error } = await supabase
-      .from('current_working_samples')
-      .select('*')
-      .order('created_at', { ascending: true });
+      .from("current_working_samples")
+      .select("*")
+      .order("created_at", { ascending: true });
 
     if (error) {
-      console.error('❌ Error fetching current samples:', error);
+      console.error("❌ Error fetching current samples:", error);
       return res.status(500).json({
         success: false,
-        error: 'Failed to fetch current samples'
+        error: "Failed to fetch current samples",
       });
     }
 
     // Transform database format to frontend format
-    const formattedSamples = samples.map(sample => ({
+    const formattedSamples = samples.map((sample) => ({
       id: sample.id,
       generated: {
-        url: sample.generated_image_url
+        url: sample.generated_image_url,
       },
       reference: {
-        url: sample.reference_image_url
-      }
+        url: sample.reference_image_url,
+      },
     }));
 
     res.json({
       success: true,
-      samples: formattedSamples
+      samples: formattedSamples,
     });
   } catch (error) {
-    console.error('❌ Error in current-samples endpoint:', error);
+    console.error("❌ Error in current-samples endpoint:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch current samples'
+      error: "Failed to fetch current samples",
     });
   }
 });
 
 // Upload sample images to Supabase and add to current working set
-app.post("/api/upload-sample-images", upload.fields([
-  { name: 'generated', maxCount: 1 },
-  { name: 'reference', maxCount: 1 }
-]), async (req, res) => {
-  try {
-    console.log('📤 Upload request received');
-    console.log('Files:', req.files);
-    console.log('Body:', req.body);
+app.post(
+  "/api/upload-sample-images",
+  upload.fields([
+    { name: "generated", maxCount: 1 },
+    { name: "reference", maxCount: 1 },
+  ]),
+  async (req, res) => {
+    try {
+      console.log("📤 Upload request received");
+      console.log("Files:", req.files);
+      console.log("Body:", req.body);
 
-    if (!req.files || !req.files.generated || !req.files.reference) {
-      console.log('❌ Missing files in request');
-      return res.status(400).json({
-        error: 'Missing required files: generated and reference images',
-        received: req.files ? Object.keys(req.files) : 'no files'
+      if (!req.files || !req.files.generated || !req.files.reference) {
+        console.log("❌ Missing files in request");
+        return res.status(400).json({
+          error: "Missing required files: generated and reference images",
+          received: req.files ? Object.keys(req.files) : "no files",
+        });
+      }
+
+      const generatedFile = req.files.generated[0];
+      const referenceFile = req.files.reference[0];
+
+      // Upload generated image to Supabase
+      const generatedFileName = `evaluation_samples/generated_${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 9)}.${generatedFile.originalname.split(".").pop()}`;
+      const { data: generatedUpload, error: generatedError } =
+        await supabase.storage
+          .from("generated-images")
+          .upload(generatedFileName, generatedFile.buffer, {
+            contentType: generatedFile.mimetype,
+            cacheControl: "3600",
+          });
+
+      if (generatedError) {
+        console.error("❌ Error uploading generated image:", generatedError);
+        return res
+          .status(500)
+          .json({ error: "Failed to upload generated image" });
+      }
+
+      // Upload reference image to Supabase
+      const referenceFileName = `evaluation_samples/reference_${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 9)}.${referenceFile.originalname.split(".").pop()}`;
+      const { data: referenceUpload, error: referenceError } =
+        await supabase.storage
+          .from("generated-images")
+          .upload(referenceFileName, referenceFile.buffer, {
+            contentType: referenceFile.mimetype,
+            cacheControl: "3600",
+          });
+
+      if (referenceError) {
+        console.error("❌ Error uploading reference image:", referenceError);
+        return res
+          .status(500)
+          .json({ error: "Failed to upload reference image" });
+      }
+
+      // Create public URLs
+      const generatedUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/generated-images/${generatedUpload.path}`;
+      const referenceUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/generated-images/${referenceUpload.path}`;
+
+      // Add sample to database
+      const { data: newSample, error: insertError } = await supabase
+        .from("current_working_samples")
+        .insert({
+          generated_image_url: generatedUrl,
+          reference_image_url: referenceUrl,
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error("❌ Error saving sample to database:", insertError);
+        return res
+          .status(500)
+          .json({ error: "Failed to save sample to database" });
+      }
+
+      // Get current count for response
+      const { count } = await supabase
+        .from("current_working_samples")
+        .select("*", { count: "exact", head: true });
+
+      console.log(`📝 Uploaded and added sample to database (${count} total)`);
+      res.json({
+        success: true,
+        sample: newSample,
+        generatedUrl: generatedUrl,
+        referenceUrl: referenceUrl,
+        totalSamples: count,
+      });
+    } catch (error) {
+      console.error("❌ Error uploading sample images:", error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
       });
     }
-
-    const generatedFile = req.files.generated[0];
-    const referenceFile = req.files.reference[0];
-
-    // Upload generated image to Supabase
-    const generatedFileName = `evaluation_samples/generated_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${generatedFile.originalname.split('.').pop()}`;
-    const { data: generatedUpload, error: generatedError } = await supabase.storage
-      .from("generated-images")
-      .upload(generatedFileName, generatedFile.buffer, {
-        contentType: generatedFile.mimetype,
-        cacheControl: "3600",
-      });
-
-    if (generatedError) {
-      console.error("❌ Error uploading generated image:", generatedError);
-      return res.status(500).json({ error: 'Failed to upload generated image' });
-    }
-
-    // Upload reference image to Supabase
-    const referenceFileName = `evaluation_samples/reference_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${referenceFile.originalname.split('.').pop()}`;
-    const { data: referenceUpload, error: referenceError } = await supabase.storage
-      .from("generated-images")
-      .upload(referenceFileName, referenceFile.buffer, {
-        contentType: referenceFile.mimetype,
-        cacheControl: "3600",
-      });
-
-    if (referenceError) {
-      console.error("❌ Error uploading reference image:", referenceError);
-      return res.status(500).json({ error: 'Failed to upload reference image' });
-    }
-
-    // Create public URLs
-    const generatedUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/generated-images/${generatedUpload.path}`;
-    const referenceUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/generated-images/${referenceUpload.path}`;
-
-    // Add sample to database
-    const { data: newSample, error: insertError } = await supabase
-      .from('current_working_samples')
-      .insert({
-        generated_image_url: generatedUrl,
-        reference_image_url: referenceUrl
-      })
-      .select()
-      .single();
-
-    if (insertError) {
-      console.error('❌ Error saving sample to database:', insertError);
-      return res.status(500).json({ error: 'Failed to save sample to database' });
-    }
-
-    // Get current count for response
-    const { count } = await supabase
-      .from('current_working_samples')
-      .select('*', { count: 'exact', head: true });
-
-    console.log(`📝 Uploaded and added sample to database (${count} total)`);
-    res.json({
-      success: true,
-      sample: newSample,
-      generatedUrl: generatedUrl,
-      referenceUrl: referenceUrl,
-      totalSamples: count
-    });
-
-  } catch (error) {
-    console.error('❌ Error uploading sample images:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
   }
-});
+);
 
 // Multer error handling middleware
 app.use((error, req, res, next) => {
   if (error instanceof multer.MulterError) {
-    console.error('❌ Multer error:', error.message);
+    console.error("❌ Multer error:", error.message);
     return res.status(400).json({
       error: `File upload error: ${error.message}`,
-      code: error.code
+      code: error.code,
     });
   }
   next(error);
@@ -2006,28 +2240,28 @@ app.use((error, req, res, next) => {
 app.delete("/api/current-samples", async (req, res) => {
   try {
     const { error } = await supabase
-      .from('current_working_samples')
+      .from("current_working_samples")
       .delete()
-      .neq('id', 0); // Delete all rows
+      .neq("id", 0); // Delete all rows
 
     if (error) {
-      console.error('❌ Error clearing current samples:', error);
+      console.error("❌ Error clearing current samples:", error);
       return res.status(500).json({
         success: false,
-        error: 'Failed to clear current samples'
+        error: "Failed to clear current samples",
       });
     }
 
-    console.log('🗑️ Cleared current working set from database');
+    console.log("🗑️ Cleared current working set from database");
     res.json({
       success: true,
-      message: 'Working set cleared'
+      message: "Working set cleared",
     });
   } catch (error) {
-    console.error('❌ Error in clear samples endpoint:', error);
+    console.error("❌ Error in clear samples endpoint:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to clear current samples'
+      error: "Failed to clear current samples",
     });
   }
 });
@@ -2039,13 +2273,13 @@ app.post("/api/sample-sets", (req, res) => {
 
     if (!name || !name.trim()) {
       return res.status(400).json({
-        error: 'Missing required parameter: name'
+        error: "Missing required parameter: name",
       });
     }
 
     if (currentWorkingSet.length === 0) {
       return res.status(400).json({
-        error: 'No samples in current working set to save'
+        error: "No samples in current working set to save",
       });
     }
 
@@ -2053,22 +2287,23 @@ app.post("/api/sample-sets", (req, res) => {
       id: nextSampleSetId++,
       name: name.trim(),
       samples: [...currentWorkingSet], // Copy the current working set
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
 
     sampleSets.push(newSampleSet);
 
-    console.log(`💾 Saved sample set: "${name}" with ${currentWorkingSet.length} samples`);
+    console.log(
+      `💾 Saved sample set: "${name}" with ${currentWorkingSet.length} samples`
+    );
     res.json({
       success: true,
-      sampleSet: newSampleSet
+      sampleSet: newSampleSet,
     });
-
   } catch (error) {
-    console.error('❌ Error saving sample set:', error);
+    console.error("❌ Error saving sample set:", error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -2077,28 +2312,29 @@ app.post("/api/sample-sets", (req, res) => {
 app.post("/api/sample-sets/:id/load", (req, res) => {
   try {
     const sampleSetId = parseInt(req.params.id);
-    const sampleSet = sampleSets.find(set => set.id === sampleSetId);
+    const sampleSet = sampleSets.find((set) => set.id === sampleSetId);
 
     if (!sampleSet) {
       return res.status(404).json({
-        error: 'Sample set not found'
+        error: "Sample set not found",
       });
     }
 
     currentWorkingSet = [...sampleSet.samples]; // Copy samples to working set
 
-    console.log(`📂 Loaded sample set "${sampleSet.name}" to working set (${currentWorkingSet.length} samples)`);
+    console.log(
+      `📂 Loaded sample set "${sampleSet.name}" to working set (${currentWorkingSet.length} samples)`
+    );
     res.json({
       success: true,
       message: `Loaded "${sampleSet.name}" to working set`,
-      sampleCount: currentWorkingSet.length
+      sampleCount: currentWorkingSet.length,
     });
-
   } catch (error) {
-    console.error('❌ Error loading sample set:', error);
+    console.error("❌ Error loading sample set:", error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -2109,28 +2345,32 @@ app.post("/api/generate-prompt-variations", async (req, res) => {
     const { basePrompts, variationStrength = 0.3, count = 10 } = req.body;
 
     if (!basePrompts || basePrompts.length === 0) {
-      return res.status(400).json({ error: 'Missing required parameter: basePrompts' });
+      return res
+        .status(400)
+        .json({ error: "Missing required parameter: basePrompts" });
     }
 
     if (!process.env.OPENAI_API_KEY) {
-      return res.status(500).json({ error: 'OpenAI API key not configured' });
+      return res.status(500).json({ error: "OpenAI API key not configured" });
     }
 
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: "gpt-4o",
       messages: [
         {
-          role: 'user',
-          content: `Generate ${count} creative variations of these pet photography prompts:\n\n${basePrompts.join('\n')}\n\nVariation strength: ${variationStrength} (0=minimal changes, 1=major changes)\n\nReturn ONLY a JSON array of strings, no other text.`
-        }
+          role: "user",
+          content: `Generate ${count} creative variations of these pet photography prompts:\n\n${basePrompts.join(
+            "\n"
+          )}\n\nVariation strength: ${variationStrength} (0=minimal changes, 1=major changes)\n\nReturn ONLY a JSON array of strings, no other text.`,
+        },
       ],
       max_tokens: 500,
-      temperature: 0.8
+      temperature: 0.8,
     });
 
     const content = response.choices[0]?.message?.content;
     if (!content) {
-      throw new Error('No response from OpenAI');
+      throw new Error("No response from OpenAI");
     }
 
     try {
@@ -2138,15 +2378,17 @@ app.post("/api/generate-prompt-variations", async (req, res) => {
       res.json({ variations });
     } catch (parseError) {
       // Fallback to base prompts with simple modifications
-      const fallbackVariations = basePrompts.flatMap(prompt => [
-        `${prompt} with enhanced lighting`,
-        `${prompt} in artistic style`,
-        `${prompt} with vibrant colors`
-      ]).slice(0, count);
+      const fallbackVariations = basePrompts
+        .flatMap((prompt) => [
+          `${prompt} with enhanced lighting`,
+          `${prompt} in artistic style`,
+          `${prompt} with vibrant colors`,
+        ])
+        .slice(0, count);
       res.json({ variations: fallbackVariations });
     }
   } catch (error) {
-    console.error('Prompt variation generation error:', error);
+    console.error("Prompt variation generation error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -2154,31 +2396,40 @@ app.post("/api/generate-prompt-variations", async (req, res) => {
 // Generate Evolutionary Prompts endpoint
 app.post("/api/generate-evolutionary-prompts", async (req, res) => {
   try {
-    const { parentPrompts, keepTopPercent = 0.2, mutationRate = 0.1, count = 10 } = req.body;
+    const {
+      parentPrompts,
+      keepTopPercent = 0.2,
+      mutationRate = 0.1,
+      count = 10,
+    } = req.body;
 
     if (!parentPrompts || parentPrompts.length === 0) {
-      return res.status(400).json({ error: 'Missing required parameter: parentPrompts' });
+      return res
+        .status(400)
+        .json({ error: "Missing required parameter: parentPrompts" });
     }
 
     if (!process.env.OPENAI_API_KEY) {
-      return res.status(500).json({ error: 'OpenAI API key not configured' });
+      return res.status(500).json({ error: "OpenAI API key not configured" });
     }
 
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: "gpt-4o",
       messages: [
         {
-          role: 'user',
-          content: `Using evolutionary algorithm principles, evolve these successful pet photography prompts:\n\n${parentPrompts.join('\n')}\n\nGenerate ${count} evolved prompts that:\n- Keep the best elements from parent prompts\n- Introduce mutations (mutation rate: ${mutationRate})\n- Create diverse offspring\n\nReturn ONLY a JSON array of strings, no other text.`
-        }
+          role: "user",
+          content: `Using evolutionary algorithm principles, evolve these successful pet photography prompts:\n\n${parentPrompts.join(
+            "\n"
+          )}\n\nGenerate ${count} evolved prompts that:\n- Keep the best elements from parent prompts\n- Introduce mutations (mutation rate: ${mutationRate})\n- Create diverse offspring\n\nReturn ONLY a JSON array of strings, no other text.`,
+        },
       ],
       max_tokens: 600,
-      temperature: 0.9
+      temperature: 0.9,
     });
 
     const content = response.choices[0]?.message?.content;
     if (!content) {
-      throw new Error('No response from OpenAI');
+      throw new Error("No response from OpenAI");
     }
 
     try {
@@ -2188,14 +2439,18 @@ app.post("/api/generate-evolutionary-prompts", async (req, res) => {
       // Fallback to combining parent prompts
       const fallbackPrompts = [];
       for (let i = 0; i < count; i++) {
-        const prompt1 = parentPrompts[Math.floor(Math.random() * parentPrompts.length)];
-        const prompt2 = parentPrompts[Math.floor(Math.random() * parentPrompts.length)];
-        fallbackPrompts.push(`${prompt1} evolved with elements from ${prompt2}`);
+        const prompt1 =
+          parentPrompts[Math.floor(Math.random() * parentPrompts.length)];
+        const prompt2 =
+          parentPrompts[Math.floor(Math.random() * parentPrompts.length)];
+        fallbackPrompts.push(
+          `${prompt1} evolved with elements from ${prompt2}`
+        );
       }
       res.json({ prompts: fallbackPrompts });
     }
   } catch (error) {
-    console.error('Evolutionary prompt generation error:', error);
+    console.error("Evolutionary prompt generation error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -2203,27 +2458,27 @@ app.post("/api/generate-evolutionary-prompts", async (req, res) => {
 // Generate Random Prompts endpoint
 app.post("/api/generate-random-prompts", async (req, res) => {
   try {
-    const { count = 10, category = 'pet_photography' } = req.body;
+    const { count = 10, category = "pet_photography" } = req.body;
 
     if (!process.env.OPENAI_API_KEY) {
-      return res.status(500).json({ error: 'OpenAI API key not configured' });
+      return res.status(500).json({ error: "OpenAI API key not configured" });
     }
 
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: "gpt-4o",
       messages: [
         {
-          role: 'user',
-          content: `Generate ${count} creative and diverse pet photography prompts for AI image generation. Focus on different styles, moods, settings, and artistic approaches. Make them specific and inspiring.\n\nReturn ONLY a JSON array of strings, no other text.`
-        }
+          role: "user",
+          content: `Generate ${count} creative and diverse pet photography prompts for AI image generation. Focus on different styles, moods, settings, and artistic approaches. Make them specific and inspiring.\n\nReturn ONLY a JSON array of strings, no other text.`,
+        },
       ],
       max_tokens: 400,
-      temperature: 1.0
+      temperature: 1.0,
     });
 
     const content = response.choices[0]?.message?.content;
     if (!content) {
-      throw new Error('No response from OpenAI');
+      throw new Error("No response from OpenAI");
     }
 
     try {
@@ -2232,19 +2487,19 @@ app.post("/api/generate-random-prompts", async (req, res) => {
     } catch (parseError) {
       // Fallback to predefined prompts
       const fallbackPrompts = [
-        'Adorable pet in golden hour lighting with soft bokeh background',
-        'Professional studio portrait of pet with dramatic lighting',
-        'Playful pet in natural outdoor setting with vibrant colors',
-        'Elegant pet portrait in black and white photography style',
-        'Cute pet in cozy home environment with warm lighting',
-        'Artistic pet photo with creative composition and unique angle',
-        'Pet in beautiful garden setting with flowers and natural light',
-        'Candid moment of happy pet with joyful expression'
+        "Adorable pet in golden hour lighting with soft bokeh background",
+        "Professional studio portrait of pet with dramatic lighting",
+        "Playful pet in natural outdoor setting with vibrant colors",
+        "Elegant pet portrait in black and white photography style",
+        "Cute pet in cozy home environment with warm lighting",
+        "Artistic pet photo with creative composition and unique angle",
+        "Pet in beautiful garden setting with flowers and natural light",
+        "Candid moment of happy pet with joyful expression",
       ];
       res.json({ prompts: fallbackPrompts.slice(0, count) });
     }
   } catch (error) {
-    console.error('Random prompt generation error:', error);
+    console.error("Random prompt generation error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -2255,28 +2510,32 @@ app.post("/api/generate-chain-prompts", async (req, res) => {
     const { basePrompts, iteration, config } = req.body;
 
     if (!basePrompts || basePrompts.length === 0) {
-      return res.status(400).json({ error: 'Missing required parameter: basePrompts' });
+      return res
+        .status(400)
+        .json({ error: "Missing required parameter: basePrompts" });
     }
 
     if (!process.env.OPENAI_API_KEY) {
-      return res.status(500).json({ error: 'OpenAI API key not configured' });
+      return res.status(500).json({ error: "OpenAI API key not configured" });
     }
 
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: "gpt-4o",
       messages: [
         {
-          role: 'user',
-          content: `This is iteration ${iteration} of an iterative improvement process. Build upon these successful prompts from previous iterations:\n\n${basePrompts.join('\n')}\n\nGenerate improved prompts that:\n- Enhance the successful elements\n- Add refinements based on iteration progress\n- Maintain the core appeal while improving quality\n\nReturn ONLY a JSON array of strings, no other text.`
-        }
+          role: "user",
+          content: `This is iteration ${iteration} of an iterative improvement process. Build upon these successful prompts from previous iterations:\n\n${basePrompts.join(
+            "\n"
+          )}\n\nGenerate improved prompts that:\n- Enhance the successful elements\n- Add refinements based on iteration progress\n- Maintain the core appeal while improving quality\n\nReturn ONLY a JSON array of strings, no other text.`,
+        },
       ],
       max_tokens: 500,
-      temperature: 0.7
+      temperature: 0.7,
     });
 
     const content = response.choices[0]?.message?.content;
     if (!content) {
-      throw new Error('No response from OpenAI');
+      throw new Error("No response from OpenAI");
     }
 
     try {
@@ -2284,15 +2543,22 @@ app.post("/api/generate-chain-prompts", async (req, res) => {
       res.json({ prompts });
     } catch (parseError) {
       // Fallback to enhanced versions of base prompts
-      const enhancements = ['refined', 'enhanced', 'improved', 'polished', 'optimized'];
-      const enhancedPrompts = basePrompts.map(prompt => {
-        const enhancement = enhancements[Math.floor(Math.random() * enhancements.length)];
+      const enhancements = [
+        "refined",
+        "enhanced",
+        "improved",
+        "polished",
+        "optimized",
+      ];
+      const enhancedPrompts = basePrompts.map((prompt) => {
+        const enhancement =
+          enhancements[Math.floor(Math.random() * enhancements.length)];
         return `${prompt} (${enhancement} for iteration ${iteration})`;
       });
       res.json({ prompts: enhancedPrompts });
     }
   } catch (error) {
-    console.error('Chain prompt generation error:', error);
+    console.error("Chain prompt generation error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -2302,43 +2568,46 @@ app.post("/api/generate-chain-prompts", async (req, res) => {
 // Get customers with single uploaded images
 app.get("/api/prod/customers", async (req, res) => {
   try {
-    console.log('🔍 Scanning production storage for single-image customers...');
+    console.log("🔍 Scanning production storage for single-image customers...");
 
     // List all customer folders in product-images bucket
-    const { data: customerFolders, error: listError } = await prodSupabase.storage
-      .from('product-images')
-      .list('', { limit: 1000 });
+    const { data: customerFolders, error: listError } =
+      await prodSupabase.storage
+        .from("product-images")
+        .list("", { limit: 1000 });
 
     if (listError) {
-      console.error('❌ Error listing customer folders:', listError);
-      return res.status(500).json({ error: 'Failed to list customer folders' });
+      console.error("❌ Error listing customer folders:", listError);
+      return res.status(500).json({ error: "Failed to list customer folders" });
     }
 
     const singleImageCustomers = [];
 
     // Check each customer folder for uploaded images
     for (const folder of customerFolders) {
-      if (!folder.name || folder.name === '.emptyFolderPlaceholder') continue;
+      if (!folder.name || folder.name === ".emptyFolderPlaceholder") continue;
 
       try {
         // Check if uploaded folder exists and count images
-        const { data: uploadedFiles, error: uploadError } = await prodSupabase.storage
-          .from('product-images')
-          .list(`${folder.name}/uploaded`, { limit: 10 });
+        const { data: uploadedFiles, error: uploadError } =
+          await prodSupabase.storage
+            .from("product-images")
+            .list(`${folder.name}/uploaded`, { limit: 10 });
 
         if (!uploadError && uploadedFiles) {
           // Filter out folder placeholders and count actual image files
-          const imageFiles = uploadedFiles.filter(file =>
-            file.name &&
-            !file.name.includes('.emptyFolderPlaceholder') &&
-            /\.(jpg|jpeg|png|webp)$/i.test(file.name)
+          const imageFiles = uploadedFiles.filter(
+            (file) =>
+              file.name &&
+              !file.name.includes(".emptyFolderPlaceholder") &&
+              /\.(jpg|jpeg|png|webp)$/i.test(file.name)
           );
 
           if (imageFiles.length === 1) {
             singleImageCustomers.push({
               customerId: folder.name,
               uploadedImage: imageFiles[0].name,
-              uploadedAt: imageFiles[0].created_at
+              uploadedAt: imageFiles[0].created_at,
             });
           }
         }
@@ -2347,19 +2616,20 @@ app.get("/api/prod/customers", async (req, res) => {
       }
     }
 
-    console.log(`✅ Found ${singleImageCustomers.length} customers with single uploaded images`);
+    console.log(
+      `✅ Found ${singleImageCustomers.length} customers with single uploaded images`
+    );
 
     res.json({
       success: true,
       customers: singleImageCustomers,
-      totalCount: singleImageCustomers.length
+      totalCount: singleImageCustomers.length,
     });
-
   } catch (error) {
-    console.error('❌ Error scanning customers:', error);
+    console.error("❌ Error scanning customers:", error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -2367,33 +2637,34 @@ app.get("/api/prod/customers", async (req, res) => {
 // Get available product types
 app.get("/api/prod/products", async (req, res) => {
   try {
-    console.log('🔍 Scanning for available product types...');
+    console.log("🔍 Scanning for available product types...");
 
     // Get a sample customer to see what product folders exist
-    const { data: customerFolders, error: listError } = await prodSupabase.storage
-      .from('product-images')
-      .list('', { limit: 10 });
+    const { data: customerFolders, error: listError } =
+      await prodSupabase.storage.from("product-images").list("", { limit: 10 });
 
     if (listError) {
-      return res.status(500).json({ error: 'Failed to list customer folders' });
+      return res.status(500).json({ error: "Failed to list customer folders" });
     }
 
     const productTypes = new Set();
 
     // Check first few customers to find available product types
     for (const folder of customerFolders.slice(0, 5)) {
-      if (!folder.name || folder.name === '.emptyFolderPlaceholder') continue;
+      if (!folder.name || folder.name === ".emptyFolderPlaceholder") continue;
 
       try {
         const { data: subFolders, error } = await prodSupabase.storage
-          .from('product-images')
+          .from("product-images")
           .list(folder.name, { limit: 20 });
 
         if (!error && subFolders) {
-          subFolders.forEach(subFolder => {
-            if (subFolder.name &&
-                subFolder.name !== 'uploaded' &&
-                !subFolder.name.includes('.emptyFolderPlaceholder')) {
+          subFolders.forEach((subFolder) => {
+            if (
+              subFolder.name &&
+              subFolder.name !== "uploaded" &&
+              !subFolder.name.includes(".emptyFolderPlaceholder")
+            ) {
               productTypes.add(subFolder.name);
             }
           });
@@ -2408,14 +2679,13 @@ app.get("/api/prod/products", async (req, res) => {
 
     res.json({
       success: true,
-      products: products
+      products: products,
     });
-
   } catch (error) {
-    console.error('❌ Error scanning products:', error);
+    console.error("❌ Error scanning products:", error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -2428,95 +2698,122 @@ app.post("/api/prod/validate-customer", async (req, res) => {
     if (!customerId || !uploadedImage || !productType) {
       return res.status(400).json({
         success: false,
-        reason: 'Missing required parameters'
+        reason: "Missing required parameters",
       });
     }
 
-    console.log(`🔍 Validating customer ${customerId} for product ${productType}`);
+    console.log(
+      `🔍 Validating customer ${customerId} for product ${productType}`
+    );
 
     // Check uploaded folder - should have exactly 1 image
-    const { data: uploadedFiles, error: uploadedError } = await prodSupabase.storage
-      .from('product-images')
-      .list(`${customerId}/uploaded`);
+    const { data: uploadedFiles, error: uploadedError } =
+      await prodSupabase.storage
+        .from("product-images")
+        .list(`${customerId}/uploaded`);
 
     if (uploadedError) {
-      console.log(`❌ Error checking uploaded folder for ${customerId}:`, uploadedError);
+      console.log(
+        `❌ Error checking uploaded folder for ${customerId}:`,
+        uploadedError
+      );
       return res.json({
         success: false,
-        reason: `Uploaded folder error: ${uploadedError.message}`
+        reason: `Uploaded folder error: ${uploadedError.message}`,
       });
     }
 
     // Filter to actual image files
-    const uploadedImageFiles = uploadedFiles && uploadedFiles.filter(file =>
-      file.name &&
-      !file.name.includes('.emptyFolderPlaceholder') &&
-      /\.(jpg|jpeg|png|webp)$/i.test(file.name)
-    );
+    const uploadedImageFiles =
+      uploadedFiles &&
+      uploadedFiles.filter(
+        (file) =>
+          file.name &&
+          !file.name.includes(".emptyFolderPlaceholder") &&
+          /\.(jpg|jpeg|png|webp)$/i.test(file.name)
+      );
 
     if (!uploadedImageFiles || uploadedImageFiles.length === 0) {
       console.log(`❌ No uploaded images found for customer ${customerId}`);
       return res.json({
         success: false,
-        reason: 'No uploaded images found'
+        reason: "No uploaded images found",
       });
     }
 
     if (uploadedImageFiles.length > 1) {
-      console.log(`❌ Customer ${customerId} has ${uploadedImageFiles.length} uploaded images, should have exactly 1`);
+      console.log(
+        `❌ Customer ${customerId} has ${uploadedImageFiles.length} uploaded images, should have exactly 1`
+      );
       return res.json({
         success: false,
-        reason: `Customer has ${uploadedImageFiles.length} uploaded images, expected 1`
+        reason: `Customer has ${uploadedImageFiles.length} uploaded images, expected 1`,
       });
     }
 
     // Use the single uploaded image
     const actualUploadedImage = uploadedImageFiles[0].name;
-    console.log(`📋 Customer ${customerId} has uploaded image: ${actualUploadedImage}`);
+    console.log(
+      `📋 Customer ${customerId} has uploaded image: ${actualUploadedImage}`
+    );
 
     // Check if generated image exists by listing the product folder
-    const { data: generatedFiles, error: generatedError } = await prodSupabase.storage
-      .from('product-images')
-      .list(`${customerId}/${productType}`);
+    const { data: generatedFiles, error: generatedError } =
+      await prodSupabase.storage
+        .from("product-images")
+        .list(`${customerId}/${productType}`);
 
     if (generatedError) {
-      console.log(`❌ Error checking generated folder for ${customerId}/${productType}:`, generatedError);
+      console.log(
+        `❌ Error checking generated folder for ${customerId}/${productType}:`,
+        generatedError
+      );
       return res.json({
         success: false,
-        reason: `Generated folder error: ${generatedError.message}`
+        reason: `Generated folder error: ${generatedError.message}`,
       });
     }
 
     // Check if there's at least one generated image (any filename is fine)
-    const imageFiles = generatedFiles && generatedFiles.filter(file =>
-      file.name &&
-      !file.name.includes('.emptyFolderPlaceholder') &&
-      /\.(jpg|jpeg|png|webp)$/i.test(file.name)
-    );
+    const imageFiles =
+      generatedFiles &&
+      generatedFiles.filter(
+        (file) =>
+          file.name &&
+          !file.name.includes(".emptyFolderPlaceholder") &&
+          /\.(jpg|jpeg|png|webp)$/i.test(file.name)
+      );
 
     if (!imageFiles || imageFiles.length === 0) {
-      console.log(`❌ No generated images found in ${customerId}/${productType}`);
-      console.log(`📝 Available files in ${customerId}/${productType}:`, generatedFiles?.map(f => f.name) || []);
+      console.log(
+        `❌ No generated images found in ${customerId}/${productType}`
+      );
+      console.log(
+        `📝 Available files in ${customerId}/${productType}:`,
+        generatedFiles?.map((f) => f.name) || []
+      );
       return res.json({
         success: false,
-        reason: `No generated images found in ${productType} folder`
+        reason: `No generated images found in ${productType} folder`,
       });
     }
 
     // Use the first available generated image
     const generatedImageName = imageFiles[0].name;
-    console.log(`✅ Found uploaded image: ${actualUploadedImage} and generated image: ${generatedImageName} for customer ${customerId}`);
+    console.log(
+      `✅ Found uploaded image: ${actualUploadedImage} and generated image: ${generatedImageName} for customer ${customerId}`
+    );
 
     // If both exist, generate the public URLs
     const uploadedPath = `${customerId}/uploaded/${actualUploadedImage}`;
     const generatedPath = `${customerId}/${productType}/${generatedImageName}`;
 
     const { data: uploadedUrl } = prodSupabase.storage
-      .from('product-images')
+      .from("product-images")
       .getPublicUrl(uploadedPath);
 
     const { data: generatedUrl } = prodSupabase.storage
-      .from('product-images')
+      .from("product-images")
       .getPublicUrl(generatedPath);
 
     res.json({
@@ -2524,14 +2821,13 @@ app.post("/api/prod/validate-customer", async (req, res) => {
       uploadedImageUrl: uploadedUrl.publicUrl,
       generatedImageUrl: generatedUrl.publicUrl,
       customerId,
-      productType
+      productType,
     });
-
   } catch (error) {
-    console.error('❌ Error validating customer:', error);
+    console.error("❌ Error validating customer:", error);
     res.status(500).json({
       success: false,
-      reason: error.message
+      reason: error.message,
     });
   }
 });
@@ -2544,11 +2840,13 @@ app.post("/api/training/generate", async (req, res) => {
     if (!productType || !customers || customers.length === 0) {
       return res.status(400).json({
         success: false,
-        error: 'Missing required parameters: productType and customers'
+        error: "Missing required parameters: productType and customers",
       });
     }
 
-    console.log(`🚀 Starting training sample generation for ${customers.length} customers with product: ${productType}`);
+    console.log(
+      `🚀 Starting training sample generation for ${customers.length} customers with product: ${productType}`
+    );
 
     const results = [];
     const errors = [];
@@ -2558,30 +2856,38 @@ app.post("/api/training/generate", async (req, res) => {
       const customer = customers[i];
 
       try {
-        console.log(`📥 Processing customer ${i + 1}/${customers.length}: ${customer.customerId}`);
+        console.log(
+          `📥 Processing customer ${i + 1}/${customers.length}: ${
+            customer.customerId
+          }`
+        );
 
         // Download uploaded image from production
         const uploadedPath = `${customer.customerId}/uploaded/${customer.uploadedImage}`;
-        const { data: uploadedImageData, error: uploadedError } = await prodSupabase.storage
-          .from('product-images')
-          .download(uploadedPath);
+        const { data: uploadedImageData, error: uploadedError } =
+          await prodSupabase.storage
+            .from("product-images")
+            .download(uploadedPath);
 
         if (uploadedError) {
-          throw new Error(`Failed to download uploaded image: ${uploadedError.message}`);
+          throw new Error(
+            `Failed to download uploaded image: ${uploadedError.message}`
+          );
         }
 
         // Find and download product image
-        const { data: productFiles, error: productListError } = await prodSupabase.storage
-          .from('product-images')
-          .list(`${customer.customerId}/${productType}`, { limit: 10 });
+        const { data: productFiles, error: productListError } =
+          await prodSupabase.storage
+            .from("product-images")
+            .list(`${customer.customerId}/${productType}`, { limit: 10 });
 
         if (productListError || !productFiles || productFiles.length === 0) {
           throw new Error(`No product images found for ${productType}`);
         }
 
         // Get the first product image (or you could add logic to select specific ones)
-        const productImage = productFiles.find(file =>
-          file.name && /\.(jpg|jpeg|png|webp)$/i.test(file.name)
+        const productImage = productFiles.find(
+          (file) => file.name && /\.(jpg|jpeg|png|webp)$/i.test(file.name)
         );
 
         if (!productImage) {
@@ -2589,41 +2895,54 @@ app.post("/api/training/generate", async (req, res) => {
         }
 
         const productPath = `${customer.customerId}/${productType}/${productImage.name}`;
-        const { data: productImageData, error: productError } = await prodSupabase.storage
-          .from('product-images')
-          .download(productPath);
+        const { data: productImageData, error: productError } =
+          await prodSupabase.storage
+            .from("product-images")
+            .download(productPath);
 
         if (productError) {
-          throw new Error(`Failed to download product image: ${productError.message}`);
+          throw new Error(
+            `Failed to download product image: ${productError.message}`
+          );
         }
 
         // Upload images to local Supabase storage
         const timestamp = Date.now();
-        const uploadedFileName = `training_samples/uploaded_${customer.customerId}_${timestamp}.${customer.uploadedImage.split('.').pop()}`;
-        const productFileName = `training_samples/generated_${customer.customerId}_${productType}_${timestamp}.${productImage.name.split('.').pop()}`;
+        const uploadedFileName = `training_samples/uploaded_${
+          customer.customerId
+        }_${timestamp}.${customer.uploadedImage.split(".").pop()}`;
+        const productFileName = `training_samples/generated_${
+          customer.customerId
+        }_${productType}_${timestamp}.${productImage.name.split(".").pop()}`;
 
         // Upload uploaded image
-        const { data: uploadedUpload, error: uploadedUploadError } = await supabase.storage
-          .from('generated-images')
-          .upload(uploadedFileName, uploadedImageData, {
-            contentType: `image/${customer.uploadedImage.split('.').pop()}`,
-            cacheControl: '3600'
-          });
+        const { data: uploadedUpload, error: uploadedUploadError } =
+          await supabase.storage
+            .from("generated-images")
+            .upload(uploadedFileName, uploadedImageData, {
+              contentType: `image/${customer.uploadedImage.split(".").pop()}`,
+              cacheControl: "3600",
+            });
 
         if (uploadedUploadError) {
-          throw new Error(`Failed to upload uploaded image: ${uploadedUploadError.message}`);
+          throw new Error(
+            `Failed to upload uploaded image: ${uploadedUploadError.message}`
+          );
         }
 
         // Upload product image
-        const { data: productUpload, error: productUploadError } = await supabase.storage
-          .from('generated-images')
-          .upload(productFileName, productImageData, {
-            contentType: `image/${productImage.name.split('.').pop()}`,
-            cacheControl: '3600'
-          });
+        const { data: productUpload, error: productUploadError } =
+          await supabase.storage
+            .from("generated-images")
+            .upload(productFileName, productImageData, {
+              contentType: `image/${productImage.name.split(".").pop()}`,
+              cacheControl: "3600",
+            });
 
         if (productUploadError) {
-          throw new Error(`Failed to upload product image: ${productUploadError.message}`);
+          throw new Error(
+            `Failed to upload product image: ${productUploadError.message}`
+          );
         }
 
         // Create public URLs
@@ -2632,12 +2951,12 @@ app.post("/api/training/generate", async (req, res) => {
 
         // Save to training samples database
         const { data: trainingSample, error: dbError } = await supabase
-          .from('training_samples')
+          .from("training_samples")
           .insert({
             customer_id: customer.customerId,
             product_type: productType,
             uploaded_image_url: uploadedUrl,
-            generated_image_url: productUrl
+            generated_image_url: productUrl,
           })
           .select()
           .single();
@@ -2651,47 +2970,54 @@ app.post("/api/training/generate", async (req, res) => {
           success: true,
           trainingSampleId: trainingSample.id,
           uploadedUrl,
-          productUrl
+          productUrl,
         });
 
-        console.log(`✅ Successfully processed customer ${customer.customerId}`);
-
+        console.log(
+          `✅ Successfully processed customer ${customer.customerId}`
+        );
       } catch (error) {
-        console.error(`❌ Error processing customer ${customer.customerId}:`, error);
+        console.error(
+          `❌ Error processing customer ${customer.customerId}:`,
+          error
+        );
         errors.push({
           customerId: customer.customerId,
-          error: error.message
+          error: error.message,
         });
 
         results.push({
           customerId: customer.customerId,
           success: false,
-          error: error.message
+          error: error.message,
         });
       }
 
       // Add small delay to avoid overwhelming the API
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise((resolve) => setTimeout(resolve, 200));
     }
 
-    console.log(`🎉 Training sample generation complete: ${results.filter(r => r.success).length} successful, ${errors.length} failed`);
+    console.log(
+      `🎉 Training sample generation complete: ${
+        results.filter((r) => r.success).length
+      } successful, ${errors.length} failed`
+    );
 
     res.json({
       success: true,
       results,
       summary: {
         total: customers.length,
-        successful: results.filter(r => r.success).length,
+        successful: results.filter((r) => r.success).length,
         failed: errors.length,
-        productType
-      }
+        productType,
+      },
     });
-
   } catch (error) {
-    console.error('❌ Training sample generation error:', error);
+    console.error("❌ Training sample generation error:", error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -2700,28 +3026,27 @@ app.post("/api/training/generate", async (req, res) => {
 app.get("/api/training/samples", async (req, res) => {
   try {
     const { data: samples, error } = await supabase
-      .from('training_samples')
-      .select('*')
-      .order('created_at', { ascending: false });
+      .from("training_samples")
+      .select("*")
+      .order("created_at", { ascending: false });
 
     if (error) {
       return res.status(500).json({
         success: false,
-        error: 'Failed to fetch training samples'
+        error: "Failed to fetch training samples",
       });
     }
 
     res.json({
       success: true,
       samples: samples || [],
-      count: samples?.length || 0
+      count: samples?.length || 0,
     });
-
   } catch (error) {
-    console.error('❌ Error fetching training samples:', error);
+    console.error("❌ Error fetching training samples:", error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -2737,13 +3062,13 @@ app.post("/api/vertex-ai/optimize", async (req, res) => {
       basePrompts,
       optimizationMode = "data-driven",
       targetModel = "gemini-2.5-flash",
-      evaluationMetrics = ["bleu", "rouge"]
+      evaluationMetrics = ["bleu", "rouge"],
     } = req.body;
 
     if (!trainingDataSet || !basePrompts || basePrompts.length === 0) {
       return res.status(400).json({
         error: "Missing required parameters",
-        details: "trainingDataSet and basePrompts are required"
+        details: "trainingDataSet and basePrompts are required",
       });
     }
 
@@ -2762,31 +3087,60 @@ app.post("/api/vertex-ai/optimize", async (req, res) => {
     console.log(`📊 Fetching samples for data set: ${trainingDataSet}`);
 
     const { data: trainingSamples, error } = await supabase
-      .from('training_samples')
-      .select('id, uploaded_image_url, openai_image_url, data_set_name')
-      .eq('data_set_name', trainingDataSet)
-      .order('created_at', { ascending: true });
+      .from("training_samples")
+      .select("id, uploaded_image_url, openai_image_url, data_set_name")
+      .eq("data_set_name", trainingDataSet)
+      .order("created_at", { ascending: true });
 
     if (error) {
       throw new Error(`Failed to fetch training samples: ${error.message}`);
     }
 
     if (!trainingSamples || trainingSamples.length === 0) {
-      throw new Error(`No training samples found for data set: ${trainingDataSet}`);
+      throw new Error(
+        `No training samples found for data set: ${trainingDataSet}`
+      );
     }
 
     console.log(`📄 Found ${trainingSamples.length} training samples`);
 
-    // Format for Vertex AI Prompt Optimizer JSONL for image generation evaluation
-    const formattedSamples = trainingSamples.map((sample) => {
-      return {
-        input: `${sample.uploaded_image_url},${sample.openai_image_url}`,
-        target: "{}",
-        unique_id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}_sample_${sample.id}`
-      };
+    // Generate descriptions for all images in parallel and format for Vertex AI Prompt Optimizer JSONL
+    console.log(
+      "🔍 Generating detailed descriptions for training images in parallel..."
+    );
+
+    const descriptionPromises = trainingSamples.map(async (sample) => {
+      try {
+        // Generate descriptions for both source and reference images in parallel
+        const [sourceDescription, referenceDescription] = await Promise.all([
+          generateImageDescription(sample.uploaded_image_url, "source"),
+          generateImageDescription(sample.openai_image_url, "reference"),
+        ]);
+
+        console.log(`✅ Processed sample ${sample.id}`);
+        return {
+          input: `${sample.uploaded_image_url},${sourceDescription}`,
+          target: `${sample.openai_image_url},${referenceDescription}`,
+          unique_id: `${Date.now()}_${Math.random()
+            .toString(36)
+            .substr(2, 9)}_sample_${sample.id}`,
+        };
+      } catch (error) {
+        console.error(`❌ Failed to process sample ${sample.id}:`, error);
+        return null; // Will be filtered out
+      }
     });
 
-    const jsonlData = formattedSamples.map(sample => JSON.stringify(sample)).join('\n');
+    // Wait for all descriptions to complete
+    const results = await Promise.all(descriptionPromises);
+    const formattedSamples = results.filter((sample) => sample !== null);
+
+    console.log(
+      `📋 Successfully formatted ${formattedSamples.length} training samples with descriptions`
+    );
+    const jsonlData = formattedSamples
+      .map((sample) => JSON.stringify(sample))
+      .join("\n");
 
     // Step 2: Upload training data and config to Cloud Storage
     console.log("☁️ Uploading training data and config to Cloud Storage...");
@@ -2796,13 +3150,16 @@ app.post("/api/vertex-ai/optimize", async (req, res) => {
 
     try {
       // Create bucket if it doesn't exist
-      await storageClient.createBucket(bucketName, {
-        location: location,
-      }).catch(error => {
-        if (error.code !== 5) { // Ignore "already exists" error
-          console.warn("Bucket creation warning:", error.message);
-        }
-      });
+      await storageClient
+        .createBucket(bucketName, {
+          location: location,
+        })
+        .catch((error) => {
+          if (error.code !== 5) {
+            // Ignore "already exists" error
+            console.warn("Bucket creation warning:", error.message);
+          }
+        });
 
       const bucket = storageClient.bucket(bucketName);
 
@@ -2810,7 +3167,7 @@ app.post("/api/vertex-ai/optimize", async (req, res) => {
       const dataFile = bucket.file(fileName);
       await dataFile.save(jsonlData, {
         metadata: {
-          contentType: 'application/jsonl',
+          contentType: "application/jsonl",
         },
       });
 
@@ -2827,23 +3184,27 @@ app.post("/api/vertex-ai/optimize", async (req, res) => {
         input_data_path: datasetUri,
         output_path: outputPath,
         system_instruction: basePrompts[0] || "Generate an image",
-        prompt_template: "Create an image prompt: {input}\nOptimized prompt: {target}",
+        prompt_template:
+          "Create an image prompt: {input}\nOptimized prompt: {target}",
         optimization_mode: "instruction",
-        num_steps: 1,
+        num_steps: 3,
         eval_metric: "custom_metric",
         custom_metric_name: "image_similarity_score",
         custom_metric_cloud_function_name: "evaluate-image-prompt",
         target_model_qps: 3.0,
         eval_qps: 3.0,
-        thinking_budget: 0
+        thinking_budget: 0,
       };
 
-      console.log(`📋 Correct config created:`, JSON.stringify(config, null, 2));
+      console.log(
+        `📋 Correct config created:`,
+        JSON.stringify(config, null, 2)
+      );
 
       const configFile = bucket.file(configFileName);
       await configFile.save(JSON.stringify(config, null, 2), {
         metadata: {
-          contentType: 'application/json',
+          contentType: "application/json",
         },
       });
 
@@ -2865,24 +3226,25 @@ app.post("/api/vertex-ai/optimize", async (req, res) => {
       const customJobSpec = {
         displayName: `prompt-optimization-${Date.now()}`,
         jobSpec: {
-          workerPoolSpecs: [{
-            machineSpec: {
-              machineType: 'n1-standard-4',
+          workerPoolSpecs: [
+            {
+              machineSpec: {
+                machineType: "n1-standard-4",
+              },
+              diskSpec: {
+                bootDiskType: "pd-ssd",
+                bootDiskSizeGb: 100,
+              },
+              containerSpec: {
+                // Use Vertex AI Prompt Optimizer container image
+                imageUri:
+                  "us-docker.pkg.dev/vertex-ai-restricted/builtin-algorithm/apd:preview_v1_0",
+                args: [`--config=${configUri}`],
+              },
+              replicaCount: 1,
             },
-            diskSpec: {
-              bootDiskType: 'pd-ssd',
-              bootDiskSizeGb: 100,
-            },
-            containerSpec: {
-              // Use Vertex AI Prompt Optimizer container image
-              imageUri: 'us-docker.pkg.dev/vertex-ai-restricted/builtin-algorithm/apd:preview_v1_0',
-              args: [
-                `--config=${configUri}`
-              ]
-            },
-            replicaCount: 1,
-          }]
-        }
+          ],
+        },
       };
 
       const request = {
@@ -2894,7 +3256,7 @@ app.post("/api/vertex-ai/optimize", async (req, res) => {
 
       try {
         const [job] = await jobServiceClient.createCustomJob(request);
-        const jobId = job.name.split('/').pop();
+        const jobId = job.name.split("/").pop();
 
         console.log(`✅ Vertex AI optimization job created: ${jobId}`);
 
@@ -2907,24 +3269,24 @@ app.post("/api/vertex-ai/optimize", async (req, res) => {
             base_prompts: basePrompts,
             optimization_mode: optimizationMode,
             target_model: targetModel,
-            status: 'submitted',
+            status: "submitted",
             vertex_job_name: job.name,
-            vertex_job_state: job.state || 'JOB_STATE_PENDING'
+            vertex_job_state: job.state || "JOB_STATE_PENDING",
           };
 
           const { data: insertedJob, error: insertError } = await supabase
-            .from('vertex_ai_jobs')
+            .from("vertex_ai_jobs")
             .insert(jobRecord)
             .select()
             .single();
 
           if (insertError) {
-            console.error('❌ Failed to store job in Supabase:', insertError);
+            console.error("❌ Failed to store job in Supabase:", insertError);
           } else {
             console.log(`💾 Job stored in Supabase with ID: ${insertedJob.id}`);
           }
         } catch (supabaseError) {
-          console.error('❌ Supabase job storage error:', supabaseError);
+          console.error("❌ Supabase job storage error:", supabaseError);
         }
 
         res.json({
@@ -2938,25 +3300,24 @@ app.post("/api/vertex-ai/optimize", async (req, res) => {
           datasetUri,
           estimatedCompletionTime: "10-30 minutes",
           timestamp: new Date().toISOString(),
-          message: "Job submitted successfully to Vertex AI"
+          message: "Job submitted successfully to Vertex AI",
         });
-
       } catch (vertexError) {
         console.error("❌ Vertex AI job creation error:", vertexError);
-        throw new Error(`Vertex AI job creation failed: ${vertexError.message}`);
+        throw new Error(
+          `Vertex AI job creation failed: ${vertexError.message}`
+        );
       }
-
     } catch (storageError) {
       console.error("❌ Cloud Storage error:", storageError);
       throw new Error(`Cloud Storage failed: ${storageError.message}`);
     }
-
   } catch (error) {
     console.error("❌ Vertex AI optimization job submission error:", error);
     res.status(500).json({
       error: "Optimization job submission failed",
       details: error.message,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   }
 });
@@ -2967,37 +3328,48 @@ app.get("/api/vertex-ai/jobs", async (req, res) => {
 
   try {
     const { data: jobs, error } = await supabase
-      .from('vertex_ai_jobs')
-      .select('*')
-      .order('created_at', { ascending: false });
+      .from("vertex_ai_jobs")
+      .select("*")
+      .order("created_at", { ascending: false });
 
     if (error) {
-      console.error('❌ Failed to fetch jobs from Supabase:', error);
-      return res.status(500).json({ error: 'Failed to fetch jobs', details: error.message });
+      console.error("❌ Failed to fetch jobs from Supabase:", error);
+      return res
+        .status(500)
+        .json({ error: "Failed to fetch jobs", details: error.message });
     }
 
     // Format jobs for UI
-    const formattedJobs = jobs.map(job => ({
+    const formattedJobs = jobs.map((job) => ({
       jobId: job.job_id,
       status: job.status,
       progress: job.progress,
       message: job.message,
       trainingDataSet: job.training_data_set,
-      basePrompts: Array.isArray(job.base_prompts) ? job.base_prompts.length : 1,
+      basePrompts: Array.isArray(job.base_prompts)
+        ? job.base_prompts.length
+        : 1,
       optimizationMode: job.optimization_mode,
       targetModel: job.target_model,
       submittedAt: new Date(job.created_at).toLocaleString(),
-      lastChecked: job.updated_at ? new Date(job.updated_at).toLocaleString() : null,
-      startedAt: job.started_at ? new Date(job.started_at).toLocaleString() : null,
-      completedAt: job.completed_at ? new Date(job.completed_at).toLocaleString() : null
+      lastChecked: job.updated_at
+        ? new Date(job.updated_at).toLocaleString()
+        : null,
+      startedAt: job.started_at
+        ? new Date(job.started_at).toLocaleString()
+        : null,
+      completedAt: job.completed_at
+        ? new Date(job.completed_at).toLocaleString()
+        : null,
     }));
 
     console.log(`📊 Retrieved ${formattedJobs.length} jobs from Supabase`);
     res.json({ jobs: formattedJobs });
-
   } catch (err) {
-    console.error('❌ Error fetching jobs:', err);
-    res.status(500).json({ error: 'Internal server error', details: err.message });
+    console.error("❌ Error fetching jobs:", err);
+    res
+      .status(500)
+      .json({ error: "Internal server error", details: err.message });
   }
 });
 
@@ -3018,17 +3390,18 @@ app.get("/api/vertex-ai/jobs/:jobId", async (req, res) => {
 
       console.log(`📊 Job state: ${job.state}`);
 
-      let status, progress = 0;
+      let status,
+        progress = 0;
 
       // Map Vertex AI job states to our status
       switch (job.state) {
-        case 'JOB_STATE_QUEUED':
-        case 'JOB_STATE_PENDING':
-          status = 'queued';
+        case "JOB_STATE_QUEUED":
+        case "JOB_STATE_PENDING":
+          status = "queued";
           progress = 0;
           break;
-        case 'JOB_STATE_RUNNING':
-          status = 'running';
+        case "JOB_STATE_RUNNING":
+          status = "running";
           // Estimate progress based on start time
           if (job.startTime) {
             const startTime = new Date(job.startTime.seconds * 1000);
@@ -3039,20 +3412,20 @@ app.get("/api/vertex-ai/jobs/:jobId", async (req, res) => {
             progress = 10;
           }
           break;
-        case 'JOB_STATE_SUCCEEDED':
-          status = 'completed';
+        case "JOB_STATE_SUCCEEDED":
+          status = "completed";
           progress = 100;
           break;
-        case 'JOB_STATE_FAILED':
-          status = 'failed';
+        case "JOB_STATE_FAILED":
+          status = "failed";
           progress = 0;
           break;
-        case 'JOB_STATE_CANCELLED':
-          status = 'cancelled';
+        case "JOB_STATE_CANCELLED":
+          status = "cancelled";
           progress = 0;
           break;
         default:
-          status = 'unknown';
+          status = "unknown";
           progress = 0;
       }
 
@@ -3069,10 +3442,10 @@ app.get("/api/vertex-ai/jobs/:jobId", async (req, res) => {
       };
 
       // Add error details if failed
-      if (job.state === 'JOB_STATE_FAILED') {
+      if (job.state === "JOB_STATE_FAILED") {
         response.error = {
-          code: job.error?.code || 'UNKNOWN',
-          message: job.error?.message || 'No error message available',
+          code: job.error?.code || "UNKNOWN",
+          message: job.error?.message || "No error message available",
           details: job.error?.details || [],
         };
 
@@ -3097,56 +3470,63 @@ app.get("/api/vertex-ai/jobs/:jobId", async (req, res) => {
           status,
           progress,
           vertex_job_state: job.state,
-          updated_at: new Date().toISOString()
+          updated_at: new Date().toISOString(),
         };
 
         if (job.startTime && !job.endTime) {
-          updateData.started_at = new Date(job.startTime.seconds * 1000).toISOString();
+          updateData.started_at = new Date(
+            job.startTime.seconds * 1000
+          ).toISOString();
         }
 
         if (job.endTime) {
-          updateData.completed_at = new Date(job.endTime.seconds * 1000).toISOString();
+          updateData.completed_at = new Date(
+            job.endTime.seconds * 1000
+          ).toISOString();
         }
 
-        if (job.state === 'JOB_STATE_FAILED' && job.error) {
-          updateData.message = `Failed: ${job.error.message || 'Unknown error'}`;
+        if (job.state === "JOB_STATE_FAILED" && job.error) {
+          updateData.message = `Failed: ${
+            job.error.message || "Unknown error"
+          }`;
         }
 
         const { error: updateError } = await supabase
-          .from('vertex_ai_jobs')
+          .from("vertex_ai_jobs")
           .update(updateData)
-          .eq('job_id', jobId);
+          .eq("job_id", jobId);
 
         if (updateError) {
-          console.error('❌ Failed to update job in Supabase:', updateError);
+          console.error("❌ Failed to update job in Supabase:", updateError);
         } else {
-          console.log(`💾 Job ${jobId} updated in Supabase with status: ${status}`);
+          console.log(
+            `💾 Job ${jobId} updated in Supabase with status: ${status}`
+          );
         }
       } catch (supabaseError) {
-        console.error('❌ Supabase job update error:', supabaseError);
+        console.error("❌ Supabase job update error:", supabaseError);
       }
 
       res.json(response);
-
     } catch (jobError) {
-      if (jobError.code === 5) { // NOT_FOUND
+      if (jobError.code === 5) {
+        // NOT_FOUND
         console.log(`❓ Job ${jobId} not found`);
         res.status(404).json({
           error: "Job not found",
           details: `Job ${jobId} does not exist`,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         });
       } else {
         throw jobError;
       }
     }
-
   } catch (error) {
     console.error("❌ Vertex AI job status check error:", error);
     res.status(500).json({
       error: "Job status check failed",
       details: error.message,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   }
 });
@@ -3186,29 +3566,27 @@ app.get("/api/vertex-ai/jobs/:jobId/logs", async (req, res) => {
         jobDetails,
         timestamp: new Date().toISOString(),
       });
-
     } catch (jobError) {
-      if (jobError.code === 5) { // NOT_FOUND
+      if (jobError.code === 5) {
+        // NOT_FOUND
         res.status(404).json({
           error: "Job not found",
           details: `Job ${jobId} does not exist`,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         });
       } else {
         throw jobError;
       }
     }
-
   } catch (error) {
     console.error("❌ Failed to fetch job logs:", error);
     res.status(500).json({
       error: "Failed to fetch job logs",
       details: error.message,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   }
 });
-
 
 // Get optimization results
 app.get("/api/vertex-ai/results/:jobId", async (req, res) => {
@@ -3221,27 +3599,31 @@ app.get("/api/vertex-ai/results/:jobId", async (req, res) => {
 
     // First, check if the job is completed in our database
     const { data: jobData, error: jobError } = await supabase
-      .from('vertex_ai_jobs')
-      .select('*')
-      .eq('job_id', jobId)
+      .from("vertex_ai_jobs")
+      .select("*")
+      .eq("job_id", jobId)
       .single();
 
     if (jobError) {
-      console.error('❌ Failed to fetch job from Supabase:', jobError);
-      return res.status(404).json({ error: 'Job not found', details: jobError.message });
+      console.error("❌ Failed to fetch job from Supabase:", jobError);
+      return res
+        .status(404)
+        .json({ error: "Job not found", details: jobError.message });
     }
 
-    if (jobData.status !== 'completed') {
+    if (jobData.status !== "completed") {
       return res.status(400).json({
-        error: 'Job not completed',
+        error: "Job not completed",
         status: jobData.status,
-        message: 'Job must be completed before results can be retrieved'
+        message: "Job must be completed before results can be retrieved",
       });
     }
 
     // Clear cached results and always re-fetch from Cloud Storage for debugging
     // TODO: Re-enable caching once results parsing is working correctly
-    console.log(`🔄 Re-fetching results from Cloud Storage for job: ${jobId} (caching disabled for debugging)`);
+    console.log(
+      `🔄 Re-fetching results from Cloud Storage for job: ${jobId} (caching disabled for debugging)`
+    );
 
     // Uncomment below to use cached results:
     // if (jobData.optimized_prompts) {
@@ -3268,14 +3650,16 @@ app.get("/api/vertex-ai/results/:jobId", async (req, res) => {
 
       // List all results directories to find the matching one
       const bucket = storageClient.bucket(bucketName);
-      const [files] = await bucket.getFiles({ prefix: 'results-' });
+      const [files] = await bucket.getFiles({ prefix: "results-" });
 
       let foundResults = null;
       let resultTimestamp = null;
 
       // Get job creation time from database to match with results
       const jobCreatedTime = new Date(jobData.created_at).getTime();
-      console.log(`🕐 Job ${jobId} created at: ${jobData.created_at} (${jobCreatedTime})`);
+      console.log(
+        `🕐 Job ${jobId} created at: ${jobData.created_at} (${jobCreatedTime})`
+      );
 
       // Look for results directories and find one that matches this job by timestamp
       let bestMatch = null;
@@ -3285,14 +3669,16 @@ app.get("/api/vertex-ai/results/:jobId", async (req, res) => {
         const fileName = file.name;
 
         // Check if this is an optimized_results.json file
-        if (fileName.endsWith('/instruction/optimized_results.json')) {
+        if (fileName.endsWith("/instruction/optimized_results.json")) {
           // Extract timestamp from path (results-{timestamp}/instruction/...)
           const timestampMatch = fileName.match(/results-(\d+)\//);
           if (timestampMatch) {
             const resultTimestamp = parseInt(timestampMatch[1]);
             const timeDiff = Math.abs(resultTimestamp - jobCreatedTime);
 
-            console.log(`📊 Checking result timestamp ${resultTimestamp}, diff: ${timeDiff}ms`);
+            console.log(
+              `📊 Checking result timestamp ${resultTimestamp}, diff: ${timeDiff}ms`
+            );
 
             // Find the closest match within 24 hours
             if (timeDiff < smallestTimeDiff && timeDiff < 24 * 60 * 60 * 1000) {
@@ -3305,7 +3691,9 @@ app.get("/api/vertex-ai/results/:jobId", async (req, res) => {
 
       if (bestMatch) {
         const { fileName, resultTimestamp: matchedTimestamp } = bestMatch;
-        console.log(`🎯 Best timestamp match for job ${jobId}: ${fileName} (diff: ${smallestTimeDiff}ms)`);
+        console.log(
+          `🎯 Best timestamp match for job ${jobId}: ${fileName} (diff: ${smallestTimeDiff}ms)`
+        );
 
         // Process the matched results file
         try {
@@ -3315,7 +3703,10 @@ app.get("/api/vertex-ai/results/:jobId", async (req, res) => {
           const optimizedData = JSON.parse(contents.toString());
 
           // Also get the eval results for additional data
-          const evalFileName = fileName.replace('optimized_results.json', 'eval_results.json');
+          const evalFileName = fileName.replace(
+            "optimized_results.json",
+            "eval_results.json"
+          );
           const evalFile = bucket.file(evalFileName);
           const [evalExists] = await evalFile.exists();
 
@@ -3327,244 +3718,324 @@ app.get("/api/vertex-ai/results/:jobId", async (req, res) => {
 
           resultTimestamp = matchedTimestamp;
 
-            // Parse all optimization attempts and their results
-            const optimizedPrompts = [];
-            const allMetrics = {};
+          // Parse all optimization attempts and their results
+          const optimizedPrompts = [];
+          const allMetrics = {};
 
-            // Start with the final optimized result
-            optimizedPrompts.push({
-              prompt: optimizedData.prompt,
-              step: optimizedData.step || 0,
-              confidenceScore: optimizedData.metrics?.['image_similarity_score/mean'] || 0,
-              isOptimized: true,
-              improvements: [
-                "Final optimized version using Vertex AI",
-                "Enhanced based on training data patterns",
-                `Achieved ${(optimizedData.metrics?.['image_similarity_score/mean'] * 100 || 0).toFixed(1)}% similarity score`
-              ]
-            });
+          // Start with the final optimized result
+          optimizedPrompts.push({
+            prompt: optimizedData.prompt,
+            step: optimizedData.step || 0,
+            confidenceScore:
+              optimizedData.metrics?.["image_similarity_score/mean"] || 0,
+            isOptimized: true,
+            improvements: [
+              "Final optimized version using Vertex AI",
+              "Enhanced based on training data patterns",
+              `Achieved ${(
+                optimizedData.metrics?.["image_similarity_score/mean"] * 100 ||
+                0
+              ).toFixed(1)}% similarity score`,
+            ],
+          });
 
-            // Parse evaluation data to get all attempted prompts and their scores
-            if (evalData && Array.isArray(evalData)) {
-              for (const evalSet of evalData) {
-                if (evalSet.summary_results) {
-                  // Store overall metrics
-                  const setMetrics = evalSet.summary_results;
-                  for (const [key, value] of Object.entries(setMetrics)) {
-                    if (key !== 'row_count') {
-                      allMetrics[key] = value;
-                    }
+          // Parse evaluation data to get all attempted prompts and their scores
+          if (evalData && Array.isArray(evalData)) {
+            for (const evalSet of evalData) {
+              if (evalSet.summary_results) {
+                // Store overall metrics
+                const setMetrics = evalSet.summary_results;
+                for (const [key, value] of Object.entries(setMetrics)) {
+                  if (key !== "row_count") {
+                    allMetrics[key] = value;
                   }
                 }
+              }
 
-                // Parse individual prompt attempts from metrics_table
-                if (evalSet.metrics_table) {
-                  try {
-                    const metricsTable = JSON.parse(evalSet.metrics_table);
+              // Parse individual prompt attempts from metrics_table
+              if (evalSet.metrics_table) {
+                try {
+                  const metricsTable = JSON.parse(evalSet.metrics_table);
 
-                    // Group by unique prompts to see evolution
-                    const promptAttempts = new Map();
+                  // Group by unique prompts to see evolution
+                  const promptAttempts = new Map();
 
-                    for (const entry of metricsTable) {
-                      const prompt = entry.prompt;
-                      if (prompt && prompt !== optimizedData.prompt) { // Don't duplicate the final optimized one
+                  for (const entry of metricsTable) {
+                    const prompt = entry.prompt;
+                    if (prompt && prompt !== optimizedData.prompt) {
+                      // Don't duplicate the final optimized one
 
-                        if (!promptAttempts.has(prompt)) {
-                          promptAttempts.set(prompt, {
-                            prompt: prompt,
-                            scores: [],
-                            samples: [],
-                            avgScore: 0,
-                            isOptimized: false
-                          });
-                        }
-
-                        const attempt = promptAttempts.get(prompt);
-                        if (entry['image_similarity_score/score'] !== undefined) {
-                          attempt.scores.push(entry['image_similarity_score/score']);
-                          attempt.samples.push({
-                            input: entry.input,
-                            unique_id: entry.unique_id,
-                            response: entry.response,
-                            score: entry['image_similarity_score/score']
-                          });
-                        }
+                      if (!promptAttempts.has(prompt)) {
+                        promptAttempts.set(prompt, {
+                          prompt: prompt,
+                          scores: [],
+                          samples: [],
+                          avgScore: 0,
+                          isOptimized: false,
+                        });
                       }
-                    }
 
-                    // Calculate averages and add to optimized prompts
-                    for (const [prompt, data] of promptAttempts) {
-                      if (data.scores.length > 0) {
-                        data.avgScore = data.scores.reduce((a, b) => a + b, 0) / data.scores.length;
-                        data.confidenceScore = data.avgScore;
-
-                        optimizedPrompts.unshift({ // Add to beginning to show progression
-                          ...data,
-                          improvements: [
-                            `Tested on ${data.samples.length} samples`,
-                            `Average score: ${(data.avgScore * 100).toFixed(1)}%`,
-                            "Intermediate optimization attempt"
-                          ]
+                      const attempt = promptAttempts.get(prompt);
+                      if (entry["image_similarity_score/score"] !== undefined) {
+                        attempt.scores.push(
+                          entry["image_similarity_score/score"]
+                        );
+                        attempt.samples.push({
+                          input: entry.input,
+                          unique_id: entry.unique_id,
+                          response: entry.response,
+                          score: entry["image_similarity_score/score"],
                         });
                       }
                     }
-                  } catch (parseError) {
-                    console.warn(`Warning: Could not parse metrics table: ${parseError.message}`);
                   }
+
+                  // Calculate averages and add to optimized prompts
+                  for (const [prompt, data] of promptAttempts) {
+                    if (data.scores.length > 0) {
+                      data.avgScore =
+                        data.scores.reduce((a, b) => a + b, 0) /
+                        data.scores.length;
+                      data.confidenceScore = data.avgScore;
+
+                      optimizedPrompts.unshift({
+                        // Add to beginning to show progression
+                        ...data,
+                        improvements: [
+                          `Tested on ${data.samples.length} samples`,
+                          `Average score: ${(data.avgScore * 100).toFixed(1)}%`,
+                          "Intermediate optimization attempt",
+                        ],
+                      });
+                    }
+                  }
+                } catch (parseError) {
+                  console.warn(
+                    `Warning: Could not parse metrics table: ${parseError.message}`
+                  );
                 }
               }
             }
+          }
 
-            // Sort prompts by score to show progression (lowest to highest)
-            optimizedPrompts.sort((a, b) => {
-              return (a.confidenceScore || 0) - (b.confidenceScore || 0);
-            });
+          // Sort intermediate attempts by timestamp and assign step numbers
+          const intermediateAttempts = optimizedPrompts.filter(
+            (p) => !p.isOptimized
+          );
+          console.log(
+            `🔍 Found ${intermediateAttempts.length} intermediate attempts to sort`
+          );
 
-            foundResults = {
-              jobId,
-              originalPrompts: jobData.base_prompts,
-              optimizedPrompts,
-              performanceMetrics: {
-                imageSimilarityScore: optimizedData.metrics?.['image_similarity_score/mean'] || 0,
-                evaluationSamples: evalData?.[0]?.summary_results?.row_count || "Unknown",
-                ...allMetrics
-              },
-              completedAt: new Date().toISOString(),
-              resultTimestamp
-            };
+          // Get creation timestamps from optimizer_generations table and sort chronologically
+          for (const attempt of intermediateAttempts) {
+            const { data: generations, error } = await supabase
+              .from("optimizer_generations")
+              .select("created_at")
+              .eq("prompt_used", attempt.prompt)
+              .order("created_at", { ascending: true })
+              .limit(1);
 
-            // Extract actual optimization run timestamps from unique_ids in eval data
-            let optimizationTimestamp = null;
-            if (evalData && Array.isArray(evalData)) {
-              for (const evalSet of evalData) {
-                if (evalSet.metrics_table) {
+            if (!error && generations && generations.length > 0) {
+              attempt.earliest_created_at = new Date(generations[0].created_at);
+            } else {
+              attempt.earliest_created_at = new Date(0); // Fallback to epoch
+            }
+          }
+
+          // Sort by actual creation timestamp (earliest first)
+          intermediateAttempts.sort((a, b) => {
+            return (
+              a.earliest_created_at.getTime() - b.earliest_created_at.getTime()
+            );
+          });
+
+          // Assign step numbers in chronological order
+          intermediateAttempts.forEach((prompt, index) => {
+            prompt.step = index + 1; // Step 1, 2, 3...
+          });
+
+          // Sort prompts by step number (highest to lowest - latest first)
+          optimizedPrompts.sort((a, b) => {
+            return (b.step || 0) - (a.step || 0);
+          });
+
+          foundResults = {
+            jobId,
+            originalPrompts: jobData.base_prompts,
+            optimizedPrompts,
+            performanceMetrics: {
+              imageSimilarityScore:
+                optimizedData.metrics?.["image_similarity_score/mean"] || 0,
+              evaluationSamples:
+                evalData?.[0]?.summary_results?.row_count || "Unknown",
+              ...allMetrics,
+            },
+            completedAt: new Date().toISOString(),
+            resultTimestamp,
+          };
+
+          // Fetch generated images from Supabase optimizer_generations table for this optimization run
+          try {
+            console.log(
+              `🔍 Fetching generated images from Supabase for optimization run...`
+            );
+
+            // Get the next job's creation time to set upper boundary
+            const { data: nextJob, error: nextJobError } = await supabase
+              .from("vertex_ai_jobs")
+              .select("created_at")
+              .gt("created_at", jobData.created_at)
+              .order("created_at", { ascending: true })
+              .limit(1);
+
+            const windowStart = new Date(jobData.created_at);
+            const windowEnd = nextJob?.length > 0
+              ? new Date(nextJob[0].created_at)
+              : new Date(); // Present time if this is the latest job
+
+            console.log(
+              `📅 Fetching images from ${windowStart.toISOString()} to ${windowEnd.toISOString()}`
+            );
+
+            const { data: generatedImages, error: imagesError } =
+              await supabase
+                .from("optimizer_generations")
+                .select("*")
+                .gte("created_at", windowStart.toISOString())
+                .lt("created_at", windowEnd.toISOString())
+                .order("created_at", { ascending: true });
+
+              if (
+                !imagesError &&
+                generatedImages &&
+                generatedImages.length > 0
+              ) {
+                console.log(
+                  `📸 Found ${generatedImages.length} generated images for this optimization run`
+                );
+
+                // Process all image uploads in parallel
+                console.log(`🚀 Processing ${generatedImages.length} images in parallel...`);
+                const imageUploadPromises = generatedImages.map(async (img) => {
+                  const promptKey = img.prompt_used || "unknown";
+                  let supabaseImageUrl = img.generated_image_url; // fallback
+
                   try {
-                    const metricsTable = JSON.parse(evalSet.metrics_table);
-                    for (const entry of metricsTable) {
-                      if (entry.unique_id) {
-                        const timestampMatch = entry.unique_id.match(/^(\d+)_/);
-                        if (timestampMatch) {
-                          optimizationTimestamp = parseInt(timestampMatch[1]);
-                          break;
-                        }
+                    if (
+                      img.generated_image_url &&
+                      img.generated_image_url.includes("storage.googleapis.com")
+                    ) {
+                      supabaseImageUrl = await uploadGCSImageToSupabase(
+                        img.generated_image_url,
+                        img.id
+                      );
+
+                      // Update the database record with the new Supabase URL for caching
+                      try {
+                        await supabase
+                          .from("optimizer_generations")
+                          .update({ generated_image_url: supabaseImageUrl })
+                          .eq("id", img.id);
+                        console.log(
+                          `✅ Updated database record ${img.id} with Supabase URL`
+                        );
+                      } catch (updateError) {
+                        console.warn(
+                          `Warning: Failed to update database record ${img.id}: ${updateError.message}`
+                        );
                       }
                     }
-                    if (optimizationTimestamp) break;
-                  } catch (e) {}
-                }
-                if (optimizationTimestamp) break;
-              }
-            }
+                  } catch (uploadError) {
+                    console.warn(
+                      `Failed to upload image ${img.id} to Supabase: ${uploadError.message}`
+                    );
+                  }
 
-            // Fetch generated images from Supabase optimizer_generations table for this optimization run
-            try {
-              console.log(`🔍 Fetching generated images from Supabase for optimization run...`);
-
-              if (optimizationTimestamp) {
-                const { data: generatedImages, error: imagesError } = await supabase
-                  .from('optimizer_generations')
-                  .select('*')
-                  .gte('created_at', new Date(optimizationTimestamp - 1000 * 60).toISOString()) // 1 minute before
-                  .lte('created_at', new Date(optimizationTimestamp + 1000 * 60 * 10).toISOString()) // 10 minutes after
-                  .order('created_at', { ascending: true });
-
-                if (!imagesError && generatedImages && generatedImages.length > 0) {
-                  console.log(`📸 Found ${generatedImages.length} generated images for this optimization run`);
-
-                  // Group images by prompt used
-                  const imagesByPrompt = new Map();
-                  for (const img of generatedImages) {
-                    const promptKey = img.prompt_used || 'unknown';
-                    if (!imagesByPrompt.has(promptKey)) {
-                      imagesByPrompt.set(promptKey, []);
-                    }
-
-                    // Upload GCS image to Supabase and get public URL
-                    let supabaseImageUrl = img.generated_image_url; // fallback
-                    try {
-                      if (img.generated_image_url && img.generated_image_url.includes('storage.googleapis.com')) {
-                        supabaseImageUrl = await uploadGCSImageToSupabase(img.generated_image_url, img.id);
-
-                        // Update the database record with the new Supabase URL for caching
-                        try {
-                          await supabase
-                            .from('optimizer_generations')
-                            .update({ generated_image_url: supabaseImageUrl })
-                            .eq('id', img.id);
-                          console.log(`✅ Updated database record ${img.id} with Supabase URL`);
-                        } catch (updateError) {
-                          console.warn(`Warning: Failed to update database record ${img.id}: ${updateError.message}`);
-                        }
-                      }
-                    } catch (uploadError) {
-                      console.warn(`Failed to upload image ${img.id} to Supabase: ${uploadError.message}`);
-                    }
-
-                    imagesByPrompt.get(promptKey).push({
+                  return {
+                    promptKey,
+                    imageData: {
                       id: img.id,
                       generatedImageUrl: supabaseImageUrl,
                       uploadedImageUrl: img.uploaded_image_url,
                       referenceImageUrl: img.reference_image_url,
                       trainingSampleId: img.training_sample_id,
-                      createdAt: img.created_at
-                    });
-                  }
-
-                  // Add images to each optimized prompt
-                  for (const optimizedPrompt of optimizedPrompts) {
-                    const matchingImages = imagesByPrompt.get(optimizedPrompt.prompt) || [];
-                    optimizedPrompt.generatedImages = matchingImages;
-                    optimizedPrompt.imageCount = matchingImages.length;
-
-                    if (matchingImages.length > 0) {
-                      optimizedPrompt.improvements.push(`Generated ${matchingImages.length} sample images`);
+                      createdAt: img.created_at,
                     }
+                  };
+                });
+
+                const uploadedImages = await Promise.all(imageUploadPromises);
+
+                // Group images by prompt used
+                const imagesByPrompt = new Map();
+                for (const { promptKey, imageData } of uploadedImages) {
+                  if (!imagesByPrompt.has(promptKey)) {
+                    imagesByPrompt.set(promptKey, []);
                   }
-
-                  // Add total image count to performance metrics
-                  foundResults.performanceMetrics.totalImagesGenerated = generatedImages.length;
-                } else {
-                  console.log(`⚠️ No generated images found in Supabase for this optimization run`);
+                  imagesByPrompt.get(promptKey).push(imageData);
                 }
+
+                // Add images to each optimized prompt
+                for (const optimizedPrompt of optimizedPrompts) {
+                  const matchingImages =
+                    imagesByPrompt.get(optimizedPrompt.prompt) || [];
+                  optimizedPrompt.generatedImages = matchingImages;
+                  optimizedPrompt.imageCount = matchingImages.length;
+
+                  if (matchingImages.length > 0) {
+                    optimizedPrompt.improvements.push(
+                      `Generated ${matchingImages.length} sample images`
+                    );
+                  }
+                }
+
+                // Add total image count to performance metrics
+                foundResults.performanceMetrics.totalImagesGenerated =
+                  generatedImages.length;
               } else {
-                console.log(`⚠️ No optimization timestamp found, cannot fetch images`);
+                console.log(
+                  `⚠️ No generated images found in Supabase for this optimization run`
+                );
               }
+          } catch (imagesError) {
+            console.warn(
+              `Warning: Could not fetch generated images: ${imagesError.message}`
+            );
+          }
 
-            } catch (imagesError) {
-              console.warn(`Warning: Could not fetch generated images: ${imagesError.message}`);
-            }
-
-          console.log(`✅ Found results for job ${jobId} at timestamp ${resultTimestamp} with ${optimizedPrompts.length} prompt attempts`);
-
+          console.log(
+            `✅ Found results for job ${jobId} at timestamp ${resultTimestamp} with ${optimizedPrompts.length} prompt attempts`
+          );
         } catch (fileError) {
           console.log(`❌ Error processing ${fileName}: ${fileError.message}`);
         }
       } else {
-        console.log(`❌ No matching results found for job ${jobId} created at ${jobData.created_at}`);
+        console.log(
+          `❌ No matching results found for job ${jobId} created at ${jobData.created_at}`
+        );
       }
 
       if (foundResults) {
         // Store results in Supabase for caching
         await supabase
-          .from('vertex_ai_jobs')
+          .from("vertex_ai_jobs")
           .update({
             optimized_prompts: foundResults.optimizedPrompts,
-            performance_metrics: foundResults.performanceMetrics
+            performance_metrics: foundResults.performanceMetrics,
           })
-          .eq('job_id', jobId);
+          .eq("job_id", jobId);
 
         console.log(`✅ Retrieved and cached results for job: ${jobId}`);
 
         return res.json({
           jobId,
-          status: 'completed',
+          status: "completed",
           originalPrompts: jobData.base_prompts,
           optimizedPrompts: foundResults.optimizedPrompts,
           performanceMetrics: foundResults.performanceMetrics,
-          completedAt: foundResults.completedAt
+          completedAt: foundResults.completedAt,
         });
       }
-
     } catch (fetchError) {
       console.error(`❌ Error fetching results: ${fetchError.message}`);
     }
@@ -3573,18 +4044,17 @@ app.get("/api/vertex-ai/results/:jobId", async (req, res) => {
     console.log(`❌ No optimization results found for job: ${jobId}`);
 
     return res.status(404).json({
-      error: 'Results not found',
-      message: 'Optimization results are not available for this job',
+      error: "Results not found",
+      message: "Optimization results are not available for this job",
       jobId,
-      status: jobData.status
+      status: jobData.status,
     });
-
   } catch (error) {
     console.error("❌ Vertex AI results retrieval error:", error);
     res.status(500).json({
       error: "Results retrieval failed",
       details: error.message,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   }
 });

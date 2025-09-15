@@ -123,10 +123,14 @@ def main():
     random_string = ''.join(random.choices(string.ascii_lowercase + string.digits, k=9))
     unique_evaluation_id = f"{timestamp}_{random_string}_sample_{sample_id}"
 
+    # For testing, we'll use placeholder descriptions since they would normally come from server.js
+    source_description = "A pet photo that needs to be transformed into a watercolor style"
+    reference_description = "A beautifully rendered watercolor pet portrait with soft pastel colors, visible brushstrokes, and dreamy artistic quality"
+
     data = {
         "prompt": prompt,
-        "input": f"{image_url},{reference_image_url}",
-        "target": "{}",
+        "input": f"{image_url},{source_description}",
+        "target": f"{reference_image_url},{reference_description}",
         "unique_id": unique_evaluation_id
     }
 

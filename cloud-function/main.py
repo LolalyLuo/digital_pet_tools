@@ -30,16 +30,26 @@ def evaluate_image_prompt(request):
         input_data = data.get('input', '')
         unique_id = data.get('unique_id', 'unknown')
 
-        # Parse input to extract both uploaded and reference image URLs
+        # Parse input to extract source URL and source description
         if ',' in input_data:
-            input_image_url, reference_image_url = input_data.split(',', 1)
+            input_image_url, source_description = input_data.split(',', 1)
         else:
             input_image_url = input_data
-            reference_image_url = None
+            source_description = None
+
+        # Parse target to extract reference URL and reference description
+        target_data = data.get('target', '')
+        if ',' in target_data:
+            reference_image_url, reference_description = target_data.split(',', 1)
+        else:
+            reference_image_url = target_data
+            reference_description = None
 
         print(f"Evaluating optimized prompt: {optimized_prompt}")
         print(f"Input image URL: {input_image_url}")
+        print(f"Source description: {source_description}")
         print(f"Reference image URL: {reference_image_url}")
+        print(f"Reference description: {reference_description}")
         print(f"Unique ID: {unique_id}")
 
         if not input_image_url:
@@ -86,8 +96,9 @@ def evaluate_single_sample(optimized_prompt, input_image_url, unique_id, referen
     try:
         print(f"Evaluating sample {unique_id} with image: {input_image_url}")
 
-        # Generate image using Gemini with the input image and optimized prompt
-        generated_image_bytes = generate_image_with_gemini(input_image_url, optimized_prompt)
+        # Generate image using Gemini with the input image and optimized prompt (with image generation prefix)
+        full_prompt = f"Generate an image: {optimized_prompt}"
+        generated_image_bytes = generate_image_with_gemini(input_image_url, full_prompt)
 
         if not generated_image_bytes:
             print(f"CRITICAL ERROR: Failed to generate image for sample {unique_id}")

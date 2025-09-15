@@ -3187,7 +3187,7 @@ app.post("/api/vertex-ai/optimize", async (req, res) => {
         prompt_template:
           "Create an image prompt: {input}\nOptimized prompt: {target}",
         optimization_mode: "instruction",
-        num_steps: 3,
+        num_steps: 20,
         eval_metric: "custom_metric",
         custom_metric_name: "image_similarity_score",
         custom_metric_cloud_function_name: "evaluate-image-prompt",
@@ -3889,114 +3889,112 @@ app.get("/api/vertex-ai/results/:jobId", async (req, res) => {
               .limit(1);
 
             const windowStart = new Date(jobData.created_at);
-            const windowEnd = nextJob?.length > 0
-              ? new Date(nextJob[0].created_at)
-              : new Date(); // Present time if this is the latest job
+            const windowEnd =
+              nextJob?.length > 0
+                ? new Date(nextJob[0].created_at)
+                : new Date(); // Present time if this is the latest job
 
             console.log(
               `📅 Fetching images from ${windowStart.toISOString()} to ${windowEnd.toISOString()}`
             );
 
-            const { data: generatedImages, error: imagesError } =
-              await supabase
-                .from("optimizer_generations")
-                .select("*")
-                .gte("created_at", windowStart.toISOString())
-                .lt("created_at", windowEnd.toISOString())
-                .order("created_at", { ascending: true });
+            const { data: generatedImages, error: imagesError } = await supabase
+              .from("optimizer_generations")
+              .select("*")
+              .gte("created_at", windowStart.toISOString())
+              .lt("created_at", windowEnd.toISOString())
+              .order("created_at", { ascending: true });
 
-              if (
-                !imagesError &&
-                generatedImages &&
-                generatedImages.length > 0
-              ) {
-                console.log(
-                  `📸 Found ${generatedImages.length} generated images for this optimization run`
-                );
+            if (!imagesError && generatedImages && generatedImages.length > 0) {
+              console.log(
+                `📸 Found ${generatedImages.length} generated images for this optimization run`
+              );
 
-                // Process all image uploads in parallel
-                console.log(`🚀 Processing ${generatedImages.length} images in parallel...`);
-                const imageUploadPromises = generatedImages.map(async (img) => {
-                  const promptKey = img.prompt_used || "unknown";
-                  let supabaseImageUrl = img.generated_image_url; // fallback
+              // Process all image uploads in parallel
+              console.log(
+                `🚀 Processing ${generatedImages.length} images in parallel...`
+              );
+              const imageUploadPromises = generatedImages.map(async (img) => {
+                const promptKey = img.prompt_used || "unknown";
+                let supabaseImageUrl = img.generated_image_url; // fallback
 
-                  try {
-                    if (
-                      img.generated_image_url &&
-                      img.generated_image_url.includes("storage.googleapis.com")
-                    ) {
-                      supabaseImageUrl = await uploadGCSImageToSupabase(
-                        img.generated_image_url,
-                        img.id
+                try {
+                  if (
+                    img.generated_image_url &&
+                    img.generated_image_url.includes("storage.googleapis.com")
+                  ) {
+                    supabaseImageUrl = await uploadGCSImageToSupabase(
+                      img.generated_image_url,
+                      img.id
+                    );
+
+                    // Update the database record with the new Supabase URL for caching
+                    try {
+                      await supabase
+                        .from("optimizer_generations")
+                        .update({ generated_image_url: supabaseImageUrl })
+                        .eq("id", img.id);
+                      console.log(
+                        `✅ Updated database record ${img.id} with Supabase URL`
                       );
-
-                      // Update the database record with the new Supabase URL for caching
-                      try {
-                        await supabase
-                          .from("optimizer_generations")
-                          .update({ generated_image_url: supabaseImageUrl })
-                          .eq("id", img.id);
-                        console.log(
-                          `✅ Updated database record ${img.id} with Supabase URL`
-                        );
-                      } catch (updateError) {
-                        console.warn(
-                          `Warning: Failed to update database record ${img.id}: ${updateError.message}`
-                        );
-                      }
+                    } catch (updateError) {
+                      console.warn(
+                        `Warning: Failed to update database record ${img.id}: ${updateError.message}`
+                      );
                     }
-                  } catch (uploadError) {
-                    console.warn(
-                      `Failed to upload image ${img.id} to Supabase: ${uploadError.message}`
-                    );
                   }
-
-                  return {
-                    promptKey,
-                    imageData: {
-                      id: img.id,
-                      generatedImageUrl: supabaseImageUrl,
-                      uploadedImageUrl: img.uploaded_image_url,
-                      referenceImageUrl: img.reference_image_url,
-                      trainingSampleId: img.training_sample_id,
-                      createdAt: img.created_at,
-                    }
-                  };
-                });
-
-                const uploadedImages = await Promise.all(imageUploadPromises);
-
-                // Group images by prompt used
-                const imagesByPrompt = new Map();
-                for (const { promptKey, imageData } of uploadedImages) {
-                  if (!imagesByPrompt.has(promptKey)) {
-                    imagesByPrompt.set(promptKey, []);
-                  }
-                  imagesByPrompt.get(promptKey).push(imageData);
+                } catch (uploadError) {
+                  console.warn(
+                    `Failed to upload image ${img.id} to Supabase: ${uploadError.message}`
+                  );
                 }
 
-                // Add images to each optimized prompt
-                for (const optimizedPrompt of optimizedPrompts) {
-                  const matchingImages =
-                    imagesByPrompt.get(optimizedPrompt.prompt) || [];
-                  optimizedPrompt.generatedImages = matchingImages;
-                  optimizedPrompt.imageCount = matchingImages.length;
+                return {
+                  promptKey,
+                  imageData: {
+                    id: img.id,
+                    generatedImageUrl: supabaseImageUrl,
+                    uploadedImageUrl: img.uploaded_image_url,
+                    referenceImageUrl: img.reference_image_url,
+                    trainingSampleId: img.training_sample_id,
+                    createdAt: img.created_at,
+                  },
+                };
+              });
 
-                  if (matchingImages.length > 0) {
-                    optimizedPrompt.improvements.push(
-                      `Generated ${matchingImages.length} sample images`
-                    );
-                  }
+              const uploadedImages = await Promise.all(imageUploadPromises);
+
+              // Group images by prompt used
+              const imagesByPrompt = new Map();
+              for (const { promptKey, imageData } of uploadedImages) {
+                if (!imagesByPrompt.has(promptKey)) {
+                  imagesByPrompt.set(promptKey, []);
                 }
-
-                // Add total image count to performance metrics
-                foundResults.performanceMetrics.totalImagesGenerated =
-                  generatedImages.length;
-              } else {
-                console.log(
-                  `⚠️ No generated images found in Supabase for this optimization run`
-                );
+                imagesByPrompt.get(promptKey).push(imageData);
               }
+
+              // Add images to each optimized prompt
+              for (const optimizedPrompt of optimizedPrompts) {
+                const matchingImages =
+                  imagesByPrompt.get(optimizedPrompt.prompt) || [];
+                optimizedPrompt.generatedImages = matchingImages;
+                optimizedPrompt.imageCount = matchingImages.length;
+
+                if (matchingImages.length > 0) {
+                  optimizedPrompt.improvements.push(
+                    `Generated ${matchingImages.length} sample images`
+                  );
+                }
+              }
+
+              // Add total image count to performance metrics
+              foundResults.performanceMetrics.totalImagesGenerated =
+                generatedImages.length;
+            } else {
+              console.log(
+                `⚠️ No generated images found in Supabase for this optimization run`
+              );
+            }
           } catch (imagesError) {
             console.warn(
               `Warning: Could not fetch generated images: ${imagesError.message}`

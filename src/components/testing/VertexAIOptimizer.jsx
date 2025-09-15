@@ -21,11 +21,87 @@ const VertexAIOptimizer = () => {
   const [basePrompt, setBasePrompt] = useState("Generate a cute dog photo");
   const [jobs, setJobs] = useState([]);
   const [selectedJob, setSelectedJob] = useState(null);
+  const [pollingInterval, setPollingInterval] = useState(null);
+
+  const checkJobStatus = async (jobId) => {
+    try {
+      const response = await fetch(
+        `http://localhost:3001/api/vertex-ai/jobs/${jobId}`
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      console.log(`🔄 Status check for ${jobId}:`, data);
+
+      // Reload all jobs to get updated data from server
+      await loadJobs();
+
+      return data;
+    } catch (err) {
+      console.error("Status check error:", err);
+      return null;
+    }
+  };
 
   useEffect(() => {
     loadDataSets();
     loadJobs();
   }, []);
+
+  // Auto-polling effect for jobs in progress
+  useEffect(() => {
+    const hasActiveJobs = jobs.some(job =>
+      job.status === 'running' || job.status === 'pending' || job.status === 'queued' || job.status === 'submitted'
+    );
+
+    console.log(`🔄 Jobs changed - active jobs: ${hasActiveJobs}, polling active: ${!!pollingInterval}`);
+
+    if (hasActiveJobs && !pollingInterval) {
+      console.log('🔄 Starting auto-polling for active jobs');
+      const interval = setInterval(() => {
+        console.log('🔄 Auto-polling job status...');
+        // Get fresh jobs data and check status for all active jobs
+        fetch("http://localhost:3001/api/vertex-ai/jobs")
+          .then(response => response.json())
+          .then(data => {
+            const currentJobs = data.jobs || [];
+            const activeJobs = currentJobs.filter(job =>
+              job.status === 'running' || job.status === 'pending' || job.status === 'queued' || job.status === 'submitted'
+            );
+
+            console.log(`🔄 Found ${activeJobs.length} active jobs to check`);
+
+            // Check status for each active job
+            activeJobs.forEach(job => {
+              console.log(`🔄 Checking status for job: ${job.jobId}`);
+              checkJobStatus(job.jobId);
+            });
+          })
+          .catch(error => {
+            console.error('Auto-polling error:', error);
+          });
+      }, 5000); // Poll every 5 seconds
+
+      setPollingInterval(interval);
+    } else if (!hasActiveJobs && pollingInterval) {
+      console.log('⏹️ Stopping auto-polling - no active jobs');
+      clearInterval(pollingInterval);
+      setPollingInterval(null);
+    }
+  }, [jobs]); // Remove pollingInterval from dependencies to avoid infinite loop
+
+  // Cleanup interval on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+      }
+    };
+  }, [pollingInterval]);
 
   const loadDataSets = async () => {
     try {
@@ -117,29 +193,6 @@ const VertexAIOptimizer = () => {
     }
   };
 
-  const checkJobStatus = async (jobId) => {
-    try {
-      const response = await fetch(
-        `http://localhost:3001/api/vertex-ai/jobs/${jobId}`
-      );
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      console.log(`🔄 Status check for ${jobId}:`, data);
-
-      // Reload all jobs to get updated data from server
-      await loadJobs();
-
-      return data;
-    } catch (err) {
-      console.error("Status check error:", err);
-      return null;
-    }
-  };
 
   const viewJobResults = async (jobId) => {
     try {
@@ -481,10 +534,25 @@ const VertexAIOptimizer = () => {
                         <div className="flex gap-2">
                           <button
                             onClick={() => checkJobStatus(job.jobId)}
-                            className="p-1 text-gray-500 hover:text-gray-700"
-                            title="Refresh status"
+                            className={`p-1 hover:text-gray-700 ${
+                              pollingInterval && (job.status === 'running' || job.status === 'pending' || job.status === 'queued' || job.status === 'submitted')
+                                ? 'text-blue-500'
+                                : 'text-gray-500'
+                            }`}
+                            title={
+                              pollingInterval && (job.status === 'running' || job.status === 'pending' || job.status === 'queued' || job.status === 'submitted')
+                                ? 'Auto-refreshing every 5s (click for manual refresh)'
+                                : 'Refresh status'
+                            }
                           >
-                            <RefreshCw size={16} />
+                            <RefreshCw
+                              size={16}
+                              className={
+                                pollingInterval && (job.status === 'running' || job.status === 'pending' || job.status === 'queued' || job.status === 'submitted')
+                                  ? 'animate-spin'
+                                  : ''
+                              }
+                            />
                           </button>
                           {job.status === "completed" && (
                             <button

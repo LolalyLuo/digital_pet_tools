@@ -19,6 +19,7 @@ const VertexAIOptimizer = () => {
   const [dataSets, setDataSets] = useState([]);
   const [currentDataSet, setCurrentDataSet] = useState("");
   const [basePrompt, setBasePrompt] = useState("Generate a cute dog photo");
+  const [numSteps, setNumSteps] = useState(20);
   const [jobs, setJobs] = useState([]);
   const [selectedJob, setSelectedJob] = useState(null);
   const [pollingInterval, setPollingInterval] = useState(null);
@@ -171,6 +172,7 @@ const VertexAIOptimizer = () => {
             basePrompts: [basePrompt],
             optimizationMode: "data-driven",
             targetModel: "gemini-2.5-flash",
+            numSteps: numSteps,
           }),
         }
       );
@@ -285,6 +287,25 @@ const VertexAIOptimizer = () => {
               className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 resize-none"
               rows={4}
             />
+          </div>
+
+          {/* Number of Steps */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Number of Optimization Steps
+            </label>
+            <input
+              type="number"
+              value={numSteps}
+              onChange={(e) => setNumSteps(parseInt(e.target.value) || 1)}
+              min="1"
+              max="100"
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+              placeholder="20"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Number of optimization iterations (1-100, default: 20)
+            </p>
           </div>
 
           {/* Actions */}

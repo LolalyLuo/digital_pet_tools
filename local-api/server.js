@@ -3063,6 +3063,7 @@ app.post("/api/vertex-ai/optimize", async (req, res) => {
       optimizationMode = "data-driven",
       targetModel = "gemini-2.5-flash",
       evaluationMetrics = ["bleu", "rouge"],
+      numSteps = 20,
     } = req.body;
 
     if (!trainingDataSet || !basePrompts || basePrompts.length === 0) {
@@ -3076,6 +3077,7 @@ app.post("/api/vertex-ai/optimize", async (req, res) => {
     console.log(`📝 Base Prompts: ${basePrompts.length} prompts`);
     console.log(`⚙️ Optimization Mode: ${optimizationMode}`);
     console.log(`🎯 Target Model: ${targetModel}`);
+    console.log(`🔢 Number of Steps: ${numSteps}`);
 
     // Step 1: Format training data as JSONL inline
     console.log("📋 Formatting training data...");
@@ -3187,7 +3189,7 @@ app.post("/api/vertex-ai/optimize", async (req, res) => {
         prompt_template:
           "You are an expert at writing image editing prompts. Your task is to create an editing instruction that would transform the input image (described as: {input}) to match the desired outcome (described as: {target}).\n\nCurrent image: {input}\nDesired result: {target}\n\nCreate a clear, direct image editing prompt that tells an AI how to modify the current image to achieve the desired result. Your output should be a specific instruction focusing on what changes to make to colors, lighting, style, composition, and visual elements. Write as if giving instructions to an image editing AI that can see the current image.",
         optimization_mode: "instruction",
-        num_steps: 20,
+        num_steps: numSteps,
         num_template_eval_per_step: 1,
         eval_metric: "custom_metric",
         custom_metric_name: "image_similarity_score",

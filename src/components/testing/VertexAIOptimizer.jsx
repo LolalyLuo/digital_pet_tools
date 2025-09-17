@@ -12,6 +12,8 @@ import {
   Eye,
 } from "lucide-react";
 import { supabase } from "../../utils/supabaseClient";
+import CostEstimation from "../CostEstimation";
+import { generateSessionId, formatSessionId } from "../../utils/sessionUtils";
 
 const VertexAIOptimizer = () => {
   const [loading, setLoading] = useState(false);
@@ -23,6 +25,10 @@ const VertexAIOptimizer = () => {
   const [jobs, setJobs] = useState([]);
   const [selectedJob, setSelectedJob] = useState(null);
   const [pollingInterval, setPollingInterval] = useState(null);
+  const [trainingDataCount, setTrainingDataCount] = useState(0);
+  // Fixed model - matches what's hardcoded in cloud function
+  const fixedModel = "gemini-2.5-flash-image-preview";
+  const [currentSessionId, setCurrentSessionId] = useState("");
 
   const checkJobStatus = async (jobId) => {
     try {
@@ -55,41 +61,51 @@ const VertexAIOptimizer = () => {
 
   // Auto-polling effect for jobs in progress
   useEffect(() => {
-    const hasActiveJobs = jobs.some(job =>
-      job.status === 'running' || job.status === 'pending' || job.status === 'queued' || job.status === 'submitted'
+    const hasActiveJobs = jobs.some(
+      (job) =>
+        job.status === "running" ||
+        job.status === "pending" ||
+        job.status === "queued" ||
+        job.status === "submitted"
     );
 
-    console.log(`🔄 Jobs changed - active jobs: ${hasActiveJobs}, polling active: ${!!pollingInterval}`);
+    console.log(
+      `🔄 Jobs changed - active jobs: ${hasActiveJobs}, polling active: ${!!pollingInterval}`
+    );
 
     if (hasActiveJobs && !pollingInterval) {
-      console.log('🔄 Starting auto-polling for active jobs');
+      console.log("🔄 Starting auto-polling for active jobs");
       const interval = setInterval(() => {
-        console.log('🔄 Auto-polling job status...');
+        console.log("🔄 Auto-polling job status...");
         // Get fresh jobs data and check status for all active jobs
         fetch("http://localhost:3001/api/vertex-ai/jobs")
-          .then(response => response.json())
-          .then(data => {
+          .then((response) => response.json())
+          .then((data) => {
             const currentJobs = data.jobs || [];
-            const activeJobs = currentJobs.filter(job =>
-              job.status === 'running' || job.status === 'pending' || job.status === 'queued' || job.status === 'submitted'
+            const activeJobs = currentJobs.filter(
+              (job) =>
+                job.status === "running" ||
+                job.status === "pending" ||
+                job.status === "queued" ||
+                job.status === "submitted"
             );
 
             console.log(`🔄 Found ${activeJobs.length} active jobs to check`);
 
             // Check status for each active job
-            activeJobs.forEach(job => {
+            activeJobs.forEach((job) => {
               console.log(`🔄 Checking status for job: ${job.jobId}`);
               checkJobStatus(job.jobId);
             });
           })
-          .catch(error => {
-            console.error('Auto-polling error:', error);
+          .catch((error) => {
+            console.error("Auto-polling error:", error);
           });
       }, 5000); // Poll every 5 seconds
 
       setPollingInterval(interval);
     } else if (!hasActiveJobs && pollingInterval) {
-      console.log('⏹️ Stopping auto-polling - no active jobs');
+      console.log("⏹️ Stopping auto-polling - no active jobs");
       clearInterval(pollingInterval);
       setPollingInterval(null);
     }
@@ -118,10 +134,33 @@ const VertexAIOptimizer = () => {
 
       if (setNames.length > 0 && !currentDataSet) {
         setCurrentDataSet(setNames[0]);
+        // Load training data count for the first dataset
+        loadTrainingDataCount(setNames[0]);
       }
     } catch (err) {
       console.error("Error loading data sets:", err);
       setError(`Failed to load data sets: ${err.message}`);
+    }
+  };
+
+  const loadTrainingDataCount = async (dataSetName) => {
+    if (!dataSetName) {
+      setTrainingDataCount(0);
+      return;
+    }
+
+    try {
+      const { count, error } = await supabase
+        .from("training_samples")
+        .select("*", { count: "exact", head: true })
+        .eq("data_set_name", dataSetName);
+
+      if (error) throw error;
+
+      setTrainingDataCount(count || 0);
+    } catch (err) {
+      console.error("Error loading training data count:", err);
+      setTrainingDataCount(0);
     }
   };
 
@@ -157,8 +196,13 @@ const VertexAIOptimizer = () => {
     setLoading(true);
     setError("");
 
+    // Generate session ID for this optimization run
+    const sessionId = generateSessionId();
+    setCurrentSessionId(sessionId);
+
     try {
       console.log("🚀 Submitting Vertex AI optimization job...");
+      console.log(`📋 Session ID: ${sessionId}`);
 
       const response = await fetch(
         "http://localhost:3001/api/vertex-ai/optimize",
@@ -171,8 +215,8 @@ const VertexAIOptimizer = () => {
             trainingDataSet: currentDataSet,
             basePrompts: [basePrompt],
             optimizationMode: "data-driven",
-            targetModel: "gemini-2.5-flash",
             numSteps: numSteps,
+            sessionId: sessionId, // Include session ID in request
           }),
         }
       );
@@ -194,7 +238,6 @@ const VertexAIOptimizer = () => {
       setLoading(false);
     }
   };
-
 
   const viewJobResults = async (jobId) => {
     try {
@@ -263,7 +306,10 @@ const VertexAIOptimizer = () => {
             </label>
             <select
               value={currentDataSet}
-              onChange={(e) => setCurrentDataSet(e.target.value)}
+              onChange={(e) => {
+                setCurrentDataSet(e.target.value);
+                loadTrainingDataCount(e.target.value);
+              }}
               className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
             >
               <option value="">Select a data set...</option>
@@ -273,6 +319,11 @@ const VertexAIOptimizer = () => {
                 </option>
               ))}
             </select>
+            {trainingDataCount > 0 && (
+              <p className="text-xs text-gray-500 mt-1">
+                {trainingDataCount} training samples available
+              </p>
+            )}
           </div>
 
           {/* Base Prompt */}
@@ -307,6 +358,13 @@ const VertexAIOptimizer = () => {
               Number of optimization iterations (1-100, default: 20)
             </p>
           </div>
+
+          {/* Cost Estimation */}
+          <CostEstimation
+            trainingDataCount={trainingDataCount}
+            optimizationSteps={numSteps}
+            className="mb-6"
+          />
 
           {/* Actions */}
           <div className="space-y-3">
@@ -556,22 +614,34 @@ const VertexAIOptimizer = () => {
                           <button
                             onClick={() => checkJobStatus(job.jobId)}
                             className={`p-1 hover:text-gray-700 ${
-                              pollingInterval && (job.status === 'running' || job.status === 'pending' || job.status === 'queued' || job.status === 'submitted')
-                                ? 'text-blue-500'
-                                : 'text-gray-500'
+                              pollingInterval &&
+                              (job.status === "running" ||
+                                job.status === "pending" ||
+                                job.status === "queued" ||
+                                job.status === "submitted")
+                                ? "text-blue-500"
+                                : "text-gray-500"
                             }`}
                             title={
-                              pollingInterval && (job.status === 'running' || job.status === 'pending' || job.status === 'queued' || job.status === 'submitted')
-                                ? 'Auto-refreshing every 5s (click for manual refresh)'
-                                : 'Refresh status'
+                              pollingInterval &&
+                              (job.status === "running" ||
+                                job.status === "pending" ||
+                                job.status === "queued" ||
+                                job.status === "submitted")
+                                ? "Auto-refreshing every 5s (click for manual refresh)"
+                                : "Refresh status"
                             }
                           >
                             <RefreshCw
                               size={16}
                               className={
-                                pollingInterval && (job.status === 'running' || job.status === 'pending' || job.status === 'queued' || job.status === 'submitted')
-                                  ? 'animate-spin'
-                                  : ''
+                                pollingInterval &&
+                                (job.status === "running" ||
+                                  job.status === "pending" ||
+                                  job.status === "queued" ||
+                                  job.status === "submitted")
+                                  ? "animate-spin"
+                                  : ""
                               }
                             />
                           </button>
@@ -599,9 +669,6 @@ const VertexAIOptimizer = () => {
                           <strong>Mode:</strong> {job.optimizationMode}
                         </p>
                         <p>
-                          <strong>Target:</strong> {job.targetModel}
-                        </p>
-                        <p>
                           <strong>Submitted:</strong> {job.submittedAt}
                         </p>
                         {job.lastChecked && (
@@ -609,22 +676,29 @@ const VertexAIOptimizer = () => {
                             <strong>Last Checked:</strong> {job.lastChecked}
                           </p>
                         )}
-                        {job.currentStep !== undefined && job.totalSteps !== undefined && job.status !== "completed" && job.status !== "failed" && (
-                          <div className="mt-2">
-                            <div className="flex justify-between text-xs mb-1">
-                              <span>Progress</span>
-                              <span>Step {job.currentStep} of {job.totalSteps}</span>
+                        {job.currentStep !== undefined &&
+                          job.totalSteps !== undefined &&
+                          job.status !== "completed" &&
+                          job.status !== "failed" && (
+                            <div className="mt-2">
+                              <div className="flex justify-between text-xs mb-1">
+                                <span>Progress</span>
+                                <span>
+                                  Step {job.currentStep} of {job.totalSteps}
+                                </span>
+                              </div>
+                              <div className="w-full bg-gray-200 rounded-full h-2">
+                                <div
+                                  className="bg-blue-600 h-2 rounded-full transition-all"
+                                  style={{
+                                    width: `${Math.round(
+                                      (job.currentStep / job.totalSteps) * 100
+                                    )}%`,
+                                  }}
+                                ></div>
+                              </div>
                             </div>
-                            <div className="w-full bg-gray-200 rounded-full h-2">
-                              <div
-                                className="bg-blue-600 h-2 rounded-full transition-all"
-                                style={{
-                                  width: `${Math.round((job.currentStep / job.totalSteps) * 100)}%`
-                                }}
-                              ></div>
-                            </div>
-                          </div>
-                        )}
+                          )}
                       </div>
 
                       {job.message && (

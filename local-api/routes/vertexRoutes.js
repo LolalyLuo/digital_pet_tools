@@ -10,18 +10,42 @@ import {
   uploadGCSImageToSupabase,
   generateImageDescription,
 } from "../utils/imageUtils.js";
+import { generateCloudFunctionName } from "../utils/sessionUtils.js";
 
 const router = express.Router();
 
-// Initialize Vertex AI client
-const projectId = process.env.GOOGLE_CLOUD_PROJECT_ID;
-const location = process.env.VERTEX_AI_LOCATION || "us-central1";
+// Function to get project ID (will be called when routes are actually used)
+function getProjectId() {
+  const projectId = process.env.GOOGLE_CLOUD_PROJECT_ID;
+
+  if (!projectId) {
+    throw new Error(
+      "❌ GOOGLE_CLOUD_PROJECT_ID environment variable is required"
+    );
+  }
+
+  if (projectId === "undefined" || projectId === "null") {
+    throw new Error(
+      `❌ GOOGLE_CLOUD_PROJECT_ID is set to string "${projectId}" - check your environment configuration`
+    );
+  }
+
+  return projectId;
+}
+
+// Function to get location (will be called when routes are actually used)
+function getLocation() {
+  return process.env.VERTEX_AI_LOCATION || "us-central1";
+}
 
 // Submit prompt optimization job to Google Cloud Vertex AI
 router.post("/optimize", async (req, res) => {
   console.log("🎯 Vertex AI Prompt Optimizer job submission received");
 
   try {
+    const projectId = getProjectId();
+    const location = getLocation();
+
     const {
       trainingDataSet,
       basePrompts,
@@ -29,6 +53,7 @@ router.post("/optimize", async (req, res) => {
       targetModel = "gemini-2.5-flash",
       evaluationMetrics = ["bleu", "rouge"],
       numSteps = 20,
+      sessionId,
     } = req.body;
 
     if (!trainingDataSet || !basePrompts || basePrompts.length === 0) {
@@ -43,6 +68,7 @@ router.post("/optimize", async (req, res) => {
     console.log(`⚙️ Optimization Mode: ${optimizationMode}`);
     console.log(`🎯 Target Model: ${targetModel}`);
     console.log(`🔢 Number of Steps: ${numSteps}`);
+    console.log(`🆔 Session ID: ${sessionId}`);
 
     // Step 1: Format training data as JSONL inline
     console.log("📋 Formatting training data...");
@@ -141,6 +167,20 @@ router.post("/optimize", async (req, res) => {
       const datasetUri = `gs://${bucketName}/${fileName}`;
       console.log(`📄 Training data uploaded: ${datasetUri}`);
 
+      // Step 2.5: Deploy session-specific cloud function
+      let cloudFunctionName;
+
+      if (sessionId) {
+        console.log("☁️ Deploying session-specific cloud function...");
+        cloudFunctionName = generateCloudFunctionName(sessionId);
+
+        // Deploy cloud function with session ID - no fallbacks
+        await deploySessionCloudFunction(sessionId, cloudFunctionName);
+        console.log(`✅ Cloud function deployed: ${cloudFunctionName}`);
+      } else {
+        throw new Error("Session ID is required for cloud function deployment");
+      }
+
       // Create correct Vertex AI Prompt Optimizer config from Google's specification
       const outputPath = `gs://${bucketName}/results-${Date.now()}`;
 
@@ -158,7 +198,7 @@ router.post("/optimize", async (req, res) => {
         num_template_eval_per_step: 1,
         eval_metric: "custom_metric",
         custom_metric_name: "image_similarity_score",
-        custom_metric_cloud_function_name: "evaluate-image-prompt",
+        custom_metric_cloud_function_name: cloudFunctionName, // Use session-specific function name
         target_model_qps: 10.0,
         eval_qps: 10.0,
         thinking_budget: 0,
@@ -240,6 +280,8 @@ router.post("/optimize", async (req, res) => {
             status: "submitted",
             vertex_job_name: job.name,
             vertex_job_state: job.state || "JOB_STATE_PENDING",
+            session_id: sessionId,
+            cloud_function_name: cloudFunctionName,
           };
 
           const { data: insertedJob, error: insertError } = await getSupabase()
@@ -292,9 +334,9 @@ router.post("/optimize", async (req, res) => {
 
 // Get all jobs from Supabase
 router.get("/jobs", async (req, res) => {
-  console.log("📋 Getting all Vertex AI jobs from Supabase");
-
   try {
+    const projectId = getProjectId();
+    const location = getLocation();
     const { data: jobs, error } = await getSupabase()
       .from("vertex_ai_jobs")
       .select("*")
@@ -414,7 +456,6 @@ router.get("/jobs", async (req, res) => {
       })
     );
 
-    console.log(`📊 Retrieved ${formattedJobs.length} jobs from Supabase`);
     res.json({ jobs: formattedJobs });
   } catch (err) {
     console.error("❌ Error fetching jobs:", err);
@@ -426,12 +467,10 @@ router.get("/jobs", async (req, res) => {
 
 // Get optimization job status
 router.get("/jobs/:jobId", async (req, res) => {
-  console.log("📊 Vertex AI job status check received");
-
   try {
+    const projectId = getProjectId();
+    const location = getLocation();
     const { jobId } = req.params;
-
-    console.log(`🔍 Checking status for job: ${jobId}`);
 
     // Query Vertex AI for job status
     const jobName = `projects/${projectId}/locations/${location}/customJobs/${jobId}`;
@@ -469,8 +508,6 @@ router.get("/jobs/:jobId", async (req, res) => {
             // Check output directory for step progress files
             const outputPath = config.output_path;
             if (outputPath) {
-              console.log(`🔍 Checking output directory: ${outputPath}`);
-
               const outputMatch = outputPath.match(/^gs:\/\/([^\/]+)\/(.+)$/);
               if (outputMatch) {
                 const [, outputBucket, outputPrefix] = outputMatch;
@@ -495,7 +532,6 @@ router.get("/jobs/:jobId", async (req, res) => {
                         templates.length > 0
                           ? Math.max(...templates.map((t) => t.step))
                           : 0;
-                      console.log(`📊 Current step: ${currentStep}`);
                     } catch (e) {
                       console.log(
                         `⚠️ Could not read templates.json: ${e.message}`
@@ -623,10 +659,6 @@ router.get("/jobs/:jobId", async (req, res) => {
 
         if (updateError) {
           console.error("❌ Failed to update job in Supabase:", updateError);
-        } else {
-          console.log(
-            `💾 Job ${jobId} updated in Supabase with status: ${status}`
-          );
         }
       } catch (supabaseError) {
         console.error("❌ Supabase job update error:", supabaseError);
@@ -661,6 +693,8 @@ router.get("/jobs/:jobId/logs", async (req, res) => {
   console.log("🔍 Fetching detailed job logs");
 
   try {
+    const projectId = getProjectId();
+    const location = getLocation();
     const { jobId } = req.params;
     const jobName = `projects/${projectId}/locations/${location}/customJobs/${jobId}`;
 
@@ -718,6 +752,8 @@ router.get("/results/:jobId", async (req, res) => {
   console.log("📋 Vertex AI optimization results request received");
 
   try {
+    const projectId = getProjectId();
+    const location = getLocation();
     const { jobId } = req.params;
 
     console.log(`📄 Getting results for job: ${jobId}`);
@@ -1003,31 +1039,57 @@ router.get("/results/:jobId", async (req, res) => {
               `🔍 Fetching generated images from Supabase for optimization run...`
             );
 
-            // Get the next job's creation time to set upper boundary
-            const { data: nextJob, error: nextJobError } = await getSupabase()
-              .from("vertex_ai_jobs")
-              .select("created_at")
-              .gt("created_at", jobData.created_at)
-              .order("created_at", { ascending: true })
-              .limit(1);
+            let generatedImages = [];
+            let imagesError = null;
 
-            const windowStart = new Date(jobData.created_at);
-            const windowEnd =
-              nextJob?.length > 0
-                ? new Date(nextJob[0].created_at)
-                : new Date(); // Present time if this is the latest job
+            if (jobData.session_id) {
+              // Use session ID for precise filtering (preferred method)
+              console.log(
+                `📋 Using session ID for image retrieval: ${jobData.session_id}`
+              );
 
-            console.log(
-              `📅 Fetching images from ${windowStart.toISOString()} to ${windowEnd.toISOString()}`
-            );
+              const { data, error } = await getSupabase()
+                .from("optimizer_generations")
+                .select("*")
+                .eq("session_id", jobData.session_id)
+                .order("created_at", { ascending: true });
 
-            const { data: generatedImages, error: imagesError } =
-              await getSupabase()
+              generatedImages = data || [];
+              imagesError = error;
+            } else {
+              // Fallback to time-window approach for legacy jobs without session ID
+              console.log(
+                `⚠️ No session ID found, using time-window fallback for job ${jobId}`
+              );
+
+              // Get the next job's creation time to set upper boundary
+              const { data: nextJob, error: nextJobError } = await getSupabase()
+                .from("vertex_ai_jobs")
+                .select("created_at")
+                .gt("created_at", jobData.created_at)
+                .order("created_at", { ascending: true })
+                .limit(1);
+
+              const windowStart = new Date(jobData.created_at);
+              const windowEnd =
+                nextJob?.length > 0
+                  ? new Date(nextJob[0].created_at)
+                  : new Date(); // Present time if this is the latest job
+
+              console.log(
+                `📅 Fetching images from ${windowStart.toISOString()} to ${windowEnd.toISOString()}`
+              );
+
+              const { data, error } = await getSupabase()
                 .from("optimizer_generations")
                 .select("*")
                 .gte("created_at", windowStart.toISOString())
                 .lt("created_at", windowEnd.toISOString())
                 .order("created_at", { ascending: true });
+
+              generatedImages = data || [];
+              imagesError = error;
+            }
 
             if (!imagesError && generatedImages && generatedImages.length > 0) {
               console.log(
@@ -1180,5 +1242,122 @@ router.get("/results/:jobId", async (req, res) => {
     });
   }
 });
+
+// Get jobs by session ID
+router.get("/sessions/:sessionId", async (req, res) => {
+  console.log("📋 Getting jobs by session ID");
+
+  try {
+    const { sessionId } = req.params;
+
+    console.log(`🔍 Fetching jobs for session: ${sessionId}`);
+
+    // Get all jobs for this session
+    const { data: jobs, error: jobsError } = await getSupabase()
+      .from("vertex_ai_jobs")
+      .select("*")
+      .eq("session_id", sessionId)
+      .order("created_at", { ascending: false });
+
+    if (jobsError) {
+      console.error("❌ Failed to fetch jobs by session:", jobsError);
+      return res.status(500).json({
+        error: "Failed to fetch jobs",
+        details: jobsError.message,
+      });
+    }
+
+    // Get all generated images for this session
+    const { data: generatedImages, error: imagesError } = await getSupabase()
+      .from("optimizer_generations")
+      .select("*")
+      .eq("session_id", sessionId)
+      .order("created_at", { ascending: true });
+
+    if (imagesError) {
+      console.warn("⚠️ Failed to fetch images for session:", imagesError);
+    }
+
+    console.log(
+      `📊 Found ${jobs.length} jobs and ${
+        generatedImages?.length || 0
+      } images for session ${sessionId}`
+    );
+
+    res.json({
+      sessionId,
+      jobs: jobs || [],
+      generatedImages: generatedImages || [],
+      totalJobs: jobs?.length || 0,
+      totalImages: generatedImages?.length || 0,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error("❌ Error fetching session data:", err);
+    res.status(500).json({
+      error: "Internal server error",
+      details: err.message,
+    });
+  }
+});
+
+// Deploy session-specific cloud function
+async function deploySessionCloudFunction(sessionId, functionName) {
+  const { spawn } = await import("child_process");
+
+  return new Promise((resolve, reject) => {
+    console.log(
+      `🚀 Deploying cloud function: ${functionName} for session: ${sessionId}`
+    );
+
+    // Prepare environment variables
+    const env = {
+      ...process.env,
+      SESSION_ID: sessionId,
+    };
+
+    // Run the deployment script with session-specific function name
+    // Use stdio: "pipe" to capture output like Python's capture_output=True
+    const deployProcess = spawn("bash", ["./deploy.sh"], {
+      env,
+      cwd: "../cloud-function", // Change to cloud-function directory
+      stdio: "pipe", // This should make it non-interactive like Python
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    deployProcess.stdout.on("data", (data) => {
+      stdout += data.toString();
+      console.log(`☁️ Deploy stdout: ${data.toString().trim()}`);
+    });
+
+    deployProcess.stderr.on("data", (data) => {
+      stderr += data.toString();
+      console.log(`⚠️ Deploy stderr: ${data.toString().trim()}`);
+    });
+
+    deployProcess.on("close", (code) => {
+      if (code === 0) {
+        console.log(`✅ Cloud function ${functionName} deployed successfully`);
+        resolve({ functionName, stdout });
+      } else {
+        console.error(`❌ Cloud function deployment failed with code ${code}`);
+        reject(new Error(`Deployment failed with code ${code}: ${stderr}`));
+      }
+    });
+
+    deployProcess.on("error", (error) => {
+      console.error(`❌ Deploy process error: ${error.message}`);
+      reject(error);
+    });
+
+    // Set timeout for deployment (5 minutes)
+    setTimeout(() => {
+      deployProcess.kill("SIGTERM");
+      reject(new Error("Cloud function deployment timeout (5 minutes)"));
+    }, 300000);
+  });
+}
 
 export default router;

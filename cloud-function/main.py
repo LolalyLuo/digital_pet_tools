@@ -156,7 +156,10 @@ def store_generation_record(
             sample_id_str = unique_id.split("_sample_")[-1]
             training_sample_id = int(sample_id_str) if sample_id_str.isdigit() else None
 
-        # Insert generation record
+        # Get session ID from environment for data organization
+        session_id = os.environ.get("SESSION_ID", "default-session")
+
+        # Insert generation record with session ID
         generation_record = {
             "training_sample_id": training_sample_id,
             "prompt_used": prompt,
@@ -165,6 +168,7 @@ def store_generation_record(
             "reference_image_url": reference_image_url,
             "generated_by": "vertex-ai-optimizer-single-evaluation",
             "evaluation_unique_id": unique_id,
+            "session_id": session_id,  # Add session ID for better data organization
         }
 
         response = (
@@ -523,8 +527,11 @@ def save_generated_image_to_storage(image_bytes):
             print(f"CRITICAL ERROR: Bucket creation/access failed: {e}")
             raise Exception(f"Bucket creation/access failed: {e}")
 
-        # Upload image
-        filename = f"generated-images/{int(os.urandom(8).hex(), 16)}.jpg"
+        # Get session ID for organized storage
+        session_id = os.environ.get("SESSION_ID", "default-session")
+
+        # Upload image with session-specific path
+        filename = f"generated-images/{session_id}/{int(os.urandom(8).hex(), 16)}.jpg"
         blob = bucket.blob(filename)
         blob.upload_from_string(image_bytes, content_type="image/jpeg")
 

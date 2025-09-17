@@ -1,6 +1,9 @@
+// Load environment variables FIRST before any other imports
+import dotenv from "dotenv";
+dotenv.config();
+
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
 
@@ -17,9 +20,6 @@ import prodRoutes from "./routes/prodRoutes.js";
 import trainingRoutes from "./routes/trainingRoutes.js";
 import vertexRoutes from "./routes/vertexRoutes.js";
 import utilRoutes from "./routes/utilRoutes.js";
-
-// Load environment variables
-dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

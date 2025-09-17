@@ -1159,7 +1159,7 @@ router.get("/results/:jobId", async (req, res) => {
         });
       }
     } catch (fetchError) {
-      console.error(fetchError);
+      console.error(`❌ Error fetching results: ${fetchError.message}`);
     }
 
     // No results available

@@ -36,7 +36,7 @@ gcloud functions deploy $FUNCTION_NAME \
   --timeout=540 \
   --memory=2Gi \
   --no-allow-unauthenticated \
-  --set-env-vars="GOOGLE_CLOUD_PROJECT=instame-470206,SUPABASE_URL=${SUPABASE_URL},SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY},GEMINI_API_KEY=${GEMINI_API_KEY},SESSION_ID=${SESSION_ID}" \
+  --set-env-vars="GOOGLE_CLOUD_PROJECT=instame-470206,SUPABASE_URL=${SUPABASE_URL},SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY},GEMINI_API_KEY=${GEMINI_API_KEY},SESSION_ID=${SESSION_ID},EVALUATION_CRITERIA=${EVALUATION_CRITERIA:-comprehensive}" \
   --project=instame-470206
 
 # Check if the deployment actually succeeded

@@ -52,6 +52,7 @@ router.post("/optimize", async (req, res) => {
       optimizationMode = "data-driven",
       targetModel = "gemini-2.5-flash",
       evaluationMetrics = ["bleu", "rouge"],
+      evaluationCriteria = "comprehensive",
       numSteps = 20,
       sessionId,
     } = req.body;
@@ -67,6 +68,7 @@ router.post("/optimize", async (req, res) => {
     console.log(`📝 Base Prompts: ${basePrompts.length} prompts`);
     console.log(`⚙️ Optimization Mode: ${optimizationMode}`);
     console.log(`🎯 Target Model: ${targetModel}`);
+    console.log(`📋 Evaluation Criteria: ${evaluationCriteria}`);
     console.log(`🔢 Number of Steps: ${numSteps}`);
     console.log(`🆔 Session ID: ${sessionId}`);
 
@@ -175,7 +177,7 @@ router.post("/optimize", async (req, res) => {
         cloudFunctionName = generateCloudFunctionName(sessionId);
 
         // Deploy cloud function with session ID - no fallbacks
-        await deploySessionCloudFunction(sessionId, cloudFunctionName);
+        await deploySessionCloudFunction(sessionId, cloudFunctionName, evaluationCriteria);
         console.log(`✅ Cloud function deployed: ${cloudFunctionName}`);
       } else {
         throw new Error("Session ID is required for cloud function deployment");
@@ -1302,18 +1304,19 @@ router.get("/sessions/:sessionId", async (req, res) => {
 });
 
 // Deploy session-specific cloud function
-async function deploySessionCloudFunction(sessionId, functionName) {
+async function deploySessionCloudFunction(sessionId, functionName, evaluationCriteria = "comprehensive") {
   const { spawn } = await import("child_process");
 
   return new Promise((resolve, reject) => {
     console.log(
-      `🚀 Deploying cloud function: ${functionName} for session: ${sessionId}`
+      `🚀 Deploying cloud function: ${functionName} for session: ${sessionId} with criteria: ${evaluationCriteria}`
     );
 
     // Prepare environment variables
     const env = {
       ...process.env,
       SESSION_ID: sessionId,
+      EVALUATION_CRITERIA: evaluationCriteria,
     };
 
     // Run the deployment script with session-specific function name

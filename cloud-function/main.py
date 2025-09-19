@@ -292,34 +292,17 @@ def smart_normalize_score_difference(score_difference):
     return normalized_score
 
 
-def evaluate_with_gemini_bytes(generated_image_bytes, reference_image_url):
-    """
-    Use Gemini to evaluate generated image bytes vs reference image URL
-    """
-    try:
-        # Initialize Google AI SDK
-        gemini_api_key = os.environ.get("GEMINI_API_KEY")
-        if not gemini_api_key:
-            raise Exception("GEMINI_API_KEY environment variable not set")
-
-        genai.configure(api_key=gemini_api_key)
-
-        # Download reference image for evaluation
-        reference_response = requests.get(reference_image_url, timeout=30)
-
-        # Create image parts for Gemini (Google AI SDK format)
-        generated_base64 = base64.b64encode(generated_image_bytes).decode("utf-8")
-        reference_base64 = base64.b64encode(reference_response.content).decode("utf-8")
-
-        generated_part = {
-            "inline_data": {"data": generated_base64, "mime_type": "image/png"}
-        }
-        reference_part = {
-            "inline_data": {"data": reference_base64, "mime_type": "image/jpeg"}
-        }
-
-        # Create comprehensive evaluation prompt
-        evaluation_prompt = """
+# Evaluation criteria definitions
+EVALUATION_CRITERIA = {
+    "comprehensive": {
+        "name": "Comprehensive Pet Portrait Evaluation",
+        "description": "10-category evaluation focusing on gift appeal and marketability",
+        "categories": [
+            "pet_likeness", "pose_expression", "art_style_consistency",
+            "color_harmony", "background_quality", "technical_execution",
+            "visual_appeal", "composition_proportion", "detail_balance", "gift_marketability"
+        ],
+        "prompt": """
 You are evaluating AI-generated pet portraits for InstaMe's print-on-demand products. The best image is the one most likely to become a purchase. You will receive:
 
 - **image1.png**: AI-generated stylized version (to evaluate)
@@ -429,6 +412,200 @@ Return your response in this exact JSON format:
     }
 }
         """
+    },
+    "simplified": {
+        "name": "Simplified Pet Portrait Evaluation",
+        "description": "5-category evaluation focusing on core visual qualities",
+        "categories": [
+            "pet_likeness", "visual_appeal", "technical_execution",
+            "composition_proportion", "gift_marketability"
+        ],
+        "prompt": """
+You are evaluating AI-generated pet portraits for InstaMe's print-on-demand products. You will receive:
+
+- **image1.png**: AI-generated stylized version (to evaluate)
+- **image2.png**: Reference image (target quality)
+
+Rate each image in the following 5 core categories using a scale of **0-10** (where 0 = terrible, 5 = average, 10 = perfect):
+
+**A. PET LIKENESS (0-10)**
+*Does the stylized pet retain the key features and characteristics of the original pet?*
+- **Image 1**: [Score]/10 - Brief explanation
+- **Image 2**: [Score]/10 - Brief explanation
+
+**B. VISUAL APPEAL (0-10)**
+*How aesthetically pleasing and attractive the image is overall*
+- **Image 1**: [Score]/10 - Brief explanation
+- **Image 2**: [Score]/10 - Brief explanation
+
+**C. TECHNICAL EXECUTION (0-10)**
+*Overall craftsmanship, quality, and professional appearance*
+- **Image 1**: [Score]/10 - Brief explanation
+- **Image 2**: [Score]/10 - Brief explanation
+
+**D. COMPOSITION & PROPORTION (0-10)**
+*Pet centered, well-framed, and proportioned for visual impact*
+- **Image 1**: [Score]/10 - Brief explanation
+- **Image 2**: [Score]/10 - Brief explanation
+
+**E. GIFT & MARKETABILITY APPEAL (0-10)**
+*Would customers want to buy this as a gift? Commercial appeal?*
+- **Image 1**: [Score]/10 - Brief explanation
+- **Image 2**: [Score]/10 - Brief explanation
+
+Return your response in this exact JSON format:
+{
+    "image1_analysis": {
+        "strengths": ["strength1", "strength2"],
+        "weaknesses": ["weakness1", "weakness2"]
+    },
+    "image2_analysis": {
+        "strengths": ["strength1", "strength2"],
+        "weaknesses": ["weakness1", "weakness2"]
+    },
+    "scores": {
+        "image1": {
+            "pet_likeness": X,
+            "visual_appeal": X,
+            "technical_execution": X,
+            "composition_proportion": X,
+            "gift_marketability": X
+        },
+        "image2": {
+            "pet_likeness": X,
+            "visual_appeal": X,
+            "technical_execution": X,
+            "composition_proportion": X,
+            "gift_marketability": X
+        }
+    }
+}
+        """
+    },
+    "artistic": {
+        "name": "Artistic Quality Evaluation",
+        "description": "6-category evaluation focusing on artistic merit and style",
+        "categories": [
+            "art_style_consistency", "color_harmony", "visual_appeal",
+            "technical_execution", "composition_proportion", "creative_interpretation"
+        ],
+        "prompt": """
+You are evaluating AI-generated pet portraits from an artistic perspective. Focus on artistic merit, style consistency, and creative interpretation. You will receive:
+
+- **image1.png**: AI-generated stylized version (to evaluate)
+- **image2.png**: Reference image (target quality)
+
+Rate each image in the following artistic categories using a scale of **0-10**:
+
+**A. ART STYLE CONSISTENCY (0-10)**
+*Consistent artistic style and technique throughout the image*
+- **Image 1**: [Score]/10 - Brief explanation
+- **Image 2**: [Score]/10 - Brief explanation
+
+**B. COLOR HARMONY (0-10)**
+*Colors work well together and create pleasing visual combinations*
+- **Image 1**: [Score]/10 - Brief explanation
+- **Image 2**: [Score]/10 - Brief explanation
+
+**C. VISUAL APPEAL (0-10)**
+*Overall aesthetic beauty and artistic attractiveness*
+- **Image 1**: [Score]/10 - Brief explanation
+- **Image 2**: [Score]/10 - Brief explanation
+
+**D. TECHNICAL EXECUTION (0-10)**
+*Skill in rendering, detail work, and artistic craftsmanship*
+- **Image 1**: [Score]/10 - Brief explanation
+- **Image 2**: [Score]/10 - Brief explanation
+
+**E. COMPOSITION & PROPORTION (0-10)**
+*Artistic arrangement of elements and visual balance*
+- **Image 1**: [Score]/10 - Brief explanation
+- **Image 2**: [Score]/10 - Brief explanation
+
+**F. CREATIVE INTERPRETATION (0-10)**
+*Artistic creativity and unique stylistic interpretation*
+- **Image 1**: [Score]/10 - Brief explanation
+- **Image 2**: [Score]/10 - Brief explanation
+
+Return your response in this exact JSON format:
+{
+    "image1_analysis": {
+        "strengths": ["strength1", "strength2"],
+        "weaknesses": ["weakness1", "weakness2"]
+    },
+    "image2_analysis": {
+        "strengths": ["strength1", "strength2"],
+        "weaknesses": ["weakness1", "weakness2"]
+    },
+    "scores": {
+        "image1": {
+            "art_style_consistency": X,
+            "color_harmony": X,
+            "visual_appeal": X,
+            "technical_execution": X,
+            "composition_proportion": X,
+            "creative_interpretation": X
+        },
+        "image2": {
+            "art_style_consistency": X,
+            "color_harmony": X,
+            "visual_appeal": X,
+            "technical_execution": X,
+            "composition_proportion": X,
+            "creative_interpretation": X
+        }
+    }
+}
+        """
+    }
+}
+
+
+def get_evaluation_criteria():
+    """
+    Get the evaluation criteria based on environment variable.
+    Default to 'comprehensive' if not specified.
+    """
+    criteria_type = os.environ.get("EVALUATION_CRITERIA", "comprehensive")
+
+    if criteria_type not in EVALUATION_CRITERIA:
+        print(f"⚠️ Warning: Unknown evaluation criteria '{criteria_type}', using 'comprehensive'")
+        criteria_type = "comprehensive"
+
+    criteria = EVALUATION_CRITERIA[criteria_type]
+    print(f"📋 Using evaluation criteria: {criteria['name']}")
+    return criteria
+
+
+def evaluate_with_gemini_bytes(generated_image_bytes, reference_image_url):
+    """
+    Use Gemini to evaluate generated image bytes vs reference image URL
+    """
+    try:
+        # Initialize Google AI SDK
+        gemini_api_key = os.environ.get("GEMINI_API_KEY")
+        if not gemini_api_key:
+            raise Exception("GEMINI_API_KEY environment variable not set")
+
+        genai.configure(api_key=gemini_api_key)
+
+        # Download reference image for evaluation
+        reference_response = requests.get(reference_image_url, timeout=30)
+
+        # Create image parts for Gemini (Google AI SDK format)
+        generated_base64 = base64.b64encode(generated_image_bytes).decode("utf-8")
+        reference_base64 = base64.b64encode(reference_response.content).decode("utf-8")
+
+        generated_part = {
+            "inline_data": {"data": generated_base64, "mime_type": "image/png"}
+        }
+        reference_part = {
+            "inline_data": {"data": reference_base64, "mime_type": "image/jpeg"}
+        }
+
+        # Get evaluation criteria and prompt
+        criteria = get_evaluation_criteria()
+        evaluation_prompt = criteria["prompt"]
 
         # Call Gemini for evaluation
         model = genai.GenerativeModel("gemini-2.5-flash-image-preview")
@@ -472,20 +649,11 @@ Return your response in this exact JSON format:
         image1_scores = evaluation_data["scores"]["image1"]
         image2_scores = evaluation_data["scores"]["image2"]
 
-        # Calculate total scores for each image (sum of all 10 categories)
-        score_categories = [
-            "pet_likeness",
-            "pose_expression",
-            "art_style_consistency",
-            "color_harmony",
-            "background_quality",
-            "technical_execution",
-            "visual_appeal",
-            "composition_proportion",
-            "detail_balance",
-            "gift_marketability",
-        ]
+        # Get the score categories from the current evaluation criteria
+        criteria = get_evaluation_criteria()
+        score_categories = criteria["categories"]
 
+        # Calculate total scores for each image (sum of all categories in the criteria)
         image1_total = sum(
             image1_scores.get(category, 0) for category in score_categories
         )

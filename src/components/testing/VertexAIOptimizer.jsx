@@ -22,6 +22,7 @@ const VertexAIOptimizer = () => {
   const [currentDataSet, setCurrentDataSet] = useState("");
   const [basePrompt, setBasePrompt] = useState("Generate a cute dog photo");
   const [numSteps, setNumSteps] = useState(20);
+  const [evaluationCriteria, setEvaluationCriteria] = useState("comprehensive");
   const [jobs, setJobs] = useState([]);
   const [selectedJob, setSelectedJob] = useState(null);
   const [pollingInterval, setPollingInterval] = useState(null);
@@ -29,6 +30,25 @@ const VertexAIOptimizer = () => {
   // Fixed model - matches what's hardcoded in cloud function
   const fixedModel = "gemini-2.5-flash-image-preview";
   const [currentSessionId, setCurrentSessionId] = useState("");
+
+  // Available evaluation criteria options
+  const evaluationCriteriaOptions = [
+    {
+      value: "comprehensive",
+      name: "Comprehensive Pet Portrait Evaluation",
+      description: "10-category evaluation focusing on gift appeal and marketability"
+    },
+    {
+      value: "simplified",
+      name: "Simplified Pet Portrait Evaluation",
+      description: "5-category evaluation focusing on core visual qualities"
+    },
+    {
+      value: "artistic",
+      name: "Artistic Quality Evaluation",
+      description: "6-category evaluation focusing on artistic merit and style"
+    }
+  ];
 
   const checkJobStatus = async (jobId) => {
     try {
@@ -216,6 +236,7 @@ const VertexAIOptimizer = () => {
             basePrompts: [basePrompt],
             optimizationMode: "data-driven",
             numSteps: numSteps,
+            evaluationCriteria: evaluationCriteria,
             sessionId: sessionId, // Include session ID in request
           }),
         }
@@ -338,6 +359,27 @@ const VertexAIOptimizer = () => {
               className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 resize-none"
               rows={4}
             />
+          </div>
+
+          {/* Evaluation Criteria */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Evaluation Criteria
+            </label>
+            <select
+              value={evaluationCriteria}
+              onChange={(e) => setEvaluationCriteria(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+            >
+              {evaluationCriteriaOptions.map((criteria) => (
+                <option key={criteria.value} value={criteria.value}>
+                  {criteria.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-500 mt-1">
+              {evaluationCriteriaOptions.find(c => c.value === evaluationCriteria)?.description}
+            </p>
           </div>
 
           {/* Number of Steps */}

@@ -278,8 +278,15 @@ def generate_image_with_gemini(uploaded_image_url, prompt):
             "inline_data": {"data": image_base64, "mime_type": "image/jpeg"}
         }
 
-        # Generate image using Gemini with only the uploaded image and prompt
-        response = model.generate_content([prompt, uploaded_image_part])
+        # Force image output only - do not modify the actual prompt
+        enhanced_prompt = f"""{prompt}
+
+CRITICAL: You MUST respond with a single generated image file only. Do not provide text descriptions, explanations, or anything other than the actual image."""
+
+        print(f"🎨 Enhanced prompt: {enhanced_prompt[:150]}...")
+
+        # Generate image using Gemini with enhanced prompt
+        response = model.generate_content([enhanced_prompt, uploaded_image_part])
 
         # Print response metadata (without the actual image data)
         print(
@@ -331,8 +338,8 @@ def generate_image_with_gemini(uploaded_image_url, prompt):
         return generated_image_bytes
 
     except Exception as e:
-        print(f"CRITICAL ERROR: Gemini vision analysis failed: {e}")
-        raise Exception(f"Gemini vision analysis failed: {e}")
+        print(f"CRITICAL ERROR: Gemini image generation failed: {e}")
+        raise Exception(f"Gemini image generation failed: {e}")
 
 
 def smart_normalize_score_difference(score_difference):

@@ -23,6 +23,7 @@ const VertexAIOptimizer = () => {
   const [basePrompt, setBasePrompt] = useState("Generate a cute dog photo");
   const [numSteps, setNumSteps] = useState(20);
   const [evaluationCriteria, setEvaluationCriteria] = useState("comprehensive");
+  const [evaluationMode, setEvaluationMode] = useState("reference_comparison");
   const [jobs, setJobs] = useState([]);
   const [selectedJob, setSelectedJob] = useState(null);
   const [pollingInterval, setPollingInterval] = useState(null);
@@ -47,6 +48,20 @@ const VertexAIOptimizer = () => {
       value: "artistic",
       name: "Artistic Quality Evaluation",
       description: "6-category evaluation focusing on artistic merit and style"
+    }
+  ];
+
+  // Available evaluation mode options
+  const evaluationModeOptions = [
+    {
+      value: "reference_comparison",
+      name: "Reference Comparison Mode",
+      description: "Compare generated image against OpenAI reference image"
+    },
+    {
+      value: "standalone_quality",
+      name: "Standalone Quality Mode",
+      description: "Evaluate generated image quality independently using ideal criteria"
     }
   ];
 
@@ -237,6 +252,7 @@ const VertexAIOptimizer = () => {
             optimizationMode: "data-driven",
             numSteps: numSteps,
             evaluationCriteria: evaluationCriteria,
+            evaluationMode: evaluationMode,
             sessionId: sessionId, // Include session ID in request
           }),
         }
@@ -380,6 +396,32 @@ const VertexAIOptimizer = () => {
             <p className="text-xs text-gray-500 mt-1">
               {evaluationCriteriaOptions.find(c => c.value === evaluationCriteria)?.description}
             </p>
+          </div>
+
+          {/* Evaluation Mode */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Evaluation Mode
+            </label>
+            <select
+              value={evaluationMode}
+              onChange={(e) => setEvaluationMode(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+            >
+              {evaluationModeOptions.map((mode) => (
+                <option key={mode.value} value={mode.value}>
+                  {mode.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-500 mt-1">
+              {evaluationModeOptions.find(m => m.value === evaluationMode)?.description}
+            </p>
+            {evaluationMode === "standalone_quality" && (
+              <p className="text-xs text-blue-600 mt-1 italic">
+                ℹ️ This mode doesn't require OpenAI reference images - evaluates quality independently
+              </p>
+            )}
           </div>
 
           {/* Number of Steps */}

@@ -9,6 +9,7 @@ import fetch from "node-fetch";
 import {
   uploadGCSImageToSupabase,
   generateImageDescription,
+  generateQualitySpecification,
 } from "../utils/imageUtils.js";
 import { generateCloudFunctionName } from "../utils/sessionUtils.js";
 
@@ -53,6 +54,7 @@ router.post("/optimize", async (req, res) => {
       targetModel = "gemini-2.5-flash",
       evaluationMetrics = ["bleu", "rouge"],
       evaluationCriteria = "comprehensive",
+      evaluationMode = "reference_comparison",
       numSteps = 20,
       sessionId,
     } = req.body;
@@ -69,6 +71,7 @@ router.post("/optimize", async (req, res) => {
     console.log(`⚙️ Optimization Mode: ${optimizationMode}`);
     console.log(`🎯 Target Model: ${targetModel}`);
     console.log(`📋 Evaluation Criteria: ${evaluationCriteria}`);
+    console.log(`🔬 Evaluation Mode: ${evaluationMode}`);
     console.log(`🔢 Number of Steps: ${numSteps}`);
     console.log(`🆔 Session ID: ${sessionId}`);
 
@@ -99,27 +102,49 @@ router.post("/optimize", async (req, res) => {
 
     console.log(`📄 Found ${trainingSamples.length} training samples`);
 
-    // Generate descriptions for all images in parallel and format for Vertex AI Prompt Optimizer JSONL
+    // Generate training data based on evaluation mode
     console.log(
-      "🔍 Generating detailed descriptions for training images in parallel..."
+      `🔍 Generating training data for ${evaluationMode} mode...`
     );
 
     const descriptionPromises = trainingSamples.map(async (sample) => {
       try {
-        // Generate descriptions for both source and reference images in parallel
-        const [sourceDescription, referenceDescription] = await Promise.all([
-          generateImageDescription(sample.uploaded_image_url, "source"),
-          generateImageDescription(sample.openai_image_url, "reference"),
-        ]);
+        if (evaluationMode === "standalone_quality") {
+          // Standalone Quality Mode: Generate pet analysis + quality specification
+          console.log(`🔍 Processing sample ${sample.id} for standalone quality mode`);
 
-        console.log(`✅ Processed sample ${sample.id}`);
-        return {
-          input: `${sample.uploaded_image_url},${sourceDescription}`,
-          target: `${sample.openai_image_url},${referenceDescription}`,
-          unique_id: `${Date.now()}_${Math.random()
-            .toString(36)
-            .substr(2, 9)}_sample_${sample.id}`,
-        };
+          // Generate detailed pet analysis from source image
+          const petAnalysis = await generateImageDescription(sample.uploaded_image_url, "pet_analysis");
+
+          // Create quality specification target (no reference image needed)
+          const qualitySpec = await generateQualitySpecification(sample.uploaded_image_url, petAnalysis);
+
+          console.log(`✅ Processed standalone sample ${sample.id}`);
+          return {
+            input: `${sample.uploaded_image_url},${petAnalysis}`,
+            target: `quality_specification:${qualitySpec}`,
+            unique_id: `${Date.now()}_${Math.random()
+              .toString(36)
+              .substr(2, 9)}_sample_${sample.id}`,
+          };
+        } else {
+          // Reference Comparison Mode: Use existing logic
+          console.log(`🔍 Processing sample ${sample.id} for reference comparison mode`);
+
+          const [sourceDescription, referenceDescription] = await Promise.all([
+            generateImageDescription(sample.uploaded_image_url, "source"),
+            generateImageDescription(sample.openai_image_url, "reference"),
+          ]);
+
+          console.log(`✅ Processed reference sample ${sample.id}`);
+          return {
+            input: `${sample.uploaded_image_url},${sourceDescription}`,
+            target: `${sample.openai_image_url},${referenceDescription}`,
+            unique_id: `${Date.now()}_${Math.random()
+              .toString(36)
+              .substr(2, 9)}_sample_${sample.id}`,
+          };
+        }
       } catch (error) {
         console.error(`❌ Failed to process sample ${sample.id}:`, error);
         return null; // Will be filtered out
@@ -177,7 +202,7 @@ router.post("/optimize", async (req, res) => {
         cloudFunctionName = generateCloudFunctionName(sessionId);
 
         // Deploy cloud function with session ID - no fallbacks
-        await deploySessionCloudFunction(sessionId, cloudFunctionName, evaluationCriteria);
+        await deploySessionCloudFunction(sessionId, cloudFunctionName, evaluationCriteria, evaluationMode);
         console.log(`✅ Cloud function deployed: ${cloudFunctionName}`);
       } else {
         throw new Error("Session ID is required for cloud function deployment");
@@ -1304,12 +1329,12 @@ router.get("/sessions/:sessionId", async (req, res) => {
 });
 
 // Deploy session-specific cloud function
-async function deploySessionCloudFunction(sessionId, functionName, evaluationCriteria = "comprehensive") {
+async function deploySessionCloudFunction(sessionId, functionName, evaluationCriteria = "comprehensive", evaluationMode = "reference_comparison") {
   const { spawn } = await import("child_process");
 
   return new Promise((resolve, reject) => {
     console.log(
-      `🚀 Deploying cloud function: ${functionName} for session: ${sessionId} with criteria: ${evaluationCriteria}`
+      `🚀 Deploying cloud function: ${functionName} for session: ${sessionId} with criteria: ${evaluationCriteria}, mode: ${evaluationMode}`
     );
 
     // Prepare environment variables
@@ -1317,6 +1342,7 @@ async function deploySessionCloudFunction(sessionId, functionName, evaluationCri
       ...process.env,
       SESSION_ID: sessionId,
       EVALUATION_CRITERIA: evaluationCriteria,
+      EVALUATION_MODE: evaluationMode,
     };
 
     // Run the deployment script with session-specific function name

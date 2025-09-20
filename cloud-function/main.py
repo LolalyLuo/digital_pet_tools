@@ -38,28 +38,53 @@ def evaluate_image_prompt(request):
             input_image_url = input_data
             source_description = None
 
-        # Parse target to extract reference URL and reference description
+        # Parse target based on evaluation mode
         target_data = data.get("target", "")
-        if "," in target_data:
-            reference_image_url, reference_description = target_data.split(",", 1)
-        else:
-            reference_image_url = target_data
-            reference_description = None
+        mode_type, mode = get_evaluation_mode()
 
-        print(f"Evaluating optimized prompt: {optimized_prompt}")
-        print(f"Input image URL: {input_image_url}")
-        print(f"Source description: {source_description}")
-        print(f"Reference image URL: {reference_image_url}")
-        print(f"Reference description: {reference_description}")
-        print(f"Unique ID: {unique_id}")
+        if mode_type == "standalone_quality":
+            # Standalone mode: target is a quality specification
+            if target_data.startswith("quality_specification:"):
+                quality_specification = target_data.replace("quality_specification:", "", 1)
+                reference_image_url = None
+            else:
+                quality_specification = target_data
+                reference_image_url = None
+
+            print(f"Evaluating optimized prompt: {optimized_prompt}")
+            print(f"Input image URL: {input_image_url}")
+            print(f"Source description: {source_description}")
+            print(f"Quality specification: {quality_specification[:200]}...")
+            print(f"Unique ID: {unique_id}")
+            print(f"Evaluation mode: {mode_type}")
+        else:
+            # Reference comparison mode: target is reference image + description
+            if "," in target_data:
+                reference_image_url, reference_description = target_data.split(",", 1)
+            else:
+                reference_image_url = target_data
+                reference_description = None
+
+            print(f"Evaluating optimized prompt: {optimized_prompt}")
+            print(f"Input image URL: {input_image_url}")
+            print(f"Source description: {source_description}")
+            print(f"Reference image URL: {reference_image_url}")
+            print(f"Reference description: {reference_description}")
+            print(f"Unique ID: {unique_id}")
+            print(f"Evaluation mode: {mode_type}")
 
         if not input_image_url:
             raise Exception("No input image URL provided")
 
         # Step 1: Evaluate the single sample
-        score, explanation = evaluate_single_sample(
-            optimized_prompt, input_image_url, unique_id, reference_image_url
-        )
+        if mode_type == "standalone_quality":
+            score, explanation = evaluate_single_sample(
+                optimized_prompt, input_image_url, unique_id, None, quality_specification
+            )
+        else:
+            score, explanation = evaluate_single_sample(
+                optimized_prompt, input_image_url, unique_id, reference_image_url
+            )
 
         if score is None:
             raise Exception("Evaluation failed for the sample")
@@ -83,28 +108,30 @@ def evaluate_image_prompt(request):
         return result
 
     except Exception as e:
-        print(f"Evaluation function error: {e}")
-        return {
-            "image_similarity_score": 0.0,
-            "error": str(e),
-            "details": "Function execution failed",
-        }
+        print(f"CRITICAL ERROR: Evaluation function failed: {e}")
+        print(f"Exception type: {type(e).__name__}")
+        import traceback
+        print(f"Full traceback: {traceback.format_exc()}")
+        raise e  # Fail loudly instead of returning fake results
 
 
 def evaluate_single_sample(
-    optimized_prompt, input_image_url, unique_id, reference_image_url
+    optimized_prompt, input_image_url, unique_id, reference_image_url=None, quality_specification=None
 ):
     """
     Evaluate a single training sample by:
     1. Using the input image with the optimized prompt to generate a new image
-    2. Scoring the generated image
+    2. Scoring the generated image based on evaluation mode
     """
     try:
         print(f"Evaluating sample {unique_id} with image: {input_image_url}")
 
         # Generate image using Gemini with the input image and optimized prompt (with image generation prefix)
         full_prompt = f"Generate an image: {optimized_prompt}"
+        print(f"🎨 About to generate image with prompt: {full_prompt[:100]}...")
+        print(f"📸 Using input image: {input_image_url}")
         generated_image_bytes = generate_image_with_gemini(input_image_url, full_prompt)
+        print(f"✅ Image generation completed. Bytes received: {len(generated_image_bytes) if generated_image_bytes else 0}")
 
         if not generated_image_bytes:
             print(f"CRITICAL ERROR: Failed to generate image for sample {unique_id}")
@@ -114,25 +141,38 @@ def evaluate_single_sample(
         generated_image_url = save_generated_image_to_storage(generated_image_bytes)
 
         # Store the generation record in database for download by test script
+        # For standalone mode, reference_image_url will be None
         store_generation_record(
             optimized_prompt,
             generated_image_url,
             unique_id,
             input_image_url,
-            reference_image_url,
+            reference_image_url,  # This might be None in standalone mode
         )
 
-        # Evaluate the generated image against the reference image
-        evaluation_score, evaluation_explanation = evaluate_with_gemini_bytes(
-            generated_image_bytes, reference_image_url
-        )
+        # Evaluate the generated image based on the evaluation mode
+        mode_type, mode = get_evaluation_mode()
+
+        if mode_type == "standalone_quality":
+            # Standalone quality evaluation - uses quality specification instead of reference
+            evaluation_score, evaluation_explanation = evaluate_standalone_quality(
+                generated_image_bytes, input_image_url, optimized_prompt, quality_specification
+            )
+        else:
+            # Reference comparison mode - compare against reference image
+            evaluation_score, evaluation_explanation = evaluate_with_gemini_bytes(
+                generated_image_bytes, reference_image_url
+            )
 
         print(f"Sample {unique_id} evaluation score: {evaluation_score}")
         return evaluation_score, evaluation_explanation
 
     except Exception as e:
         print(f"CRITICAL ERROR: Single sample evaluation failed: {e}")
-        return None, None
+        print(f"Exception type: {type(e).__name__}")
+        import traceback
+        print(f"Full traceback: {traceback.format_exc()}")
+        raise e  # Fail loudly instead of returning None
 
 
 def store_generation_record(
@@ -145,8 +185,9 @@ def store_generation_record(
         supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 
         if not supabase_url or not supabase_key:
-            print("WARNING: Missing Supabase credentials - skipping database record")
-            return
+            error_msg = f"CRITICAL ERROR: Missing Supabase credentials for image storage. URL: {bool(supabase_url)}, Key: {bool(supabase_key)}"
+            print(error_msg)
+            raise Exception(error_msg)
 
         supabase: Client = create_client(supabase_url, supabase_key)
 
@@ -164,11 +205,11 @@ def store_generation_record(
             "training_sample_id": training_sample_id,
             "prompt_used": prompt,
             "generated_image_url": generated_image_url,
-            "uploaded_image_url": input_image_url,  # Add the required input image URL
-            "reference_image_url": reference_image_url,
+            "uploaded_image_url": input_image_url,
+            "reference_image_url": reference_image_url,  # Can be None for standalone mode
             "generated_by": "vertex-ai-optimizer-single-evaluation",
             "evaluation_unique_id": unique_id,
-            "session_id": session_id,  # Add session ID for better data organization
+            "session_id": session_id,
         }
 
         response = (
@@ -177,7 +218,11 @@ def store_generation_record(
         print(f"Generation record saved for {unique_id}")
 
     except Exception as e:
-        print(f"WARNING: Failed to save generation record: {e}")
+        print(f"CRITICAL ERROR: Failed to save generation record: {e}")
+        print(f"Exception type: {type(e).__name__}")
+        import traceback
+        print(f"Full traceback: {traceback.format_exc()}")
+        raise e  # Fail loudly instead of silently continuing
 
 
 def generate_image_with_gemini(uploaded_image_url, prompt):
@@ -185,15 +230,21 @@ def generate_image_with_gemini(uploaded_image_url, prompt):
     Use Gemini 2.5 Flash Image Preview to generate image based on uploaded image and prompt
     """
     try:
+        print(f"🔧 Starting image generation with Gemini...")
+
         # Initialize Google AI SDK
         gemini_api_key = os.environ.get("GEMINI_API_KEY")
         if not gemini_api_key:
             raise Exception("GEMINI_API_KEY environment variable not set")
 
+        print(f"🔑 Gemini API key found: {gemini_api_key[:20]}...")
         genai.configure(api_key=gemini_api_key)
 
         # Download uploaded image
+        print(f"⬇️ Downloading image from: {uploaded_image_url}")
         img_response = requests.get(uploaded_image_url, timeout=30)
+        print(f"📥 Image download response: {img_response.status_code}")
+
         if img_response.status_code != 200:
             raise Exception(
                 f"Failed to download uploaded image: {img_response.status_code}"
@@ -561,6 +612,21 @@ Return your response in this exact JSON format:
 }
 
 
+# Evaluation mode definitions
+EVALUATION_MODES = {
+    "reference_comparison": {
+        "name": "Reference Comparison Mode",
+        "description": "Compare generated image against OpenAI reference image",
+        "requires_reference": True
+    },
+    "standalone_quality": {
+        "name": "Standalone Quality Mode",
+        "description": "Evaluate generated image quality independently using ideal criteria",
+        "requires_reference": False
+    }
+}
+
+
 def get_evaluation_criteria():
     """
     Get the evaluation criteria based on environment variable.
@@ -575,6 +641,22 @@ def get_evaluation_criteria():
     criteria = EVALUATION_CRITERIA[criteria_type]
     print(f"📋 Using evaluation criteria: {criteria['name']}")
     return criteria
+
+
+def get_evaluation_mode():
+    """
+    Get the evaluation mode based on environment variable.
+    Default to 'reference_comparison' if not specified.
+    """
+    mode_type = os.environ.get("EVALUATION_MODE", "reference_comparison")
+
+    if mode_type not in EVALUATION_MODES:
+        print(f"⚠️ Warning: Unknown evaluation mode '{mode_type}', using 'reference_comparison'")
+        mode_type = "reference_comparison"
+
+    mode = EVALUATION_MODES[mode_type]
+    print(f"📋 Using evaluation mode: {mode['name']}")
+    return mode_type, mode
 
 
 def evaluate_with_gemini_bytes(generated_image_bytes, reference_image_url):
@@ -678,6 +760,165 @@ def evaluate_with_gemini_bytes(generated_image_bytes, reference_image_url):
     except Exception as e:
         print(f"CRITICAL ERROR: Gemini evaluation failed: {e}")
         raise Exception(f"Gemini evaluation failed: {e}")
+
+
+def evaluate_standalone_quality(generated_image_bytes, input_image_url, prompt, quality_specification=None):
+    """
+    Evaluate generated image quality independently without reference comparison.
+    Uses provided quality specification or creates ideal quality standards.
+    """
+    try:
+        # Initialize Google AI SDK
+        gemini_api_key = os.environ.get("GEMINI_API_KEY")
+        if not gemini_api_key:
+            raise Exception("GEMINI_API_KEY environment variable not set")
+
+        genai.configure(api_key=gemini_api_key)
+
+        # Download input image for context
+        input_response = requests.get(input_image_url, timeout=30)
+
+        # Create image parts for Gemini (Google AI SDK format)
+        generated_base64 = base64.b64encode(generated_image_bytes).decode("utf-8")
+        input_base64 = base64.b64encode(input_response.content).decode("utf-8")
+
+        generated_part = {
+            "inline_data": {"data": generated_base64, "mime_type": "image/png"}
+        }
+        input_part = {
+            "inline_data": {"data": input_base64, "mime_type": "image/jpeg"}
+        }
+
+        # Get evaluation criteria and create standalone evaluation prompt
+        criteria = get_evaluation_criteria()
+
+        # Create standalone evaluation prompt using descriptive target
+        if quality_specification:
+            # Use the descriptive target for evaluation
+            standalone_prompt = f"""
+You are evaluating an AI-generated pet portrait for InstaMe's print-on-demand products. You will receive:
+
+- **Original Image**: The source pet photo provided by the customer
+- **Generated Image**: The AI-generated stylized version to evaluate
+- **Prompt Used**: "{prompt}"
+- **Ideal Target Description**: A detailed description of what the perfect commercial pet portrait should look like
+
+**Ideal Target Description:**
+{quality_specification}
+
+**Your Task**: Rate how well the generated image matches this ideal target description. Compare the generated image against both the original pet characteristics and the ideal target description.
+
+**Evaluation Categories** (Rate each 0-10, where 0=terrible, 5=average, 10=perfect):
+
+{chr(10).join([f"**{cat.upper().replace('_', ' ')} (0-10)**" for cat in criteria["categories"]])}
+
+**Rating Instructions:**
+- **10**: Generated image perfectly matches the ideal target description
+- **8-9**: Generated image closely matches the ideal with minor differences
+- **6-7**: Generated image partially matches the ideal with some notable differences
+- **4-5**: Generated image somewhat matches but has significant differences from ideal
+- **2-3**: Generated image poorly matches the ideal target description
+- **0-1**: Generated image fails to match the ideal target description
+
+**Evaluation Focus:**
+1. How closely does the generated image match the ideal target description?
+2. Does it capture the pet's unique characteristics as described in the ideal?
+3. Does it achieve the commercial quality and appeal described in the target?
+4. Does it have the artistic style, composition, and technical execution described?
+
+Return your response in this exact JSON format:
+{{
+    "analysis": {{
+        "target_matching": "How well does the generated image match the ideal target description?",
+        "pet_accuracy": "How accurately does it represent the pet as described in the ideal?",
+        "commercial_quality": "How well does it achieve the commercial standards described in the target?",
+        "overall_assessment": "Overall assessment comparing generated vs ideal target"
+    }},
+    "scores": {{
+{chr(10).join([f'        "{cat}": X,' for cat in criteria["categories"]])}
+    }}
+}}
+            """
+        else:
+            # Fallback if no quality specification provided
+            standalone_prompt = f"""
+You are evaluating an AI-generated pet portrait for InstaMe's print-on-demand products. You will receive:
+
+- **Original Image**: The source pet photo provided by the customer
+- **Generated Image**: The AI-generated stylized version to evaluate
+- **Prompt Used**: "{prompt}"
+
+**Your Task**: Evaluate the generated image for commercial pet portrait quality, considering the original pet's characteristics.
+
+Rate each category 0-10 (where 0=terrible, 5=average, 10=perfect):
+
+{chr(10).join([f"**{cat.upper().replace('_', ' ')} (0-10)**" for cat in criteria["categories"]])}
+
+Return your response in this exact JSON format:
+{{
+    "analysis": {{
+        "prompt_fulfillment": "How well does the generated image fulfill the prompt?",
+        "pet_accuracy": "How accurately does it represent the original pet?",
+        "commercial_appeal": "How appealing is this for commercial products?",
+        "overall_assessment": "Overall quality assessment"
+    }},
+    "scores": {{
+{chr(10).join([f'        "{cat}": X,' for cat in criteria["categories"]])}
+    }}
+}}
+            """
+
+        # Call Gemini for evaluation
+        model = genai.GenerativeModel("gemini-2.5-flash-image-preview")
+
+        response = model.generate_content([
+            standalone_prompt,
+            "Original pet image:",
+            input_part,
+            "Generated image to evaluate:",
+            generated_part,
+        ])
+
+        # Parse the JSON response
+        try:
+            evaluation_text = response.text.strip()
+            print(f"Raw Gemini standalone evaluation response: {evaluation_text}")
+
+            # Extract JSON from response
+            start_idx = evaluation_text.find("{")
+            end_idx = evaluation_text.rfind("}") + 1
+            if start_idx >= 0 and end_idx > start_idx:
+                json_str = evaluation_text[start_idx:end_idx]
+                evaluation_data = json.loads(json_str)
+            else:
+                raise ValueError("No valid JSON found in response")
+
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"CRITICAL ERROR: Failed to parse Gemini standalone evaluation response: {e}")
+            raise Exception(f"Failed to parse Gemini standalone evaluation response: {e}")
+
+        # Extract scores
+        if "scores" not in evaluation_data:
+            raise ValueError("Missing required score data in evaluation response")
+
+        scores = evaluation_data["scores"]
+
+        # Calculate total score (sum of all categories)
+        score_categories = criteria["categories"]
+        total_score = sum(scores.get(category, 0) for category in score_categories)
+        max_possible_score = len(score_categories) * 10
+
+        # Normalize to 0-1 scale
+        final_score = total_score / max_possible_score if max_possible_score > 0 else 0
+
+        print(f"Standalone evaluation total score: {total_score}/{max_possible_score}")
+        print(f"Final normalized score: {final_score}")
+
+        return final_score, evaluation_text
+
+    except Exception as e:
+        print(f"CRITICAL ERROR: Gemini standalone evaluation failed: {e}")
+        raise Exception(f"Gemini standalone evaluation failed: {e}")
 
 
 def save_generated_image_to_storage(image_bytes):

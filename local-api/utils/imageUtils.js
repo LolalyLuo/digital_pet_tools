@@ -215,6 +215,7 @@ export async function generateImageDescription(imageUrl, imageType = "source") {
       .from("image_descriptions")
       .select("description")
       .eq("image_url", imageUrl)
+      .eq("image_type", imageType)
       .single();
 
     if (!cacheError && cachedDescription) {
@@ -241,8 +242,21 @@ export async function generateImageDescription(imageUrl, imageType = "source") {
       },
     };
 
-    // Generate detailed description
-    const prompt = `Please provide a detailed description of this image. Focus on:
+    // Generate different prompts based on image type
+    let prompt;
+    if (imageType === "pet_analysis") {
+      prompt = `Analyze this pet photo for detailed characteristics. Focus on:
+1. Pet type and breed (specific breed identification if possible)
+2. Physical characteristics: size, build, coat type and texture
+3. Color and markings: exact colors, patterns, spots, stripes, distinctive features
+4. Facial features: eye color/shape, nose color/shape, ear type/position
+5. Pose and body language: stance, expression, personality traits visible
+6. Current photo quality: lighting, angle, background elements
+7. Distinctive features that make this pet unique
+
+Provide a comprehensive analysis that captures all the essential characteristics needed to recreate this pet's likeness accurately.`;
+    } else {
+      prompt = `Please provide a detailed description of this image. Focus on:
 1. The main subject (pet type, breed, pose, expression)
 2. Visual style and artistic approach (realistic, artistic, watercolor, etc.)
 3. Colors, lighting, and mood
@@ -250,6 +264,7 @@ export async function generateImageDescription(imageUrl, imageType = "source") {
 5. Overall composition and quality
 
 Provide a detailed and comprehensive description that captures all the important visual elements, artistic techniques, and aesthetic qualities.`;
+    }
 
     const result = await model.generateContent([prompt, imagePart]);
     const description = result.response.text();
@@ -272,6 +287,75 @@ Provide a detailed and comprehensive description that captures all the important
       `❌ Failed to generate description for ${imageType} image:`,
       error
     );
+    throw error;
+  }
+}
+
+/**
+ * Generates a detailed descriptive target for standalone evaluation mode
+ * @param {string} imageUrl - The URL of the source pet image
+ * @param {string} petAnalysis - The detailed analysis of the pet
+ * @returns {Promise<string>} - The generated descriptive target
+ */
+export async function generateQualitySpecification(imageUrl, petAnalysis) {
+  try {
+    console.log(`🎯 Generating descriptive target for image: ${imageUrl}`);
+
+    // Check if descriptive target is already cached
+    const cacheKey = `${imageUrl}_descriptive_target`;
+    const { data: cachedTarget, error: cacheError } = await getSupabase()
+      .from("image_descriptions")
+      .select("description")
+      .eq("image_url", cacheKey)
+      .eq("image_type", "descriptive_target")
+      .single();
+
+    if (!cacheError && cachedTarget) {
+      console.log(`✅ Found cached descriptive target`);
+      return cachedTarget.description;
+    }
+
+    // Initialize Gemini AI to generate descriptive target
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const model = getGenAI().getGenerativeModel({ model: "gemini-1.5-flash" });
+
+    // Create a prompt to generate a detailed description of the ideal image
+    const targetGenerationPrompt = `Based on this pet analysis, create a detailed, descriptive target that describes what a perfect, high-quality commercial pet portrait would look like.
+
+Pet Analysis: ${petAnalysis}
+
+Write a comprehensive, detailed description of the ideal commercial pet portrait as if you're describing an actual high-quality image. Include:
+
+1. **Physical Accuracy**: Exactly how the pet should look (breed characteristics, colors, markings, features)
+2. **Pose & Expression**: The ideal pose, facial expression, and body language
+3. **Artistic Style**: Professional artistic approach and visual treatment
+4. **Lighting & Colors**: Perfect lighting setup and color palette
+5. **Composition**: Ideal framing, positioning, and background
+6. **Quality Details**: Professional execution, sharp details, smooth rendering
+7. **Commercial Appeal**: Elements that make it gift-worthy and marketable
+
+Write this as a flowing, detailed description (like describing a reference image) rather than a list. Focus on what the perfect final image would actually look like, capturing all the visual elements that would make it commercially successful.
+
+Start your description with: "A professional, high-quality commercial pet portrait featuring..."`;
+
+    const result = await model.generateContent([targetGenerationPrompt]);
+    const descriptiveTarget = result.response.text();
+
+    // Cache the descriptive target
+    try {
+      await getSupabase().from("image_descriptions").insert({
+        image_url: cacheKey,
+        description: descriptiveTarget,
+        image_type: "descriptive_target",
+      });
+      console.log(`💾 Cached descriptive target`);
+    } catch (insertError) {
+      console.log(`⚠️ Failed to cache descriptive target: ${insertError.message}`);
+    }
+
+    return descriptiveTarget;
+  } catch (error) {
+    console.error(`❌ Failed to generate descriptive target:`, error);
     throw error;
   }
 }

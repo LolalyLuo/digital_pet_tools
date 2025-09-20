@@ -130,15 +130,27 @@ def evaluate_single_sample(
         full_prompt = f"Generate an image: {optimized_prompt}"
         print(f"🎨 About to generate image with prompt: {full_prompt[:100]}...")
         print(f"📸 Using input image: {input_image_url}")
-        generated_image_bytes = generate_image_with_gemini(input_image_url, full_prompt)
-        print(f"✅ Image generation completed. Bytes received: {len(generated_image_bytes) if generated_image_bytes else 0}")
+
+        try:
+            generated_image_bytes = generate_image_with_gemini(input_image_url, full_prompt)
+            print(f"✅ Image generation completed. Bytes received: {len(generated_image_bytes) if generated_image_bytes else 0}")
+        except Exception as e:
+            print(f"CRITICAL ERROR: Image generation failed for sample {unique_id}: {e}")
+            print("📉 Returning score of 0.0 to penalize failed image generation")
+            return 0.0, f"Image generation failed: {str(e)}"
 
         if not generated_image_bytes:
             print(f"CRITICAL ERROR: Failed to generate image for sample {unique_id}")
-            return None
+            print("📉 Returning score of 0.0 to penalize failed image generation")
+            return 0.0, "Image generation failed - no image was produced"
 
         # Save generated image to Cloud Storage and get URL
         generated_image_url = save_generated_image_to_storage(generated_image_bytes)
+
+        if not generated_image_url:
+            print(f"CRITICAL ERROR: Failed to save image to storage for sample {unique_id}")
+            print("📉 Returning score of 0.0 to penalize failed image storage")
+            return 0.0, "Image storage failed - could not save generated image"
 
         # Store the generation record in database for download by test script
         # For standalone mode, reference_image_url will be None
@@ -151,28 +163,35 @@ def evaluate_single_sample(
         )
 
         # Evaluate the generated image based on the evaluation mode
-        mode_type, mode = get_evaluation_mode()
+        try:
+            mode_type, mode = get_evaluation_mode()
 
-        if mode_type == "standalone_quality":
-            # Standalone quality evaluation - uses quality specification instead of reference
-            evaluation_score, evaluation_explanation = evaluate_standalone_quality(
-                generated_image_bytes, input_image_url, optimized_prompt, quality_specification
-            )
-        else:
-            # Reference comparison mode - compare against reference image
-            evaluation_score, evaluation_explanation = evaluate_with_gemini_bytes(
-                generated_image_bytes, reference_image_url
-            )
+            if mode_type == "standalone_quality":
+                # Standalone quality evaluation - uses quality specification instead of reference
+                evaluation_score, evaluation_explanation = evaluate_standalone_quality(
+                    generated_image_bytes, input_image_url, optimized_prompt, quality_specification
+                )
+            else:
+                # Reference comparison mode - compare against reference image
+                evaluation_score, evaluation_explanation = evaluate_with_gemini_bytes(
+                    generated_image_bytes, reference_image_url
+                )
 
-        print(f"Sample {unique_id} evaluation score: {evaluation_score}")
-        return evaluation_score, evaluation_explanation
+            print(f"Sample {unique_id} evaluation score: {evaluation_score}")
+            return evaluation_score, evaluation_explanation
+
+        except Exception as eval_error:
+            print(f"CRITICAL ERROR: Evaluation failed for sample {unique_id}: {eval_error}")
+            print("📉 Returning score of 0.0 to penalize failed evaluation")
+            return 0.0, f"Evaluation failed: {str(eval_error)}"
 
     except Exception as e:
         print(f"CRITICAL ERROR: Single sample evaluation failed: {e}")
         print(f"Exception type: {type(e).__name__}")
         import traceback
         print(f"Full traceback: {traceback.format_exc()}")
-        raise e  # Fail loudly instead of returning None
+        print("📉 Returning score of 0.0 to penalize failed sample evaluation")
+        return 0.0, f"Sample evaluation failed: {str(e)}"
 
 
 def store_generation_record(

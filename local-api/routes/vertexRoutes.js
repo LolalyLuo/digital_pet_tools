@@ -863,13 +863,29 @@ router.get("/results/:jobId", async (req, res) => {
             const timeDiff = Math.abs(resultTimestamp - jobCreatedTime);
 
             console.log(
-              `📊 Checking result timestamp ${resultTimestamp}, diff: ${timeDiff}ms`
+              `📊 Checking result file: ${fileName}`
+            );
+            console.log(
+              `   Result timestamp: ${resultTimestamp} (${new Date(resultTimestamp).toISOString()})`
+            );
+            console.log(
+              `   Job created time: ${jobCreatedTime} (${new Date(jobCreatedTime).toISOString()})`
+            );
+            console.log(
+              `   Time difference: ${timeDiff}ms (${(timeDiff / (1000 * 60)).toFixed(1)} minutes)`
             );
 
             // Find the closest match within 24 hours
             if (timeDiff < smallestTimeDiff && timeDiff < 24 * 60 * 60 * 1000) {
+              console.log(
+                `   ✅ New best match! Previous best diff: ${smallestTimeDiff}ms, new diff: ${timeDiff}ms`
+              );
               smallestTimeDiff = timeDiff;
               bestMatch = { fileName, resultTimestamp };
+            } else {
+              console.log(
+                `   ❌ Not a better match. Current best: ${smallestTimeDiff}ms`
+              );
             }
           }
         }
@@ -905,27 +921,16 @@ router.get("/results/:jobId", async (req, res) => {
           resultTimestamp = matchedTimestamp;
 
           // Parse all optimization attempts and their results
-          const optimizedPrompts = [];
           const allMetrics = {};
+          console.log(`🔍 Building prompt evolution timeline directly from evaluation data...`);
+          console.log(`📝 Original base prompt: "${jobData.base_prompts}"`);
+          console.log(`🎯 Final optimized prompt: "${optimizedData.prompt}"`);
 
-          // Start with the final optimized result
-          optimizedPrompts.push({
-            prompt: optimizedData.prompt,
-            step: optimizedData.step || 0,
-            confidenceScore:
-              optimizedData.metrics?.["image_similarity_score/mean"] || 0,
-            isOptimized: true,
-            improvements: [
-              "Final optimized version using Vertex AI",
-              "Enhanced based on training data patterns",
-              `Achieved ${(
-                optimizedData.metrics?.["image_similarity_score/mean"] * 100 ||
-                0
-              ).toFixed(1)}% similarity score`,
-            ],
-          });
+          const optimizedPrompts = [];
+          let stepCounter = 0;
 
           // Parse evaluation data to get all attempted prompts and their scores
+          const originalPrompt = Array.isArray(jobData.base_prompts) ? jobData.base_prompts[0] : jobData.base_prompts;
           if (evalData && Array.isArray(evalData)) {
             for (const evalSet of evalData) {
               if (evalSet.summary_results) {
@@ -942,30 +947,26 @@ router.get("/results/:jobId", async (req, res) => {
               if (evalSet.metrics_table) {
                 try {
                   const metricsTable = JSON.parse(evalSet.metrics_table);
+                  console.log(`🔍 Processing ${metricsTable.length} evaluation entries`);
 
                   // Group by unique prompts to see evolution
                   const promptAttempts = new Map();
 
                   for (const entry of metricsTable) {
                     const prompt = entry.prompt;
-                    if (prompt && prompt !== optimizedData.prompt) {
-                      // Don't duplicate the final optimized one
-
+                    if (prompt) {
                       if (!promptAttempts.has(prompt)) {
                         promptAttempts.set(prompt, {
                           prompt: prompt,
                           scores: [],
                           samples: [],
                           avgScore: 0,
-                          isOptimized: false,
                         });
                       }
 
                       const attempt = promptAttempts.get(prompt);
                       if (entry["image_similarity_score/score"] !== undefined) {
-                        attempt.scores.push(
-                          entry["image_similarity_score/score"]
-                        );
+                        attempt.scores.push(entry["image_similarity_score/score"]);
                         attempt.samples.push({
                           input: entry.input,
                           unique_id: entry.unique_id,
@@ -976,23 +977,54 @@ router.get("/results/:jobId", async (req, res) => {
                     }
                   }
 
-                  // Calculate averages and add to optimized prompts
+                  // Convert to final format and assign step numbers
                   for (const [prompt, data] of promptAttempts) {
                     if (data.scores.length > 0) {
-                      data.avgScore =
-                        data.scores.reduce((a, b) => a + b, 0) /
-                        data.scores.length;
+                      data.avgScore = data.scores.reduce((a, b) => a + b, 0) / data.scores.length;
                       data.confidenceScore = data.avgScore;
 
-                      optimizedPrompts.unshift({
-                        // Add to beginning to show progression
-                        ...data,
-                        improvements: [
+                      // Determine if this is the original or final optimized prompt
+                      const isOriginal = prompt === originalPrompt;
+                      const isFinalOptimized = prompt === optimizedData.prompt;
+
+                      let improvements = [];
+                      if (isOriginal) {
+                        improvements = [
+                          "Original base prompt",
+                          "Starting point for optimization",
+                          `Tested on ${data.samples.length} samples`,
+                          `Average score: ${(data.avgScore * 100).toFixed(1)}%`,
+                        ];
+                      } else if (isFinalOptimized) {
+                        improvements = [
+                          "Final optimized version using Vertex AI",
+                          "Enhanced based on training data patterns",
+                          `Achieved ${(data.avgScore * 100).toFixed(1)}% similarity score`,
+                          `Tested on ${data.samples.length} samples`,
+                          `Average score: ${(data.avgScore * 100).toFixed(1)}%`,
+                        ];
+                      } else {
+                        improvements = [
                           `Tested on ${data.samples.length} samples`,
                           `Average score: ${(data.avgScore * 100).toFixed(1)}%`,
                           "Intermediate optimization attempt",
-                        ],
+                        ];
+                      }
+
+                      optimizedPrompts.push({
+                        prompt: prompt,
+                        step: stepCounter++,
+                        confidenceScore: data.avgScore,
+                        avgScore: data.avgScore,
+                        scores: data.scores,
+                        samples: data.samples,
+                        isOptimized: isFinalOptimized,
+                        isOriginal: isOriginal,
+                        isFinal: isFinalOptimized,
+                        improvements: improvements,
                       });
+
+                      console.log(`✅ Added ${isOriginal ? 'original' : isFinalOptimized ? 'final' : 'intermediate'} prompt (step ${stepCounter - 1}) with score: ${(data.avgScore * 100).toFixed(1)}%`);
                     }
                   }
                 } catch (parseError) {
@@ -1004,44 +1036,17 @@ router.get("/results/:jobId", async (req, res) => {
             }
           }
 
-          // Sort intermediate attempts by timestamp and assign step numbers
-          const intermediateAttempts = optimizedPrompts.filter(
-            (p) => !p.isOptimized
-          );
-          console.log(
-            `🔍 Found ${intermediateAttempts.length} intermediate attempts to sort`
-          );
+          console.log(`🔍 Found ${optimizedPrompts.length} total prompts`);
 
-          // Get creation timestamps from optimizer_generations table and sort chronologically
-          for (const attempt of intermediateAttempts) {
-            const { data: generations, error } = await getSupabase()
-              .from("optimizer_generations")
-              .select("created_at")
-              .eq("prompt_used", attempt.prompt)
-              .order("created_at", { ascending: true })
-              .limit(1);
-
-            if (!error && generations && generations.length > 0) {
-              attempt.earliest_created_at = new Date(generations[0].created_at);
-            } else {
-              attempt.earliest_created_at = new Date(0); // Fallback to epoch
-            }
-          }
-
-          // Sort by actual creation timestamp (earliest first)
-          intermediateAttempts.sort((a, b) => {
-            return (
-              a.earliest_created_at.getTime() - b.earliest_created_at.getTime()
-            );
-          });
-
-          // Assign step numbers in chronological order
-          intermediateAttempts.forEach((prompt, index) => {
-            prompt.step = index + 1; // Step 1, 2, 3...
-          });
-
-          // Sort prompts by step number (highest to lowest - latest first)
+          // Sort prompts by performance score (highest to lowest - best first)
           optimizedPrompts.sort((a, b) => {
+            // Primary sort: by average score (highest first)
+            const scoreA = a.avgScore || 0;
+            const scoreB = b.avgScore || 0;
+            if (scoreB !== scoreA) {
+              return scoreB - scoreA;
+            }
+            // Secondary sort: by step number (latest first) if scores are equal
             return (b.step || 0) - (a.step || 0);
           });
 

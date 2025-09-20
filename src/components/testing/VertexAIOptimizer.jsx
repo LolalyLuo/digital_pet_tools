@@ -562,14 +562,9 @@ const VertexAIOptimizer = () => {
                                 <div className="flex items-center gap-2">
                                   <span className="font-medium text-gray-700">
                                     {optimized.step === 0
-                                      ? "🎯 Original Prompt (Step 0)"
+                                      ? "🎯 Original Prompt"
                                       : `📝 Attempt ${optimized.step}`}
                                   </span>
-                                  {optimized.step !== undefined && (
-                                    <span className="text-xs text-gray-500">
-                                      Step {optimized.step}
-                                    </span>
-                                  )}
                                 </div>
                                 <span
                                   className={`text-sm ${
@@ -579,10 +574,7 @@ const VertexAIOptimizer = () => {
                                   }`}
                                 >
                                   Score:{" "}
-                                  {Math.round(
-                                    (optimized.confidenceScore || 0) * 100
-                                  )}
-                                  %
+                                  {((optimized.confidenceScore || 0) * 100).toFixed(1)}%
                                 </span>
                               </div>
 

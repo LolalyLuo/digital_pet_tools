@@ -21,6 +21,8 @@ const VertexAIOptimizer = () => {
   const [dataSets, setDataSets] = useState([]);
   const [currentDataSet, setCurrentDataSet] = useState("");
   const [basePrompt, setBasePrompt] = useState("Generate a cute dog photo");
+  const [artStyle, setArtStyle] = useState("cartoon");
+  const [creativeDescription, setCreativeDescription] = useState("pet sitting happily with clean isolated background");
   const [numSteps, setNumSteps] = useState(20);
   const [evaluationCriteria, setEvaluationCriteria] = useState("comprehensive");
   const [evaluationMode, setEvaluationMode] = useState("reference_comparison");
@@ -253,6 +255,8 @@ const VertexAIOptimizer = () => {
             numSteps: numSteps,
             evaluationCriteria: evaluationCriteria,
             evaluationMode: evaluationMode,
+            artStyle: artStyle,
+            creativeDescription: creativeDescription,
             sessionId: sessionId, // Include session ID in request
           }),
         }
@@ -422,6 +426,46 @@ const VertexAIOptimizer = () => {
                 ℹ️ This mode doesn't require OpenAI reference images - evaluates quality independently
               </p>
             )}
+          </div>
+
+          {/* Art Style Selection */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Art Style
+            </label>
+            <select
+              value={artStyle}
+              onChange={(e) => setArtStyle(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="anime">Anime Style</option>
+              <option value="cartoon">Cartoon Style</option>
+              <option value="hand-drawn">Hand Drawn Style</option>
+              <option value="realistic">Realistic Style</option>
+              <option value="watercolor">Watercolor Style</option>
+              <option value="digital-art">Digital Art Style</option>
+              <option value="sketch">Sketch Style</option>
+            </select>
+            <p className="text-xs text-gray-500 mt-1">
+              Choose the artistic style for the generated pet portraits
+            </p>
+          </div>
+
+          {/* Creative Description */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Creative Description
+            </label>
+            <textarea
+              value={creativeDescription}
+              onChange={(e) => setCreativeDescription(e.target.value)}
+              placeholder="e.g., pet holding a mug, pet wearing a hat, pet sitting in a garden..."
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 resize-none"
+              rows={3}
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Short creative description of the desired scene or pose. Focus on isolated pets with clean backgrounds.
+            </p>
           </div>
 
           {/* Number of Steps */}

@@ -55,6 +55,8 @@ router.post("/optimize", async (req, res) => {
       evaluationMetrics = ["bleu", "rouge"],
       evaluationCriteria = "comprehensive",
       evaluationMode = "reference_comparison",
+      artStyle = "cartoon",
+      creativeDescription = "pet sitting happily with clean isolated background",
       numSteps = 20,
       sessionId,
     } = req.body;
@@ -72,6 +74,8 @@ router.post("/optimize", async (req, res) => {
     console.log(`🎯 Target Model: ${targetModel}`);
     console.log(`📋 Evaluation Criteria: ${evaluationCriteria}`);
     console.log(`🔬 Evaluation Mode: ${evaluationMode}`);
+    console.log(`🎨 Art Style: ${artStyle}`);
+    console.log(`💡 Creative Description: ${creativeDescription}`);
     console.log(`🔢 Number of Steps: ${numSteps}`);
     console.log(`🆔 Session ID: ${sessionId}`);
 
@@ -117,7 +121,7 @@ router.post("/optimize", async (req, res) => {
           const petAnalysis = await generateImageDescription(sample.uploaded_image_url, "pet_analysis");
 
           // Create quality specification target (no reference image needed)
-          const qualitySpec = await generateQualitySpecification(sample.uploaded_image_url, petAnalysis);
+          const qualitySpec = await generateQualitySpecification(sample.uploaded_image_url, petAnalysis, artStyle, creativeDescription);
 
           console.log(`✅ Processed standalone sample ${sample.id}`);
           return {

@@ -295,14 +295,16 @@ Provide a detailed and comprehensive description that captures all the important
  * Generates a detailed descriptive target for standalone evaluation mode
  * @param {string} imageUrl - The URL of the source pet image
  * @param {string} petAnalysis - The detailed analysis of the pet
+ * @param {string} artStyle - The desired artistic style
+ * @param {string} creativeDescription - The creative scenario description
  * @returns {Promise<string>} - The generated descriptive target
  */
-export async function generateQualitySpecification(imageUrl, petAnalysis) {
+export async function generateQualitySpecification(imageUrl, petAnalysis, artStyle = "cartoon", creativeDescription = "pet sitting happily with clean isolated background") {
   try {
     console.log(`🎯 Generating descriptive target for image: ${imageUrl}`);
 
-    // Check if descriptive target is already cached
-    const cacheKey = `${imageUrl}_descriptive_target`;
+    // Check if descriptive target is already cached (include style and description in cache key)
+    const cacheKey = `${imageUrl}_${artStyle}_${creativeDescription.replace(/[^a-zA-Z0-9]/g, '_')}_descriptive_target`;
     const { data: cachedTarget, error: cacheError } = await getSupabase()
       .from("image_descriptions")
       .select("description")
@@ -320,23 +322,53 @@ export async function generateQualitySpecification(imageUrl, petAnalysis) {
     const model = getGenAI().getGenerativeModel({ model: "gemini-1.5-flash" });
 
     // Create a prompt to generate a detailed description of the ideal image
-    const targetGenerationPrompt = `Based on this pet analysis, create a detailed, descriptive target that describes what a perfect, high-quality commercial pet portrait would look like.
+    const targetGenerationPrompt = `You are an expert digital artist and art director specializing in stylized pet portraits. Based on the detailed pet analysis provided, create an exceptionally detailed, comprehensive description of what the perfect ${artStyle} style pet portrait would look like, featuring the creative scenario: "${creativeDescription}". This description will serve as the gold standard target for evaluation.
 
 Pet Analysis: ${petAnalysis}
+Art Style: ${artStyle}
+Creative Scenario: ${creativeDescription}
 
-Write a comprehensive, detailed description of the ideal commercial pet portrait as if you're describing an actual high-quality image. Include:
+Create a detailed descriptive target that captures every aspect of an ideal stylized pet portrait. Your description should be 800-1200 words and structured as follows:
 
-1. **Physical Accuracy**: Exactly how the pet should look (breed characteristics, colors, markings, features)
-2. **Pose & Expression**: The ideal pose, facial expression, and body language
-3. **Artistic Style**: Professional artistic approach and visual treatment
-4. **Lighting & Colors**: Perfect lighting setup and color palette
-5. **Composition**: Ideal framing, positioning, and background
-6. **Quality Details**: Professional execution, sharp details, smooth rendering
-7. **Commercial Appeal**: Elements that make it gift-worthy and marketable
+**SECTION 1: PET SPECIFICS & CREATIVE SCENARIO (200-300 words)**
+- Exact breed characteristics, size, build, and unique features from the analysis rendered in ${artStyle} style
+- Detailed description of how the pet is positioned and posed for the creative scenario: "${creativeDescription}"
+- Specific positioning details, pose, and expression that brings the creative scenario to life
+- How the pet's unique personality and characteristics shine through the stylized approach
+- Integration of the creative elements (props, poses, interactions) with the pet's natural features
 
-Write this as a flowing, detailed description (like describing a reference image) rather than a list. Focus on what the perfect final image would actually look like, capturing all the visual elements that would make it commercially successful.
+**SECTION 2: ARTISTIC STYLE & VISUAL APPROACH (200-300 words)**
+- Specific ${artStyle} art style characteristics and rendering techniques
+- Color palette and color treatment appropriate for ${artStyle} style (vibrant, stylized, artistic color choices)
+- Line work, shading, and artistic rendering techniques specific to ${artStyle}
+- Texture and brush stroke characteristics that define the ${artStyle} aesthetic
+- How the pet's natural features are translated into the ${artStyle} artistic language
 
-Start your description with: "A professional, high-quality commercial pet portrait featuring..."`;
+**SECTION 3: PHYSICAL DETAILS & STYLIZED ACCURACY (200-300 words)**
+- Pet's coat colors, patterns, and markings rendered in ${artStyle} style
+- Eye color, shape, and expression adapted to the artistic style while maintaining accuracy
+- Nose, ears, and facial features stylized but recognizable
+- How each unique marking and characteristic is perfectly rendered in the artistic style
+- Balance between stylistic interpretation and pet recognition
+
+**SECTION 4: BACKGROUND & COMPOSITION (200-300 words)**
+- Clean, isolated background that complements the ${artStyle} aesthetic
+- Complete removal of original photo background elements
+- Background should be minimal, artistic, and match the ${artStyle} approach
+- Perfect framing that showcases both the pet and any creative scenario elements
+- Composition that works well for merchandise and digital use
+- Images that retain original backgrounds should score significantly lower
+
+**SECTION 5: COMMERCIAL APPEAL & QUALITY (100-200 words)**
+- Elements that make it instantly appealing as stylized art rather than realistic photography
+- High-quality ${artStyle} execution that appeals to customers wanting artistic pet portraits
+- Perfect for merchandise, gifts, and decorative use
+- Evokes joy and artistic appreciation rather than photographic realism
+- Strong artistic identity and creative interpretation
+
+Write this as a flowing, detailed narrative description (as if describing an actual reference image) rather than bullet points. Use professional art and illustration terminology. Focus on what makes this stylized portrait artistically exceptional and emotionally engaging through creative interpretation.
+
+Start your description with: "A beautifully crafted ${artStyle} style pet portrait featuring..."`;
 
     const result = await model.generateContent([targetGenerationPrompt]);
     const descriptiveTarget = result.response.text();

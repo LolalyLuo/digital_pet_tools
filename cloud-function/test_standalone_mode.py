@@ -157,7 +157,8 @@ def main():
 
     print("Test data format:")
     print(f"   Input: {data['input'][:100]}...")
-    print(f"   Target: {data['target'][:100]}...")
+    print("   Full Target:")
+    print(f"   {data['target']}")
     print()
 
     try:

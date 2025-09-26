@@ -49,12 +49,12 @@ export default function ConfigPanel({ currentConfig, onConfigChange, onStartIter
       const newConfig = { ...prev }
       const keys = path.split('.')
       let current = newConfig
-      
+
       for (let i = 0; i < keys.length - 1; i++) {
         if (!current[keys[i]]) current[keys[i]] = {}
         current = current[keys[i]]
       }
-      
+
       current[keys[keys.length - 1]] = value
       return newConfig
     })
@@ -136,9 +136,8 @@ export default function ConfigPanel({ currentConfig, onConfigChange, onStartIter
           value={config.name}
           onChange={(e) => updateConfig('name', e.target.value)}
           placeholder="e.g., Cute pets optimization"
-          className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-            errors.name ? 'border-red-300' : 'border-gray-300'
-          }`}
+          className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${errors.name ? 'border-red-300' : 'border-gray-300'
+            }`}
         />
         {errors.name && <p className="text-red-600 text-xs mt-1">{errors.name}</p>}
       </div>
@@ -157,7 +156,7 @@ export default function ConfigPanel({ currentConfig, onConfigChange, onStartIter
           <option value="photo_matching">Photo Matching</option>
           <option value="manual_rating">Manual Rating</option>
         </select>
-        
+
         <div className="mt-3">
           {renderEvaluationCriteriaConfig()}
         </div>
@@ -188,6 +187,7 @@ export default function ConfigPanel({ currentConfig, onConfigChange, onStartIter
           <option value="openai">OpenAI</option>
           <option value="gemini">Google Gemini</option>
           <option value="gemini-img2img">Gemini Image-to-Image</option>
+          <option value="seedream">SeeDream</option>
         </select>
 
         <div className="mt-4 space-y-4">
@@ -302,9 +302,8 @@ export default function ConfigPanel({ currentConfig, onConfigChange, onStartIter
               max="100"
               value={config.iteration_settings.max_iterations}
               onChange={(e) => updateConfig('iteration_settings.max_iterations', parseInt(e.target.value))}
-              className={`w-full px-3 py-1 text-sm border rounded focus:ring-1 focus:ring-blue-500 ${
-                errors.max_iterations ? 'border-red-300' : 'border-gray-300'
-              }`}
+              className={`w-full px-3 py-1 text-sm border rounded focus:ring-1 focus:ring-blue-500 ${errors.max_iterations ? 'border-red-300' : 'border-gray-300'
+                }`}
             />
             {errors.max_iterations && <p className="text-red-600 text-xs mt-1">{errors.max_iterations}</p>}
           </div>
@@ -316,9 +315,8 @@ export default function ConfigPanel({ currentConfig, onConfigChange, onStartIter
               max="20"
               value={config.iteration_settings.batch_size}
               onChange={(e) => updateConfig('iteration_settings.batch_size', parseInt(e.target.value))}
-              className={`w-full px-3 py-1 text-sm border rounded focus:ring-1 focus:ring-blue-500 ${
-                errors.batch_size ? 'border-red-300' : 'border-gray-300'
-              }`}
+              className={`w-full px-3 py-1 text-sm border rounded focus:ring-1 focus:ring-blue-500 ${errors.batch_size ? 'border-red-300' : 'border-gray-300'
+                }`}
             />
             {errors.batch_size && <p className="text-red-600 text-xs mt-1">{errors.batch_size}</p>}
           </div>
@@ -347,7 +345,7 @@ export default function ConfigPanel({ currentConfig, onConfigChange, onStartIter
             <Save className="h-4 w-4" />
             Save Configuration
           </button>
-          
+
           <button
             onClick={handleStartIteration}
             disabled={isRunning || !config.name.trim()}

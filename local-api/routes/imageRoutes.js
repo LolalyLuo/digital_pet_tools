@@ -75,6 +75,13 @@ router.post("/generate-images", async (req, res) => {
       return res.status(500).json({ error: "Missing Gemini API key" });
     }
 
+    if (model === "seedream" && !process.env.FAL_API_KEY) {
+      console.error("❌ Error: Missing FAL API key for SeeDream");
+      return res
+        .status(500)
+        .json({ error: "Missing FAL API key for SeeDream" });
+    }
+
     // Validate template numbers for img2img model
     if (model === "gemini-img2img") {
       if (!templateNumbers || templateNumbers.length === 0) {
@@ -274,6 +281,97 @@ router.post("/generate-images", async (req, res) => {
               );
               b64Image = geminiResult.imageBase64;
               mimeType = geminiResult.mimeType;
+            } else if (model === "seedream") {
+              // Use SeeDream API via fal.ai
+
+              console.log(
+                `🌱 [Seedream] Starting image generation with seedream-4.0`
+              );
+
+              // Map aspect ratios to SeeDream's specific size constants
+              const aspectRatioToSize = (aspectRatio) => {
+                const sizeMap = {
+                  "1024×1024": "square_hd", // 1:1 ratio
+                  "1024×1536": "portrait_4_3", // 3:4 ratio (closest to OpenAI's 2:3)
+                  "1536×1024": "landscape_4_3", // 4:3 ratio (closest to OpenAI's 3:2)
+                  auto: "square_hd", // Default to square
+                };
+                return sizeMap[aspectRatio] || "square_hd";
+              };
+
+              // Get target size constant
+              const imageSize = aspectRatioToSize(size);
+
+              // Build prompt with background requirements
+              let enhancedPrompt = prompt;
+              if (background === "transparent") {
+                enhancedPrompt += `
+                Requirements:
+                - Use the pet only and no other elements from the photo.
+                - Background: Clean background that can be easily removed for transparency.
+                - Composition: Clean, centered design that works on different product formats. Ensure some empty space around the pet and nothing is cutoff.
+                - Quality: High quality designs that print well on merchandise.`;
+              } else if (background === "opaque") {
+                enhancedPrompt += `
+                Requirements:
+                - Use the pet only and no other elements from the photo.
+                - Background: background should match the general theme and style.
+                - Composition: Clean, centered design that works on different product formats.
+                - Quality: High quality designs with beautiful pet and detailed background.`;
+              }
+
+              // Convert reference image to base64
+              const imageBase64 = petBuffer.toString("base64");
+              const imageDataUrl = `data:image/png;base64,${imageBase64}`;
+
+              // Prepare request payload for fal.ai Seedream v4 edit
+              const requestPayload = {
+                prompt: enhancedPrompt,
+                image_urls: [imageDataUrl],
+                image_size: imageSize,
+                num_images: 1,
+                enable_safety_checker: false,
+              };
+
+              // Make API request to fal.ai
+              const response = await fetch(
+                "https://fal.run/fal-ai/bytedance/seedream/v4/edit",
+                {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Key ${process.env.FAL_API_KEY}`,
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify(requestPayload),
+                }
+              );
+
+              if (!response.ok) {
+                const errorText = await response.text();
+                console.error(`❌ Seedream API error:`, {
+                  status: response.status,
+                  statusText: response.statusText,
+                  error: errorText,
+                });
+                return null;
+              }
+
+              const responseData = await response.json();
+
+              // Extract image from response
+              if (!responseData.images || !responseData.images[0]) {
+                console.error(
+                  "❌ Error: No image data returned from Seedream API"
+                );
+                return null;
+              }
+
+              // Get the generated image URL and convert to base64
+              const generatedImageUrl = responseData.images[0].url;
+              const imageResponse = await fetch(generatedImageUrl);
+              const imageArrayBuffer = await imageResponse.arrayBuffer();
+              b64Image = Buffer.from(imageArrayBuffer).toString("base64");
+              mimeType = "image/png";
             } else {
               // Use OpenAI API (default)
 

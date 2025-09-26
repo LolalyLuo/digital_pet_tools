@@ -528,6 +528,7 @@ export default function TestDesign() {
                       <option value="openai">OpenAI</option>
                       <option value="gemini">Google Gemini</option>
                       <option value="gemini-img2img">Gemini Image-to-Image</option>
+                      <option value="seedream">SeeDream</option>
                     </select>
                   </div>
                 </div>

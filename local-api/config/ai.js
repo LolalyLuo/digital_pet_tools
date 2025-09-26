@@ -49,35 +49,45 @@ export function initializeAIClients() {
 // Getter functions to access the clients
 export function getOpenAI() {
   if (!openai) {
-    throw new Error("OpenAI client not initialized. Call initializeAIClients() first.");
+    throw new Error(
+      "OpenAI client not initialized. Call initializeAIClients() first."
+    );
   }
   return openai;
 }
 
 export function getGenAI() {
   if (!genAI) {
-    throw new Error("Gemini client not initialized. Call initializeAIClients() first.");
+    throw new Error(
+      "Gemini client not initialized. Call initializeAIClients() first."
+    );
   }
   return genAI;
 }
 
 export function getJobServiceClient() {
   if (!jobServiceClient) {
-    throw new Error("Vertex AI Job Service client not initialized. Call initializeAIClients() first.");
+    throw new Error(
+      "Vertex AI Job Service client not initialized. Call initializeAIClients() first."
+    );
   }
   return jobServiceClient;
 }
 
 export function getPredictionClient() {
   if (!predictionClient) {
-    throw new Error("Vertex AI Prediction client not initialized. Call initializeAIClients() first.");
+    throw new Error(
+      "Vertex AI Prediction client not initialized. Call initializeAIClients() first."
+    );
   }
   return predictionClient;
 }
 
 export function getStorageClient() {
   if (!storageClient) {
-    throw new Error("Google Cloud Storage client not initialized. Call initializeAIClients() first.");
+    throw new Error(
+      "Google Cloud Storage client not initialized. Call initializeAIClients() first."
+    );
   }
   return storageClient;
 }
@@ -103,6 +113,11 @@ export const DEFAULT_MODEL_CONFIGS = {
   openai: {
     // OpenAI doesn't use these parameters, but we can store other config here
     model: "gpt-image-1",
+  },
+  seedream: {
+    model: "seedream-4.0",
+    maxRetries: 3,
+    timeout: 60000,
   },
 };
 

@@ -10,6 +10,7 @@ import IteratePage from "./components/iterate/IteratePage";
 import EvaluationTester from "./components/testing/EvaluationTester";
 import TrainingDataManager from "./components/testing/TrainingDataManager";
 import VertexAIOptimizer from "./components/testing/VertexAIOptimizer";
+import ProdImages from "./components/ProdImages";
 
 function App() {
   const [user, setUser] = useState(null);
@@ -106,6 +107,8 @@ function App() {
         return <TrainingDataManager />;
       case "vertex-ai-optimizer":
         return <VertexAIOptimizer />;
+      case "prod-images":
+        return <ProdImages />;
       default:
         return null;
     }
@@ -146,73 +149,75 @@ function App() {
             <div className="flex space-x-1">
               <button
                 onClick={() => setCurrentApp("explore-ideas")}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  currentApp === "explore-ideas"
-                    ? "bg-blue-100 text-blue-700 border border-blue-200"
-                    : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-                }`}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${currentApp === "explore-ideas"
+                  ? "bg-blue-100 text-blue-700 border border-blue-200"
+                  : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                  }`}
               >
                 Explore Ideas
               </button>
               <button
                 onClick={() => setCurrentApp("finalize-designs")}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  currentApp === "finalize-designs"
-                    ? "bg-blue-100 text-blue-700 border border-blue-200"
-                    : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-                }`}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${currentApp === "finalize-designs"
+                  ? "bg-blue-100 text-blue-700 border border-blue-200"
+                  : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                  }`}
               >
                 Finalize Designs
               </button>
               <button
                 onClick={() => setCurrentApp("test-design")}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  currentApp === "test-design"
-                    ? "bg-blue-100 text-blue-700 border border-blue-200"
-                    : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-                }`}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${currentApp === "test-design"
+                  ? "bg-blue-100 text-blue-700 border border-blue-200"
+                  : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                  }`}
               >
                 Test Design
               </button>
               <button
                 onClick={() => setCurrentApp("iterate")}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  currentApp === "iterate"
-                    ? "bg-blue-100 text-blue-700 border border-blue-200"
-                    : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-                }`}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${currentApp === "iterate"
+                  ? "bg-blue-100 text-blue-700 border border-blue-200"
+                  : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                  }`}
               >
                 Iterate
               </button>
               <button
                 onClick={() => setCurrentApp("training-data")}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  currentApp === "training-data"
-                    ? "bg-blue-100 text-blue-700 border border-blue-200"
-                    : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-                }`}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${currentApp === "training-data"
+                  ? "bg-blue-100 text-blue-700 border border-blue-200"
+                  : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                  }`}
               >
                 Training Data
               </button>
               <button
                 onClick={() => setCurrentApp("evaluation-tester")}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  currentApp === "evaluation-tester"
-                    ? "bg-blue-100 text-blue-700 border border-blue-200"
-                    : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-                }`}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${currentApp === "evaluation-tester"
+                  ? "bg-blue-100 text-blue-700 border border-blue-200"
+                  : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                  }`}
               >
                 Evaluation Test
               </button>
               <button
                 onClick={() => setCurrentApp("vertex-ai-optimizer")}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  currentApp === "vertex-ai-optimizer"
-                    ? "bg-blue-100 text-blue-700 border border-blue-200"
-                    : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-                }`}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${currentApp === "vertex-ai-optimizer"
+                  ? "bg-blue-100 text-blue-700 border border-blue-200"
+                  : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                  }`}
               >
                 Vertex AI Optimizer
+              </button>
+              <button
+                onClick={() => setCurrentApp("prod-images")}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${currentApp === "prod-images"
+                  ? "bg-blue-100 text-blue-700 border border-blue-200"
+                  : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                  }`}
+              >
+                Production Images
               </button>
             </div>
 

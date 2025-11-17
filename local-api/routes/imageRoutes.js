@@ -290,13 +290,15 @@ router.post("/generate-images", async (req, res) => {
 
               // Map aspect ratios to SeeDream's specific size constants
               const aspectRatioToSize = (aspectRatio) => {
+                // Normalize to use × for comparison
+                const normalized = aspectRatio.replace("x", "×");
                 const sizeMap = {
                   "1024×1024": "square_hd", // 1:1 ratio
                   "1024×1536": "portrait_4_3", // 3:4 ratio (closest to OpenAI's 2:3)
                   "1536×1024": "landscape_4_3", // 4:3 ratio (closest to OpenAI's 3:2)
                   auto: "square_hd", // Default to square
                 };
-                return sizeMap[aspectRatio] || "square_hd";
+                return sizeMap[normalized] || "square_hd";
               };
 
               // Get target size constant

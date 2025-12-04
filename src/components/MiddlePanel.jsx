@@ -16,8 +16,8 @@ export default function MiddlePanel({
   const [newPromptText, setNewPromptText] = useState('')
   const [copiedId, setCopiedId] = useState(null)
   const [selectedSize, setSelectedSize] = useState('auto')
-  const [selectedBackground, setSelectedBackground] = useState('opaque')
-  const [selectedModel, setSelectedModel] = useState('gemini-img2img')
+  const [selectedBackground, setSelectedBackground] = useState('transparent')
+  const [selectedModel, setSelectedModel] = useState('seedream')
   const [templateNumbers, setTemplateNumbers] = useState('113, 202, 193, 303, 139, 205, 17, 280, 169, 543, 449, 266, 64, 307, 293, 157, 286, 61, 290, 294')
 
   const {

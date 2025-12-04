@@ -310,7 +310,8 @@ router.post("/generate-images", async (req, res) => {
                 enhancedPrompt += `
                 Requirements:
                 - Use the pet only and no other elements from the photo.
-                - Background: Clean background that can be easily removed for transparency.
+                - Background: Background must be transparent with a white/gray checkerboard pattern.
+                - Elements: all elements must be connected and attached to the pet, like the pet name if provided.
                 - Composition: Clean, centered design that works on different product formats. Ensure some empty space around the pet and nothing is cutoff.
                 - Quality: High quality designs that print well on merchandise.`;
               } else if (background === "opaque") {
@@ -334,6 +335,7 @@ router.post("/generate-images", async (req, res) => {
                 num_images: 1,
                 enable_safety_checker: false,
               };
+              console.log("🌱 ======[Seedream] Prompt:", enhancedPrompt);
 
               // Make API request to fal.ai
               const response = await fetch(

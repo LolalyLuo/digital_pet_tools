@@ -332,6 +332,10 @@ router.post("/generate-images", async (req, res) => {
                 prompt: enhancedPrompt,
                 image_urls: [imageDataUrl],
                 image_size: imageSize,
+                /* image_size: {
+                  width: 1440,
+                  height: 2560,
+                }, */
                 num_images: 1,
                 enable_safety_checker: false,
               };

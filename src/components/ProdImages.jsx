@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Download, Copy, Check } from 'lucide-react'
+import { Download, Copy, Check, Search, X } from 'lucide-react'
 import { createClient } from '@supabase/supabase-js'
 
 // Production Supabase configuration
@@ -50,6 +50,8 @@ export default function ProdImages() {
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [copiedField, setCopiedField] = useState(null)
   const [selectedTable, setSelectedTable] = useState('pets')
+  const [filterUserId, setFilterUserId] = useState('')
+  const [filterUploadId, setFilterUploadId] = useState('')
   const observer = useRef()
 
   const ITEMS_PER_PAGE = 30
@@ -70,11 +72,21 @@ export default function ProdImages() {
         .order(config.orderBy, { ascending: false })
         .range(pageNum * ITEMS_PER_PAGE, (pageNum + 1) * ITEMS_PER_PAGE - 1)
 
-      // Apply filters if needed
+      // Apply table-specific filters if needed
       if (config.filter) {
         Object.entries(config.filter).forEach(([key, value]) => {
           query = query.eq(key, value)
         })
+      }
+
+      // Apply user ID filter if provided
+      if (filterUserId.trim()) {
+        query = query.eq('user_id', filterUserId.trim())
+      }
+
+      // Apply upload ID filter if provided
+      if (filterUploadId.trim()) {
+        query = query.eq('upload_id', filterUploadId.trim())
       }
 
       const { data, error } = await query
@@ -96,7 +108,7 @@ export default function ProdImages() {
     } finally {
       setLoading(false)
     }
-  }, [selectedTable])
+  }, [selectedTable, filterUserId, filterUploadId])
 
   // Load more items when scrolling
   const loadMore = useCallback(async () => {
@@ -132,6 +144,12 @@ export default function ProdImages() {
     setHasMore(true)
     loadItems(0, false)
   }, [selectedTable, loadItems])
+
+  // Reset filters when table changes
+  useEffect(() => {
+    setFilterUserId('')
+    setFilterUploadId('')
+  }, [selectedTable])
 
   // Cleanup observer on unmount
   useEffect(() => {
@@ -170,6 +188,13 @@ export default function ProdImages() {
     }
   }
 
+  const handleSearch = () => {
+    setItems([])
+    setPage(0)
+    setHasMore(true)
+    loadItems(0, false)
+  }
+
   // Show configuration error if credentials are not set up
   if (!isConfigured) {
     return (
@@ -201,6 +226,73 @@ export default function ProdImages() {
   if (items.length === 0 && !loading) {
     return (
       <div className="w-full bg-gray-50 px-6 py-6">
+        {/* Sticky Filter Bar */}
+        <div className="sticky top-0 z-10 bg-white border-b border-gray-200 -mx-6 px-6 py-4 mb-6 shadow-sm">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 flex-1">
+              <label className="text-sm font-medium text-gray-700 whitespace-nowrap">User ID:</label>
+              <input
+                type="text"
+                value={filterUserId}
+                onChange={(e) => setFilterUserId(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleSearch()
+                  }
+                }}
+                placeholder="Filter by user ID"
+                className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              {filterUserId && (
+                <button
+                  onClick={() => {
+                    setFilterUserId('')
+                    handleSearch()
+                  }}
+                  className="p-1 text-gray-400 hover:text-gray-600"
+                  title="Clear user ID filter"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-2 flex-1">
+              <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Upload ID:</label>
+              <input
+                type="text"
+                value={filterUploadId}
+                onChange={(e) => setFilterUploadId(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleSearch()
+                  }
+                }}
+                placeholder="Filter by upload ID"
+                className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              {filterUploadId && (
+                <button
+                  onClick={() => {
+                    setFilterUploadId('')
+                    handleSearch()
+                  }}
+                  className="p-1 text-gray-400 hover:text-gray-600"
+                  title="Clear upload ID filter"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+            <button
+              onClick={handleSearch}
+              className="px-4 py-2 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 flex items-center gap-2"
+            >
+              <Search className="h-4 w-4" />
+              Search
+            </button>
+          </div>
+        </div>
+
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-lg font-semibold">Production Images</h2>
           <div className="flex items-center gap-2">
@@ -227,6 +319,73 @@ export default function ProdImages() {
 
   return (
     <div className="w-full bg-gray-50 px-6 py-6 flex flex-col">
+      {/* Sticky Filter Bar */}
+      <div className="sticky top-0 z-10 bg-white border-b border-gray-200 -mx-6 px-6 py-4 mb-6 shadow-sm">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 flex-1">
+            <label className="text-sm font-medium text-gray-700 whitespace-nowrap">User ID:</label>
+            <input
+              type="text"
+              value={filterUserId}
+              onChange={(e) => setFilterUserId(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handleSearch()
+                }
+              }}
+              placeholder="Filter by user ID"
+              className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+            {filterUserId && (
+              <button
+                onClick={() => {
+                  setFilterUserId('')
+                  handleSearch()
+                }}
+                className="p-1 text-gray-400 hover:text-gray-600"
+                title="Clear user ID filter"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2 flex-1">
+            <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Upload ID:</label>
+            <input
+              type="text"
+              value={filterUploadId}
+              onChange={(e) => setFilterUploadId(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handleSearch()
+                }
+              }}
+              placeholder="Filter by upload ID"
+              className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+            {filterUploadId && (
+              <button
+                onClick={() => {
+                  setFilterUploadId('')
+                  handleSearch()
+                }}
+                className="p-1 text-gray-400 hover:text-gray-600"
+                title="Clear upload ID filter"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          <button
+            onClick={handleSearch}
+            className="px-4 py-2 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 flex items-center gap-2"
+          >
+            <Search className="h-4 w-4" />
+            Search
+          </button>
+        </div>
+      </div>
+
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-lg font-semibold">
           {config?.name || 'Production Images'} ({items.length} items)
@@ -354,3 +513,4 @@ export default function ProdImages() {
     </div>
   )
 }
+

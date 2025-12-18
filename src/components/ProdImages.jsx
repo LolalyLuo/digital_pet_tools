@@ -13,7 +13,7 @@ const PROD_CONFIG = {
 const TABLE_CONFIGS = {
   pets: {
     name: 'Pets',
-    fields: ['upload_id', 'user_id', 'pet_name', 'pet_gender', 'user_email'],
+    fields: ['upload_id', 'user_id', 'pet_name', 'pet_gender', 'pet_personality', 'user_email'],
     imageField: 'image_url',
     filter: { shop: 'vuse04-um.myshopify.com' },
     orderBy: 'created_at'
@@ -52,6 +52,8 @@ export default function ProdImages() {
   const [selectedTable, setSelectedTable] = useState('pets')
   const [filterUserId, setFilterUserId] = useState('')
   const [filterUploadId, setFilterUploadId] = useState('')
+  const [filterPetName, setFilterPetName] = useState('')
+  const [filterAiImageName, setFilterAiImageName] = useState('')
   const observer = useRef()
 
   const ITEMS_PER_PAGE = 30
@@ -89,6 +91,16 @@ export default function ProdImages() {
         query = query.eq('upload_id', filterUploadId.trim())
       }
 
+      // Apply pet name filter if provided (pets table only)
+      if (selectedTable === 'pets' && filterPetName.trim()) {
+        query = query.ilike('pet_name', `%${filterPetName.trim()}%`)
+      }
+
+      // Apply AI image name filter if provided (ai_images table only)
+      if (selectedTable === 'ai_images' && filterAiImageName.trim()) {
+        query = query.ilike('ai_image_name', `%${filterAiImageName.trim()}%`)
+      }
+
       const { data, error } = await query
 
       if (error) throw error
@@ -108,7 +120,7 @@ export default function ProdImages() {
     } finally {
       setLoading(false)
     }
-  }, [selectedTable, filterUserId, filterUploadId])
+  }, [selectedTable, filterUserId, filterUploadId, filterPetName, filterAiImageName])
 
   // Load more items when scrolling
   const loadMore = useCallback(async () => {
@@ -149,6 +161,8 @@ export default function ProdImages() {
   useEffect(() => {
     setFilterUserId('')
     setFilterUploadId('')
+    setFilterPetName('')
+    setFilterAiImageName('')
   }, [selectedTable])
 
   // Cleanup observer on unmount
@@ -283,6 +297,64 @@ export default function ProdImages() {
                 </button>
               )}
             </div>
+            {selectedTable === 'pets' && (
+              <div className="flex items-center gap-2 flex-1">
+                <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Pet Name:</label>
+                <input
+                  type="text"
+                  value={filterPetName}
+                  onChange={(e) => setFilterPetName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleSearch()
+                    }
+                  }}
+                  placeholder="Filter by pet name"
+                  className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                {filterPetName && (
+                  <button
+                    onClick={() => {
+                      setFilterPetName('')
+                      handleSearch()
+                    }}
+                    className="p-1 text-gray-400 hover:text-gray-600"
+                    title="Clear pet name filter"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            )}
+            {selectedTable === 'ai_images' && (
+              <div className="flex items-center gap-2 flex-1">
+                <label className="text-sm font-medium text-gray-700 whitespace-nowrap">AI Image Name:</label>
+                <input
+                  type="text"
+                  value={filterAiImageName}
+                  onChange={(e) => setFilterAiImageName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleSearch()
+                    }
+                  }}
+                  placeholder="Filter by AI image name"
+                  className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                {filterAiImageName && (
+                  <button
+                    onClick={() => {
+                      setFilterAiImageName('')
+                      handleSearch()
+                    }}
+                    className="p-1 text-gray-400 hover:text-gray-600"
+                    title="Clear AI image name filter"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            )}
             <button
               onClick={handleSearch}
               className="px-4 py-2 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 flex items-center gap-2"
@@ -376,6 +448,64 @@ export default function ProdImages() {
               </button>
             )}
           </div>
+          {selectedTable === 'pets' && (
+            <div className="flex items-center gap-2 flex-1">
+              <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Pet Name:</label>
+              <input
+                type="text"
+                value={filterPetName}
+                onChange={(e) => setFilterPetName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleSearch()
+                  }
+                }}
+                placeholder="Filter by pet name"
+                className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              {filterPetName && (
+                <button
+                  onClick={() => {
+                    setFilterPetName('')
+                    handleSearch()
+                  }}
+                  className="p-1 text-gray-400 hover:text-gray-600"
+                  title="Clear pet name filter"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          )}
+          {selectedTable === 'ai_images' && (
+            <div className="flex items-center gap-2 flex-1">
+              <label className="text-sm font-medium text-gray-700 whitespace-nowrap">AI Image Name:</label>
+              <input
+                type="text"
+                value={filterAiImageName}
+                onChange={(e) => setFilterAiImageName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleSearch()
+                  }
+                }}
+                placeholder="Filter by AI image name"
+                className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              {filterAiImageName && (
+                <button
+                  onClick={() => {
+                    setFilterAiImageName('')
+                    handleSearch()
+                  }}
+                  className="p-1 text-gray-400 hover:text-gray-600"
+                  title="Clear AI image name filter"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          )}
           <button
             onClick={handleSearch}
             className="px-4 py-2 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 flex items-center gap-2"

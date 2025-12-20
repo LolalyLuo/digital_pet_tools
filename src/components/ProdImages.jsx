@@ -13,21 +13,21 @@ const PROD_CONFIG = {
 const TABLE_CONFIGS = {
   pets: {
     name: 'Pets',
-    fields: ['upload_id', 'user_id', 'pet_name', 'pet_gender', 'pet_personality', 'user_email'],
+    fields: ['upload_id', 'user_id', 'pet_name', 'pet_gender', 'pet_personality', 'user_email', 'created_at'],
     imageField: 'image_url',
     filter: { shop: 'vuse04-um.myshopify.com' },
     orderBy: 'created_at'
   },
   ai_images: {
     name: 'AI Images',
-    fields: ['upload_id', 'user_id', 'ai_image_name'],
+    fields: ['upload_id', 'user_id', 'ai_image_name', 'created_at'],
     imageField: 'image_url',
     filter: null,
     orderBy: 'created_at'
   },
   personalized_images: {
     name: 'Personalized Images',
-    fields: ['upload_id', 'user_id', 'original_filename'],
+    fields: ['upload_id', 'user_id', 'original_filename', 'created_at'],
     imageField: 'printify_image_url',
     filter: { shop: 'vuse04-um.myshopify.com' },
     orderBy: 'created_at'
@@ -577,9 +577,27 @@ export default function ProdImages() {
                 {/* Item Info */}
                 <div className="p-3 bg-gray-50 space-y-2">
                   {config?.fields.map((field) => {
-                    const value = item[field]
+                    let value = item[field]
                     const fieldKey = `${fieldId}-${field}`
                     const isCopied = copiedField === fieldKey
+
+                    // Format created_at as readable date and time
+                    if (field === 'created_at' && value) {
+                      try {
+                        const date = new Date(value)
+                        value = date.toLocaleString('en-US', {
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit',
+                          hour12: true
+                        })
+                      } catch (e) {
+                        // If parsing fails, use original value
+                      }
+                    }
 
                     return (
                       <div key={field} className="flex items-start gap-2">
@@ -589,7 +607,7 @@ export default function ProdImages() {
                         </p>
                         {value && (
                           <button
-                            onClick={() => copyToClipboard(value, fieldKey)}
+                            onClick={() => copyToClipboard(field === 'created_at' ? item[field] : value, fieldKey)}
                             className="p-1 text-gray-400 hover:text-gray-600 flex-shrink-0"
                             title={`Copy ${field}`}
                           >

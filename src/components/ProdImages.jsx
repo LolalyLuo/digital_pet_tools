@@ -54,6 +54,7 @@ export default function ProdImages() {
   const [filterUploadId, setFilterUploadId] = useState('')
   const [filterPetName, setFilterPetName] = useState('')
   const [filterAiImageName, setFilterAiImageName] = useState('')
+  const [filterByShop, setFilterByShop] = useState(true)
   const observer = useRef()
 
   const ITEMS_PER_PAGE = 30
@@ -74,8 +75,8 @@ export default function ProdImages() {
         .order(config.orderBy, { ascending: false })
         .range(pageNum * ITEMS_PER_PAGE, (pageNum + 1) * ITEMS_PER_PAGE - 1)
 
-      // Apply table-specific filters if needed
-      if (config.filter) {
+      // Apply table-specific filters if needed (only if filterByShop is enabled)
+      if (config.filter && filterByShop) {
         Object.entries(config.filter).forEach(([key, value]) => {
           query = query.eq(key, value)
         })
@@ -120,7 +121,7 @@ export default function ProdImages() {
     } finally {
       setLoading(false)
     }
-  }, [selectedTable, filterUserId, filterUploadId, filterPetName, filterAiImageName])
+  }, [selectedTable, filterUserId, filterUploadId, filterPetName, filterAiImageName, filterByShop])
 
   // Load more items when scrolling
   const loadMore = useCallback(async () => {
@@ -355,6 +356,24 @@ export default function ProdImages() {
                 )}
               </div>
             )}
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Filter by Shop:</label>
+              <button
+                onClick={() => {
+                  setFilterByShop(!filterByShop)
+                  setTimeout(() => handleSearch(), 0)
+                }}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${filterByShop ? 'bg-blue-500' : 'bg-gray-300'
+                  }`}
+                role="switch"
+                aria-checked={filterByShop}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${filterByShop ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                />
+              </button>
+            </div>
             <button
               onClick={handleSearch}
               className="px-4 py-2 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 flex items-center gap-2"
@@ -506,6 +525,24 @@ export default function ProdImages() {
               )}
             </div>
           )}
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Filter by Shop:</label>
+            <button
+              onClick={() => {
+                setFilterByShop(!filterByShop)
+                setTimeout(() => handleSearch(), 0)
+              }}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${filterByShop ? 'bg-blue-500' : 'bg-gray-300'
+                }`}
+              role="switch"
+              aria-checked={filterByShop}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${filterByShop ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+              />
+            </button>
+          </div>
           <button
             onClick={handleSearch}
             className="px-4 py-2 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 flex items-center gap-2"

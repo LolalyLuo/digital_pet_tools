@@ -288,21 +288,25 @@ router.post("/generate-images", async (req, res) => {
                 `🌱 [Seedream] Starting image generation with seedream-4.0`
               );
 
-              // Map aspect ratios to SeeDream's specific size constants
-              const aspectRatioToSize = (aspectRatio) => {
+              // Parse size string to width/height object for SeeDream API
+              const parseSizeToDimensions = (sizeStr) => {
                 // Normalize to use × for comparison
-                const normalized = aspectRatio.replace("x", "×");
-                const sizeMap = {
-                  "1024×1024": "square_hd", // 1:1 ratio
-                  "1024×1536": "portrait_4_3", // 3:4 ratio (closest to OpenAI's 2:3)
-                  "1536×1024": "landscape_4_3", // 4:3 ratio (closest to OpenAI's 3:2)
-                  auto: "square_hd", // Default to square
-                };
-                return sizeMap[normalized] || "square_hd";
+                const normalized = sizeStr.replace("x", "×");
+                
+                if (normalized === "1024×1024") {
+                  return { width: 1024, height: 1024 };
+                } else if (normalized === "1024×1536") {
+                  return { width: 1024, height: 1536 };
+                } else if (normalized === "1536×1024") {
+                  return { width: 1536, height: 1024 };
+                } else {
+                  // Default to square for "auto" or unknown sizes
+                  return { width: 1024, height: 1024 };
+                }
               };
 
-              // Get target size constant
-              const imageSize = aspectRatioToSize(size);
+              // Get target dimensions
+              const imageSize = parseSizeToDimensions(size);
 
               // Build prompt with background requirements
               let enhancedPrompt = prompt;
@@ -332,13 +336,10 @@ router.post("/generate-images", async (req, res) => {
                 prompt: enhancedPrompt,
                 image_urls: [imageDataUrl],
                 image_size: imageSize,
-                /* image_size: {
-                  width: 1440,
-                  height: 2560,
-                }, */
                 num_images: 1,
                 enable_safety_checker: false,
               };
+              console.log("🌱 ======[Seedream] Image size:", imageSize);
               console.log("🌱 ======[Seedream] Prompt:", enhancedPrompt);
 
               // Make API request to fal.ai

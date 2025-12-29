@@ -1,0 +1,7 @@
+╭─ error ──────────────────────────────────────────────────────────────────────╮
+│                                                                              │
+│  Couldn't find an app toml file at                                           │
+│  /Users/lolalyluo/Documents/digital_pet_tools, is this an app directory?     │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+

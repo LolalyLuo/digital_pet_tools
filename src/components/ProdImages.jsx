@@ -27,7 +27,7 @@ const TABLE_CONFIGS = {
   },
   personalized_images: {
     name: 'Personalized Images',
-    fields: ['upload_id', 'user_id', 'original_filename', 'created_at'],
+    fields: ['upload_id', 'user_id', 'original_filename', 'status', 'created_at', 'updated_at'],
     imageField: 'printify_image_url',
     filter: { shop: 'vuse04-um.myshopify.com' },
     orderBy: 'created_at'
@@ -54,6 +54,8 @@ export default function ProdImages() {
   const [filterUploadId, setFilterUploadId] = useState('')
   const [filterPetName, setFilterPetName] = useState('')
   const [filterAiImageName, setFilterAiImageName] = useState('')
+  const [filterShopifyProductId, setFilterShopifyProductId] = useState('')
+  const [filterOriginalFilename, setFilterOriginalFilename] = useState('')
   const [filterByShop, setFilterByShop] = useState(true)
   const observer = useRef()
 
@@ -72,14 +74,23 @@ export default function ProdImages() {
       let query = prodSupabase
         .from(selectedTable)
         .select('*')
-        .order(config.orderBy, { ascending: false })
-        .range(pageNum * ITEMS_PER_PAGE, (pageNum + 1) * ITEMS_PER_PAGE - 1)
+
+      // Apply upload ID filter FIRST for personalized_images to avoid 500 errors
+      // This seems to be a database-side issue with filter ordering
+      if (filterUploadId.trim() && selectedTable === 'personalized_images') {
+        const uploadIdValue = String(filterUploadId.trim())
+        query = query.eq('upload_id', uploadIdValue)
+      }
 
       // Apply table-specific filters if needed (only if filterByShop is enabled)
+      // Skip shop filter for personalized_images when filtering by upload_id to avoid 500 errors
       if (config.filter && filterByShop) {
-        Object.entries(config.filter).forEach(([key, value]) => {
-          query = query.eq(key, value)
-        })
+        const shouldSkipShopFilter = selectedTable === 'personalized_images' && filterUploadId.trim()
+        if (!shouldSkipShopFilter) {
+          Object.entries(config.filter).forEach(([key, value]) => {
+            query = query.eq(key, value)
+          })
+        }
       }
 
       // Apply user ID filter if provided
@@ -87,9 +98,10 @@ export default function ProdImages() {
         query = query.eq('user_id', filterUserId.trim())
       }
 
-      // Apply upload ID filter if provided
-      if (filterUploadId.trim()) {
-        query = query.eq('upload_id', filterUploadId.trim())
+      // Apply upload ID filter for other tables
+      if (filterUploadId.trim() && selectedTable !== 'personalized_images') {
+        const uploadIdValue = String(filterUploadId.trim())
+        query = query.eq('upload_id', uploadIdValue)
       }
 
       // Apply pet name filter if provided (pets table only)
@@ -102,9 +114,27 @@ export default function ProdImages() {
         query = query.ilike('ai_image_name', `%${filterAiImageName.trim()}%`)
       }
 
+      // Apply Shopify product ID filter if provided (personalized_images table only)
+      if (selectedTable === 'personalized_images' && filterShopifyProductId.trim()) {
+        query = query.eq('shopify_product_id', filterShopifyProductId.trim())
+      }
+
+      // Apply original filename filter if provided (personalized_images table only)
+      if (selectedTable === 'personalized_images' && filterOriginalFilename.trim()) {
+        query = query.ilike('original_filename', `%${filterOriginalFilename.trim()}%`)
+      }
+
+      // Apply ordering and pagination last
+      query = query
+        .order(config.orderBy, { ascending: false })
+        .range(pageNum * ITEMS_PER_PAGE, (pageNum + 1) * ITEMS_PER_PAGE - 1)
+
       const { data, error } = await query
 
-      if (error) throw error
+      if (error) {
+        console.error(`Supabase query error for ${selectedTable}:`, error)
+        throw error
+      }
 
       if (data) {
         if (append) {
@@ -121,7 +151,7 @@ export default function ProdImages() {
     } finally {
       setLoading(false)
     }
-  }, [selectedTable, filterUserId, filterUploadId, filterPetName, filterAiImageName, filterByShop])
+  }, [selectedTable, filterUserId, filterUploadId, filterPetName, filterAiImageName, filterShopifyProductId, filterOriginalFilename, filterByShop])
 
   // Load more items when scrolling
   const loadMore = useCallback(async () => {
@@ -164,6 +194,8 @@ export default function ProdImages() {
     setFilterUploadId('')
     setFilterPetName('')
     setFilterAiImageName('')
+    setFilterShopifyProductId('')
+    setFilterOriginalFilename('')
   }, [selectedTable])
 
   // Cleanup observer on unmount
@@ -356,6 +388,64 @@ export default function ProdImages() {
                 )}
               </div>
             )}
+            {selectedTable === 'personalized_images' && (
+              <>
+                <div className="flex items-center gap-2 flex-1">
+                  <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Shopify Product ID:</label>
+                  <input
+                    type="text"
+                    value={filterShopifyProductId}
+                    onChange={(e) => setFilterShopifyProductId(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        handleSearch()
+                      }
+                    }}
+                    placeholder="Filter by Shopify product ID"
+                    className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                  {filterShopifyProductId && (
+                    <button
+                      onClick={() => {
+                        setFilterShopifyProductId('')
+                        handleSearch()
+                      }}
+                      className="p-1 text-gray-400 hover:text-gray-600"
+                      title="Clear Shopify product ID filter"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 flex-1">
+                  <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Original Filename:</label>
+                  <input
+                    type="text"
+                    value={filterOriginalFilename}
+                    onChange={(e) => setFilterOriginalFilename(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        handleSearch()
+                      }
+                    }}
+                    placeholder="Filter by original filename"
+                    className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                  {filterOriginalFilename && (
+                    <button
+                      onClick={() => {
+                        setFilterOriginalFilename('')
+                        handleSearch()
+                      }}
+                      className="p-1 text-gray-400 hover:text-gray-600"
+                      title="Clear original filename filter"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
             <div className="flex items-center gap-2">
               <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Filter by Shop:</label>
               <button
@@ -525,6 +615,64 @@ export default function ProdImages() {
               )}
             </div>
           )}
+          {selectedTable === 'personalized_images' && (
+            <>
+              <div className="flex items-center gap-2 flex-1">
+                <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Shopify Product ID:</label>
+                <input
+                  type="text"
+                  value={filterShopifyProductId}
+                  onChange={(e) => setFilterShopifyProductId(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleSearch()
+                    }
+                  }}
+                  placeholder="Filter by Shopify product ID"
+                  className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                {filterShopifyProductId && (
+                  <button
+                    onClick={() => {
+                      setFilterShopifyProductId('')
+                      handleSearch()
+                    }}
+                    className="p-1 text-gray-400 hover:text-gray-600"
+                    title="Clear Shopify product ID filter"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2 flex-1">
+                <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Original Filename:</label>
+                <input
+                  type="text"
+                  value={filterOriginalFilename}
+                  onChange={(e) => setFilterOriginalFilename(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleSearch()
+                    }
+                  }}
+                  placeholder="Filter by original filename"
+                  className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                {filterOriginalFilename && (
+                  <button
+                    onClick={() => {
+                      setFilterOriginalFilename('')
+                      handleSearch()
+                    }}
+                    className="p-1 text-gray-400 hover:text-gray-600"
+                    title="Clear original filename filter"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            </>
+          )}
           <div className="flex items-center gap-2">
             <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Filter by Shop:</label>
             <button
@@ -618,8 +766,8 @@ export default function ProdImages() {
                     const fieldKey = `${fieldId}-${field}`
                     const isCopied = copiedField === fieldKey
 
-                    // Format created_at as readable date and time
-                    if (field === 'created_at' && value) {
+                    // Format created_at and updated_at as readable date and time
+                    if ((field === 'created_at' || field === 'updated_at') && value) {
                       try {
                         const date = new Date(value)
                         value = date.toLocaleString('en-US', {
@@ -644,7 +792,7 @@ export default function ProdImages() {
                         </p>
                         {value && (
                           <button
-                            onClick={() => copyToClipboard(field === 'created_at' ? item[field] : value, fieldKey)}
+                            onClick={() => copyToClipboard((field === 'created_at' || field === 'updated_at') ? item[field] : value, fieldKey)}
                             className="p-1 text-gray-400 hover:text-gray-600 flex-shrink-0"
                             title={`Copy ${field}`}
                           >

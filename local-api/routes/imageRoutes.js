@@ -288,25 +288,8 @@ router.post("/generate-images", async (req, res) => {
                 `🌱 [Seedream] Starting image generation with seedream-4.0`
               );
 
-              // Parse size string to width/height object for SeeDream API
-              const parseSizeToDimensions = (sizeStr) => {
-                // Normalize to use × for comparison
-                const normalized = sizeStr.replace("x", "×");
-                
-                if (normalized === "1024×1024") {
-                  return { width: 1024, height: 1024 };
-                } else if (normalized === "1024×1536") {
-                  return { width: 1024, height: 1536 };
-                } else if (normalized === "1536×1024") {
-                  return { width: 1536, height: 1024 };
-                } else {
-                  // Default to square for "auto" or unknown sizes
-                  return { width: 1024, height: 1024 };
-                }
-              };
-
-              // Get target dimensions
-              const imageSize = parseSizeToDimensions(size);
+              // TEMPORARILY hardcoded to 1440x2560
+              const imageSize = { width: 1440, height: 1835 };
 
               // Build prompt with background requirements
               let enhancedPrompt = prompt;

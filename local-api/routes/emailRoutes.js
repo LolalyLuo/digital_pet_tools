@@ -258,8 +258,94 @@ router.post("/send", async (req, res) => {
       errors: [],
     };
 
-    // Send emails individually
-    for (const recipient of recipients) {
+    // Helper function to send email with retry logic
+    const sendEmailWithRetry = async (recipient, maxRetries = 3) => {
+      const template = renderEmailTemplate(templateId, recipient);
+      const emailSubject =
+        recipient.subject || "A gift for you 🎁 + $100 for a 30 min chat?";
+
+      let lastError = null;
+
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          const { data, error } = await resendClient.emails.send({
+            from: fromEmail,
+            to: recipient.email,
+            subject: emailSubject,
+            html: template.html,
+            text: template.text,
+          });
+
+          if (error) {
+            lastError = error;
+
+            // Check if it's a rate limit error
+            const isRateLimit =
+              error.message?.includes("rate limit") ||
+              error.message?.includes("Too many requests") ||
+              error.statusCode === 429;
+
+            if (isRateLimit && attempt < maxRetries) {
+              // Wait longer for rate limit errors (2 seconds)
+              const waitTime = 2000;
+              console.log(
+                `⏳ Rate limit hit for ${recipient.email}, waiting ${waitTime}ms before retry ${attempt + 1}/${maxRetries}`
+              );
+              await new Promise((resolve) => setTimeout(resolve, waitTime));
+              continue;
+            }
+
+            // If not rate limit or last attempt, log and break
+            if (attempt === maxRetries) {
+              console.error(
+                `❌ Failed to send to ${recipient.email} after ${maxRetries} attempts: ${error.message}`
+              );
+            } else {
+              console.log(
+                `⚠️  Attempt ${attempt}/${maxRetries} failed for ${recipient.email}: ${error.message}`
+              );
+            }
+
+            // If not rate limit, wait a bit before retry
+            if (!isRateLimit && attempt < maxRetries) {
+              const waitTime = 1000 * attempt; // Exponential backoff: 1s, 2s, 3s
+              console.log(
+                `⏳ Waiting ${waitTime}ms before retry ${attempt + 1}/${maxRetries} for ${recipient.email}`
+              );
+              await new Promise((resolve) => setTimeout(resolve, waitTime));
+            }
+          } else {
+            // Success!
+            console.log(
+              `✅ Email sent to ${recipient.email} (ID: ${data?.id}, attempt ${attempt})`
+            );
+            return { success: true, data };
+          }
+        } catch (error) {
+          lastError = error;
+          console.error(
+            `❌ Exception on attempt ${attempt}/${maxRetries} for ${recipient.email}:`,
+            error.message
+          );
+
+          if (attempt < maxRetries) {
+            const waitTime = 1000 * attempt;
+            console.log(
+              `⏳ Waiting ${waitTime}ms before retry ${attempt + 1}/${maxRetries}`
+            );
+            await new Promise((resolve) => setTimeout(resolve, waitTime));
+          }
+        }
+      }
+
+      // All retries failed
+      return { success: false, error: lastError };
+    };
+
+    // Send emails individually with rate limiting (500ms delay = max 2 req/sec)
+    for (let i = 0; i < recipients.length; i++) {
+      const recipient = recipients[i];
+
       try {
         if (!recipient.email) {
           results.failed++;
@@ -269,33 +355,33 @@ router.post("/send", async (req, res) => {
           continue;
         }
 
-        const template = renderEmailTemplate(templateId, recipient);
-        const emailSubject =
-          recipient.subject || "A gift for you 🎁 + $100 for a 30 min chat?";
+        console.log(
+          `📧 Sending email ${i + 1}/${recipients.length} to ${recipient.email}`
+        );
+        const result = await sendEmailWithRetry(recipient);
 
-        const { data, error } = await resendClient.emails.send({
-          from: fromEmail,
-          to: recipient.email,
-          subject: emailSubject,
-          html: template.html,
-          text: template.text,
-        });
-
-        if (error) {
+        if (result.success) {
+          results.sent++;
+        } else {
           results.failed++;
           results.errors.push(
-            `Failed to send to ${recipient.email}: ${error.message}`
+            `Failed to send to ${recipient.email} after 3 attempts: ${result.error?.message || "Unknown error"}`
           );
-        } else {
-          results.sent++;
-          console.log(`✅ Email sent to ${recipient.email} (ID: ${data?.id})`);
+        }
+
+        // Rate limiting: wait 500ms between sends (allows max 2 req/sec)
+        if (i < recipients.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
         }
       } catch (error) {
         results.failed++;
         results.errors.push(
           `Error sending to ${recipient.email}: ${error.message}`
         );
-        console.error(`❌ Error sending email to ${recipient.email}:`, error);
+        console.error(
+          `❌ Unexpected error sending email to ${recipient.email}:`,
+          error
+        );
       }
     }
 

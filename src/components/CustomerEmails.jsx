@@ -40,6 +40,7 @@ export default function CustomerEmails() {
   const [filterUserId, setFilterUserId] = useState('')
   const [filterUploadId, setFilterUploadId] = useState('')
   const [filterPetName, setFilterPetName] = useState('')
+  const [filterEmail, setFilterEmail] = useState('')
   const [filterByShop, setFilterByShop] = useState(true)
   const [sending, setSending] = useState(false)
   const [sendStatus, setSendStatus] = useState(null)
@@ -82,6 +83,11 @@ export default function CustomerEmails() {
         query = query.ilike('pet_name', `%${filterPetName.trim()}%`)
       }
 
+      // Apply email filter if provided
+      if (filterEmail.trim()) {
+        query = query.ilike('user_email', `%${filterEmail.trim()}%`)
+      }
+
       // Apply ordering and pagination
       query = query
         .order('created_at', { ascending: false })
@@ -109,7 +115,7 @@ export default function CustomerEmails() {
     } finally {
       setLoading(false)
     }
-  }, [filterUserId, filterUploadId, filterPetName, filterByShop])
+  }, [filterUserId, filterUploadId, filterPetName, filterEmail, filterByShop])
 
   // Load more items when scrolling
   const loadMore = useCallback(async () => {
@@ -214,6 +220,11 @@ export default function CustomerEmails() {
     setHasMore(true)
     setSelectedItems(new Set())
     loadItems(0, false)
+  }
+
+  const clearEmailFilter = () => {
+    setFilterEmail('')
+    setTimeout(() => handleSearch(), 0)
   }
 
   const sendEmails = async () => {
@@ -389,6 +400,30 @@ export default function CustomerEmails() {
                 </button>
               )}
             </div>
+            <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+              <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Email:</label>
+              <input
+                type="text"
+                value={filterEmail}
+                onChange={(e) => setFilterEmail(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleSearch()
+                  }
+                }}
+                placeholder="Filter by email"
+                className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              {filterEmail && (
+                <button
+                  onClick={clearEmailFilter}
+                  className="p-1 text-gray-400 hover:text-gray-600"
+                  title="Clear email filter"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
             <div className="flex items-center gap-2">
               <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Filter by Shop:</label>
               <button
@@ -513,6 +548,25 @@ export default function CustomerEmails() {
                       <div className="text-xs text-gray-600">
                         <strong>User ID:</strong> {item.user_id || 'N/A'}
                       </div>
+                      {item.created_at && (
+                        <div className="text-xs text-gray-600">
+                          <strong>Created:</strong> {(() => {
+                            try {
+                              const date = new Date(item.created_at)
+                              return date.toLocaleString('en-US', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                hour12: true
+                              })
+                            } catch (e) {
+                              return item.created_at
+                            }
+                          })()}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )
@@ -596,7 +650,7 @@ export default function CustomerEmails() {
                         display: 'block'
                       }}
                       title="Email Preview"
-                      sandbox="allow-same-origin"
+                      sandbox="allow-same-origin allow-scripts"
                     />
                   </div>
                 </div>

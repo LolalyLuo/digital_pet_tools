@@ -11,6 +11,7 @@ import EvaluationTester from "./components/testing/EvaluationTester";
 import TrainingDataManager from "./components/testing/TrainingDataManager";
 import VertexAIOptimizer from "./components/testing/VertexAIOptimizer";
 import ProdImages from "./components/ProdImages";
+import CustomerEmails from "./components/CustomerEmails";
 
 function App() {
   const [user, setUser] = useState(null);
@@ -109,6 +110,8 @@ function App() {
         return <VertexAIOptimizer />;
       case "prod-images":
         return <ProdImages />;
+      case "customer-emails":
+        return <CustomerEmails />;
       default:
         return null;
     }
@@ -218,6 +221,15 @@ function App() {
                   }`}
               >
                 Production Images
+              </button>
+              <button
+                onClick={() => setCurrentApp("customer-emails")}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${currentApp === "customer-emails"
+                  ? "bg-blue-100 text-blue-700 border border-blue-200"
+                  : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                  }`}
+              >
+                Customer Emails
               </button>
             </div>
 

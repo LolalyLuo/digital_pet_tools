@@ -1,11 +1,21 @@
 // Load environment variables FIRST before any other imports
 import dotenv from "dotenv";
-dotenv.config();
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Load environment files in order (later ones override earlier ones):
+// 1. Root .env.local (like frontend)
+// 2. Root .env
+// 3. local-api/.env (can override if needed)
+dotenv.config({ path: join(__dirname, "..", ".env.local") });
+dotenv.config({ path: join(__dirname, "..", ".env") });
+dotenv.config(); // This will load local-api/.env and override if needed
 
 import express from "express";
 import cors from "cors";
-import { fileURLToPath } from "url";
-import { dirname } from "path";
 
 // Import configuration
 import { initializeClients, initializeDatabase } from "./config/database.js";
@@ -20,9 +30,7 @@ import prodRoutes from "./routes/prodRoutes.js";
 import trainingRoutes from "./routes/trainingRoutes.js";
 import vertexRoutes from "./routes/vertexRoutes.js";
 import utilRoutes from "./routes/utilRoutes.js";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+import emailRoutes from "./routes/emailRoutes.js";
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -46,6 +54,7 @@ app.use("/api/prod", prodRoutes);
 app.use("/api/training", trainingRoutes);
 app.use("/api/vertex-ai", vertexRoutes);
 app.use("/api", utilRoutes);
+app.use("/api/email", emailRoutes);
 
 // Start server
 app.listen(PORT, () => {

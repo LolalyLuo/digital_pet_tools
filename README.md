@@ -1,3 +1,5 @@
+After setup, you need to run "npm run dev" both at the root and under local-api
+
 # React + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.

@@ -330,7 +330,7 @@ export default function ProdImages() {
                 </button>
               )}
             </div>
-            {selectedTable === 'pets' && (
+            {(selectedTable === 'pets' || selectedTable === 'ai_images' || selectedTable === 'personalized_images') && (
               <div className="flex items-center gap-2 flex-1">
                 <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Pet Name:</label>
                 <input
@@ -557,7 +557,7 @@ export default function ProdImages() {
               </button>
             )}
           </div>
-          {selectedTable === 'pets' && (
+          {(selectedTable === 'pets' || selectedTable === 'ai_images' || selectedTable === 'personalized_images') && (
             <div className="flex items-center gap-2 flex-1">
               <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Pet Name:</label>
               <input

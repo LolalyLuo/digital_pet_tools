@@ -124,12 +124,7 @@ export default function ProdImages() {
           const uploadIds = (petMatches || []).map(p => p.upload_id).filter(Boolean)
 
           if (uploadIds.length === 0) {
-            // No pets matched — return early with empty results
-            if (append) {
-              // keep existing items when appending with no matches
-            } else {
-              setItems([])
-            }
+            setItems([])
             setHasMore(false)
             setPage(pageNum)
             return

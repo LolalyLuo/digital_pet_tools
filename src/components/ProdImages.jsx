@@ -111,10 +111,17 @@ export default function ProdImages() {
           query = query.ilike('pet_name', `%${filterPetName.trim()}%`)
         } else {
           // Cross-table lookup: resolve pet name → upload_ids via pets table
-          const { data: petMatches, error: petError } = await prodSupabase
+          let petQuery = prodSupabase
             .from('pets')
             .select('upload_id')
             .ilike('pet_name', `%${filterPetName.trim()}%`)
+            .limit(500)
+
+          if (filterByShop) {
+            petQuery = petQuery.eq('shop', 'vuse04-um.myshopify.com')
+          }
+
+          const { data: petMatches, error: petError } = await petQuery
 
           if (petError) {
             console.error('Pet name lookup error:', petError)

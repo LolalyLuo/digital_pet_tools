@@ -104,9 +104,39 @@ export default function ProdImages() {
         query = query.eq('upload_id', uploadIdValue)
       }
 
-      // Apply pet name filter if provided (pets table only)
-      if (selectedTable === 'pets' && filterPetName.trim()) {
-        query = query.ilike('pet_name', `%${filterPetName.trim()}%`)
+      // Apply pet name filter
+      if (filterPetName.trim()) {
+        if (selectedTable === 'pets') {
+          // Direct filter — pets table has pet_name column
+          query = query.ilike('pet_name', `%${filterPetName.trim()}%`)
+        } else {
+          // Cross-table lookup: resolve pet name → upload_ids via pets table
+          const { data: petMatches, error: petError } = await prodSupabase
+            .from('pets')
+            .select('upload_id')
+            .ilike('pet_name', `%${filterPetName.trim()}%`)
+
+          if (petError) {
+            console.error('Pet name lookup error:', petError)
+            throw petError
+          }
+
+          const uploadIds = (petMatches || []).map(p => p.upload_id).filter(Boolean)
+
+          if (uploadIds.length === 0) {
+            // No pets matched — return early with empty results
+            if (append) {
+              // keep existing items when appending with no matches
+            } else {
+              setItems([])
+            }
+            setHasMore(false)
+            setPage(pageNum)
+            return
+          }
+
+          query = query.in('upload_id', uploadIds)
+        }
       }
 
       // Apply AI image name filter if provided (ai_images table only)

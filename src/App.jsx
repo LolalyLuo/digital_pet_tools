@@ -12,6 +12,22 @@ import TrainingDataManager from "./components/testing/TrainingDataManager";
 import VertexAIOptimizer from "./components/testing/VertexAIOptimizer";
 import ProdImages from "./components/ProdImages";
 import CustomerEmails from "./components/CustomerEmails";
+import CreateProducts from "./components/CreateProducts";
+
+const APP_MENU_ITEMS = [
+  { id: "explore-ideas", label: "Explore Ideas" },
+  { id: "finalize-designs", label: "Finalize Designs" },
+  { id: "test-design", label: "Test Design" },
+  { id: "iterate", label: "Iterate" },
+  { id: "training-data", label: "Training Data" },
+  { id: "evaluation-tester", label: "Evaluation Test" },
+  { id: "vertex-ai-optimizer", label: "Vertex AI Optimizer" },
+  { type: "divider" },
+  { id: "create-products", label: "Create Products" },
+  { type: "divider" },
+  { id: "prod-images", label: "Production Images" },
+  { id: "customer-emails", label: "Customer Emails" },
+];
 
 function App() {
   const [user, setUser] = useState(null);
@@ -20,6 +36,7 @@ function App() {
   const [generatedPrompts, setGeneratedPrompts] = useState([]);
   const [results, setResults] = useState([]);
   const [currentApp, setCurrentApp] = useState("explore-ideas");
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -108,6 +125,8 @@ function App() {
         return <TrainingDataManager />;
       case "vertex-ai-optimizer":
         return <VertexAIOptimizer />;
+      case "create-products":
+        return <CreateProducts />;
       case "prod-images":
         return <ProdImages />;
       case "customer-emails":
@@ -148,89 +167,54 @@ function App() {
       <div className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
-            {/* App Navigation */}
-            <div className="flex space-x-1">
+            {/* App Navigation Dropdown */}
+            <div className="relative">
               <button
-                onClick={() => setCurrentApp("explore-ideas")}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${currentApp === "explore-ideas"
-                  ? "bg-blue-100 text-blue-700 border border-blue-200"
-                  : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-                  }`}
+                onClick={() => setMenuOpen(!menuOpen)}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-sm font-medium hover:bg-blue-50 transition-colors"
               >
-                Explore Ideas
+                <span>{APP_MENU_ITEMS.find(item => item.id === currentApp)?.label || "Select Tool"}</span>
+                <svg
+                  className={`w-4 h-4 transition-transform ${menuOpen ? "rotate-180" : ""}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
               </button>
-              <button
-                onClick={() => setCurrentApp("finalize-designs")}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${currentApp === "finalize-designs"
-                  ? "bg-blue-100 text-blue-700 border border-blue-200"
-                  : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-                  }`}
-              >
-                Finalize Designs
-              </button>
-              <button
-                onClick={() => setCurrentApp("test-design")}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${currentApp === "test-design"
-                  ? "bg-blue-100 text-blue-700 border border-blue-200"
-                  : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-                  }`}
-              >
-                Test Design
-              </button>
-              <button
-                onClick={() => setCurrentApp("iterate")}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${currentApp === "iterate"
-                  ? "bg-blue-100 text-blue-700 border border-blue-200"
-                  : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-                  }`}
-              >
-                Iterate
-              </button>
-              <button
-                onClick={() => setCurrentApp("training-data")}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${currentApp === "training-data"
-                  ? "bg-blue-100 text-blue-700 border border-blue-200"
-                  : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-                  }`}
-              >
-                Training Data
-              </button>
-              <button
-                onClick={() => setCurrentApp("evaluation-tester")}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${currentApp === "evaluation-tester"
-                  ? "bg-blue-100 text-blue-700 border border-blue-200"
-                  : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-                  }`}
-              >
-                Evaluation Test
-              </button>
-              <button
-                onClick={() => setCurrentApp("vertex-ai-optimizer")}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${currentApp === "vertex-ai-optimizer"
-                  ? "bg-blue-100 text-blue-700 border border-blue-200"
-                  : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-                  }`}
-              >
-                Vertex AI Optimizer
-              </button>
-              <button
-                onClick={() => setCurrentApp("prod-images")}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${currentApp === "prod-images"
-                  ? "bg-blue-100 text-blue-700 border border-blue-200"
-                  : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-                  }`}
-              >
-                Production Images
-              </button>
-              <button
-                onClick={() => setCurrentApp("customer-emails")}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${currentApp === "customer-emails"
-                  ? "bg-blue-100 text-blue-700 border border-blue-200"
-                  : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-                  }`}
-              >
-                Customer Emails
-              </button>
+              
+              {menuOpen && (
+                <>
+                  {/* Backdrop to close menu when clicking outside */}
+                  <div
+                    className="fixed inset-0 z-10"
+                    onClick={() => setMenuOpen(false)}
+                  />
+                  <div className="absolute left-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg z-20 py-1">
+                    {APP_MENU_ITEMS.map((item, index) =>
+                      item.type === "divider" ? (
+                        <div key={`divider-${index}`} className="my-1 border-t border-gray-200" />
+                      ) : (
+                        <button
+                          key={item.id}
+                          onClick={() => {
+                            setCurrentApp(item.id);
+                            setMenuOpen(false);
+                          }}
+                          className={`w-full text-left px-4 py-2 text-sm transition-colors ${
+                            currentApp === item.id
+                              ? "bg-blue-50 text-blue-700 font-medium"
+                              : "text-gray-700 hover:bg-gray-50"
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      )
+                    )}
+                  </div>
+                </>
+              )}
             </div>
 
             {/* User Info and Sign Out */}

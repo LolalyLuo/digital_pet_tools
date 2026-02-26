@@ -28,7 +28,7 @@ export default function ConfigureVariantsStep({ sessionData, updateSession, onNe
         bgOption.values.forEach((v) => { result[v] = stored[v] || ""; });
         return result;
       }
-    } catch {}
+    } catch { /* ignore malformed localStorage value */ }
     return {};
   };
 

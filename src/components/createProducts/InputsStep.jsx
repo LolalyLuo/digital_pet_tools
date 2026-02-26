@@ -7,7 +7,7 @@ function StatusBadge({ status, label }) {
   return null;
 }
 
-export default function InputsStep({ sessionData, updateSession, onNext }) {
+export default function InputsStep({ updateSession, onNext }) {
   const [seedFile, setSeedFile] = useState(null);
   const [seedPreview, setSeedPreview] = useState(null);
   const [shopifyUrl, setShopifyUrl] = useState("");

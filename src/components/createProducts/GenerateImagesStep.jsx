@@ -101,7 +101,7 @@ export default function GenerateImagesStep({ sessionData, updateSession, onNext,
           petName = combos[0].name;
         }
       }
-    } catch {} // fall back to existing breed/name on error
+    } catch { /* fall back to existing breed/name on error */ }
 
     generateForColor(color, breed, petName, feedbackText[color] || "");
     setShowFeedback((prev) => ({ ...prev, [color]: false }));

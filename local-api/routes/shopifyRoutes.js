@@ -2,13 +2,13 @@ import express from "express";
 
 const router = express.Router();
 
-const SHOPIFY_SHOP = process.env.SHOPIFY_SHOP;
-const SHOPIFY_CLIENT_ID = process.env.SHOPIFY_CLIENT_ID;
-const SHOPIFY_CLIENT_SECRET = process.env.SHOPIFY_CLIENT_SECRET;
 const SHOPIFY_API_VERSION = "2025-01";
 
 // Get a short-lived access token via client credentials grant
 async function getAccessToken() {
+  const SHOPIFY_SHOP = process.env.SHOPIFY_SHOP;
+  const SHOPIFY_CLIENT_ID = process.env.SHOPIFY_CLIENT_ID;
+  const SHOPIFY_CLIENT_SECRET = process.env.SHOPIFY_CLIENT_SECRET;
   const res = await fetch(
     `https://${SHOPIFY_SHOP}/admin/oauth/access_token`,
     {
@@ -33,6 +33,7 @@ async function getAccessToken() {
 
 // Run a GraphQL mutation/query against the Admin API
 async function shopifyGraphQL(token, query, variables = {}) {
+  const SHOPIFY_SHOP = process.env.SHOPIFY_SHOP;
   const res = await fetch(
     `https://${SHOPIFY_SHOP}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
     {
@@ -125,6 +126,59 @@ router.post("/test-publish", async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Shopify test-publish error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/shopify/product/:id
+// Fetches product title + variant options from Shopify
+router.get("/product/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const gid = `gid://shopify/Product/${id}`;
+    const token = await getAccessToken();
+
+    const result = await shopifyGraphQL(token, `
+      query getProduct($id: ID!) {
+        product(id: $id) {
+          id
+          title
+          options {
+            id
+            name
+            values
+          }
+          variants(first: 250) {
+            edges {
+              node {
+                id
+                title
+                price
+                selectedOptions {
+                  name
+                  value
+                }
+              }
+            }
+          }
+        }
+      }
+    `, { id: gid });
+
+    const product = result.data?.product;
+    if (!product) {
+      return res.status(404).json({ error: "Product not found" });
+    }
+
+    res.json({
+      id: product.id,
+      numericId: id,
+      title: product.title,
+      options: product.options,
+      variants: product.variants.edges.map((e) => e.node),
+    });
+  } catch (err) {
+    console.error("❌ Shopify product fetch error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });

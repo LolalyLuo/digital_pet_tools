@@ -122,7 +122,7 @@ router.post("/generate-variant", async (req, res) => {
       feedbackText = "",
     } = req.body;
 
-    if (!seedImageBase64 || !backgroundColor || !breed || !petName) {
+    if (!seedImageBase64 || !backgroundColor || !colorName || !breed || !petName) {
       return res.status(400).json({ error: "seedImageBase64, backgroundColor, colorName, breed, petName required" });
     }
 
@@ -192,7 +192,8 @@ router.post("/save-results", async (req, res) => {
     for (const img of aiImages) {
       const buffer = Buffer.from(img.imageBase64, "base64");
       const ext = img.mimeType === "image/jpeg" ? "jpg" : "png";
-      const fileName = `ai_${Date.now()}_${img.colorName.replace(/\s/g, "_")}.${ext}`;
+      const safeName = (img.colorName || "unnamed").replace(/\s/g, "_");
+      const fileName = `ai_${Date.now()}_${safeName}.${ext}`;
 
       const { error: storageErr } = await db.storage
         .from("ai-images")
@@ -224,7 +225,10 @@ router.post("/save-results", async (req, res) => {
     const mockupImageIds = [];
     for (const mockup of (mockupImages || [])) {
       const aiImageId = aiImageRecords[mockup.aiImageIndex]?.id;
-      if (!aiImageId) continue;
+      if (!aiImageId) {
+        console.warn(`⚠️ Skipping mockup at position ${mockup.position}: no AI image at index ${mockup.aiImageIndex}`);
+        continue;
+      }
 
       // Download mockup image from Printify CDN
       const imgRes = await fetch(mockup.src);

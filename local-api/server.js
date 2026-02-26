@@ -33,6 +33,7 @@ import utilRoutes from "./routes/utilRoutes.js";
 import emailRoutes from "./routes/emailRoutes.js";
 import shopifyRoutes from "./routes/shopifyRoutes.js";
 import printifyRoutes from "./routes/printifyRoutes.js";
+import productImagesRoutes from "./routes/productImagesRoutes.js";
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -59,6 +60,7 @@ app.use("/api", utilRoutes);
 app.use("/api/email", emailRoutes);
 app.use("/api/shopify", shopifyRoutes);
 app.use("/api/printify", printifyRoutes);
+app.use("/api/product-images", productImagesRoutes);
 
 // Start server
 app.listen(PORT, () => {

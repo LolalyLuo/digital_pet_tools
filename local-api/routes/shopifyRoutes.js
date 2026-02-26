@@ -183,4 +183,97 @@ router.get("/product/:id", async (req, res) => {
   }
 });
 
+// POST /api/shopify/variant-images
+// Body: { productId: "123", assignments: [{ imageUrl: "https://...", variantIds: ["gid://..."] }] }
+// Uploads each unique image once, then assigns mediaIds to variants in one batch call.
+router.post("/variant-images", async (req, res) => {
+  try {
+    const { productId, assignments } = req.body;
+    if (!productId || !assignments?.length) {
+      return res.status(400).json({ error: "productId and assignments required" });
+    }
+
+    const shopifyProductGid = `gid://shopify/Product/${productId}`;
+    const token = await getAccessToken();
+
+    // Step 1: Upload each unique imageUrl once → collect mediaId per URL
+    const urlToMediaId = {};
+    for (const { imageUrl } of assignments) {
+      if (urlToMediaId[imageUrl]) continue; // already uploaded
+
+      const uploadResult = await shopifyGraphQL(token, `
+        mutation productCreateMedia($productId: ID!, $media: [CreateMediaInput!]!) {
+          productCreateMedia(productId: $productId, media: $media) {
+            media {
+              id
+              status
+            }
+            mediaUserErrors { field message }
+          }
+        }
+      `, {
+        productId: shopifyProductGid,
+        media: [{ originalSource: imageUrl, mediaContentType: "IMAGE" }],
+      });
+
+      const mediaErrors = uploadResult.data?.productCreateMedia?.mediaUserErrors;
+      if (mediaErrors?.length) {
+        return res.status(400).json({ error: "Media upload error", details: mediaErrors });
+      }
+
+      const mediaId = uploadResult.data?.productCreateMedia?.media?.[0]?.id;
+      if (!mediaId) {
+        return res.status(500).json({ error: "No mediaId returned for " + imageUrl });
+      }
+
+      // Step 2: Poll until READY (max 30s)
+      let ready = false;
+      for (let attempt = 0; attempt < 15; attempt++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const statusResult = await shopifyGraphQL(token, `
+          query { node(id: "${mediaId}") { ... on MediaImage { id status } } }
+        `);
+        const status = statusResult.data?.node?.status;
+        if (status === "READY") { ready = true; break; }
+        if (status === "FAILED") {
+          return res.status(500).json({ error: `Media ${mediaId} failed processing` });
+        }
+      }
+      if (!ready) {
+        return res.status(500).json({ error: `Media ${mediaId} timed out` });
+      }
+
+      urlToMediaId[imageUrl] = mediaId;
+    }
+
+    // Step 3: Batch-assign all variant → mediaId pairs in one call
+    const variantMedia = assignments.flatMap(({ imageUrl, variantIds }) =>
+      variantIds.map((variantId) => ({
+        variantId,
+        mediaIds: [urlToMediaId[imageUrl]],
+      }))
+    );
+
+    const assignResult = await shopifyGraphQL(token, `
+      mutation productVariantAppendMedia($productId: ID!, $variantMedia: [ProductVariantAppendMediaInput!]!) {
+        productVariantAppendMedia(productId: $productId, variantMedia: $variantMedia) {
+          product { id }
+          userErrors { field message }
+        }
+      }
+    `, { productId: shopifyProductGid, variantMedia });
+
+    const assignErrors = assignResult.data?.productVariantAppendMedia?.userErrors;
+    if (assignErrors?.length) {
+      return res.status(400).json({ error: "Variant assign error", details: assignErrors });
+    }
+
+    res.json({ success: true, uploadedMedia: urlToMediaId });
+  } catch (err) {
+    console.error("❌ variant-images error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
+

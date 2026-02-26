@@ -37,7 +37,7 @@ export default function InputsStep({ sessionData, updateSession, onNext }) {
   };
 
   const extractPrintifyId = (url) => {
-    const match = url.match(/product-details\/([a-f0-9]+)/);
+    const match = url.match(/product-details\/([a-f0-9-]+)/);
     return match?.[1] || null;
   };
 

@@ -81,15 +81,29 @@ export default function GenerateImagesStep({ sessionData, updateSession, onNext,
       });
   }, []);
 
-  const handleRegenerate = (color) => {
+  const handleRegenerate = async (color) => {
     const card = cards.find((c) => c.color === color);
     if (!card) return;
-    generateForColor(
-      color,
-      card.breed || "Golden Retriever",
-      card.petName || "Buddy",
-      feedbackText[color] || ""
-    );
+
+    let breed = card.breed || "Golden Retriever";
+    let petName = card.petName || "Buddy";
+
+    try {
+      const res = await fetch("http://localhost:3001/api/product-images/breed-names", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ count: 1, animalType: "pet" }),
+      });
+      if (res.ok) {
+        const { combos } = await res.json();
+        if (combos?.[0]) {
+          breed = combos[0].breed;
+          petName = combos[0].name;
+        }
+      }
+    } catch {} // fall back to existing breed/name on error
+
+    generateForColor(color, breed, petName, feedbackText[color] || "");
     setShowFeedback((prev) => ({ ...prev, [color]: false }));
     setFeedbackText((prev) => ({ ...prev, [color]: "" }));
   };

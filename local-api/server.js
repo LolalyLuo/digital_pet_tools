@@ -31,6 +31,7 @@ import trainingRoutes from "./routes/trainingRoutes.js";
 import vertexRoutes from "./routes/vertexRoutes.js";
 import utilRoutes from "./routes/utilRoutes.js";
 import emailRoutes from "./routes/emailRoutes.js";
+import shopifyRoutes from "./routes/shopifyRoutes.js";
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -55,6 +56,7 @@ app.use("/api/training", trainingRoutes);
 app.use("/api/vertex-ai", vertexRoutes);
 app.use("/api", utilRoutes);
 app.use("/api/email", emailRoutes);
+app.use("/api/shopify", shopifyRoutes);
 
 // Start server
 app.listen(PORT, () => {

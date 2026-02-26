@@ -231,8 +231,12 @@ router.post("/variant-images", async (req, res) => {
       for (let attempt = 0; attempt < 15; attempt++) {
         await new Promise((r) => setTimeout(r, 2000));
         const statusResult = await shopifyGraphQL(token, `
-          query { node(id: "${mediaId}") { ... on MediaImage { id status } } }
-        `);
+          query pollMedia($id: ID!) {
+            node(id: $id) {
+              ... on MediaImage { id status }
+            }
+          }
+        `, { id: mediaId });
         const status = statusResult.data?.node?.status;
         if (status === "READY") { ready = true; break; }
         if (status === "FAILED") {

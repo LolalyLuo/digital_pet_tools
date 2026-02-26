@@ -270,7 +270,7 @@ def generate_image_with_gemini(uploaded_image_url, prompt):
             )
 
         # Use Gemini 2.5 Flash Image Preview to GENERATE image
-        model = genai.GenerativeModel("gemini-2.5-flash-image-preview")
+        model = genai.GenerativeModel("gemini-3-pro-image-preview")
 
         # Create image part from uploaded image (Google AI SDK format)
         image_base64 = base64.b64encode(img_response.content).decode("utf-8")
@@ -716,7 +716,7 @@ def evaluate_with_gemini_bytes(generated_image_bytes, reference_image_url):
         evaluation_prompt = criteria["prompt"]
 
         # Call Gemini for evaluation
-        model = genai.GenerativeModel("gemini-2.5-flash-image-preview")
+        model = genai.GenerativeModel("gemini-3-pro-image-preview")
 
         response = model.generate_content(
             [
@@ -895,7 +895,7 @@ Return your response in this exact JSON format:
             """
 
         # Call Gemini for evaluation
-        model = genai.GenerativeModel("gemini-2.5-flash-image-preview")
+        model = genai.GenerativeModel("gemini-3-pro-image-preview")
 
         response = model.generate_content([
             standalone_prompt,

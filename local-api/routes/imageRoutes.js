@@ -288,8 +288,28 @@ router.post("/generate-images", async (req, res) => {
                 `🌱 [Seedream] Starting image generation with seedream-4.0`
               );
 
-              // TEMPORARILY hardcoded to 1440x2560
-              const imageSize = { width: 1440, height: 1835 };
+              // Parse size string to width/height object for SeeDream API
+              const parseSizeToDimensions = (sizeStr) => {
+                // Normalize to use × for comparison (handle both "x" and "×")
+                const normalized = sizeStr.replace(/x/gi, "×");
+                
+                if (normalized === "1024×1024") {
+                  return { width: 1024, height: 1024 };
+                } else if (normalized === "1024×1536") {
+                  return { width: 1024, height: 1536 };
+                } else if (normalized === "1536×1024") {
+                  return { width: 1536, height: 1024 };
+                } else if (normalized === "1440×2560") {
+                  return { width: 1440, height: 2560 };
+                } else {
+                  // Default to square for "auto" or unknown sizes
+                  return { width: 1024, height: 1024 };
+                }
+              };
+
+              // Get target dimensions from user selection
+              const imageSize = parseSizeToDimensions(size);
+              console.log("🌱 ======[Seedream] Using size:", size, "→ dimensions:", imageSize);
 
               // Build prompt with background requirements
               let enhancedPrompt = prompt;
@@ -725,9 +745,9 @@ Return your response as a JSON object with this exact format:
     console.log(`🎨 Generated image MIME: ${genMimeType}`);
     console.log(`🎨 Reference image MIME: ${refMimeType}`);
 
-    console.log("🤖 Initializing Gemini model...");
+    console.log("🤖 Initializing Gemini model 33333...");
     const model = getGenAI().getGenerativeModel({
-      model: "gemini-2.5-flash-image-preview",
+      model: "gemini-3-pro-image-preview",
       generationConfig: {
         temperature: 0.1,
         topK: 32,
@@ -855,7 +875,7 @@ Return your response as a JSON object with this exact format:
           reasoning: evaluation.reasoning || "No reasoning provided",
         },
         metadata: {
-          model: "gemini-2.5-flash",
+          model: "gemini-3-pro-image-preview",
           timestamp: new Date().toISOString(),
         },
       };
@@ -903,7 +923,7 @@ Return your response as a JSON object with this exact format:
           reasoning: evaluation.reasoning,
         },
         metadata: {
-          model: "gemini-2.5-flash",
+          model: "gemini-3-pro-image-preview",
           timestamp: new Date().toISOString(),
         },
       };

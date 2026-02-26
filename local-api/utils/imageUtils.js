@@ -411,7 +411,7 @@ export async function generateWithGemini(
   modelConfig = DEFAULT_MODEL_CONFIGS.gemini
 ) {
   const model = getGenAI().getGenerativeModel({
-    model: "gemini-2.5-flash-image-preview",
+    model: "gemini-3-pro-image-preview",
     generationConfig: {
       temperature: modelConfig.temperature,
       topP: modelConfig.topP,
@@ -508,7 +508,7 @@ export async function generateWithGeminiImg2Img(
   modelConfig = DEFAULT_MODEL_CONFIGS["gemini-img2img"]
 ) {
   const model = getGenAI().getGenerativeModel({
-    model: "gemini-2.5-flash-image-preview",
+    model: "gemini-3-pro-image-preview",
     generationConfig: {
       temperature: modelConfig.temperature,
       topP: modelConfig.topP,

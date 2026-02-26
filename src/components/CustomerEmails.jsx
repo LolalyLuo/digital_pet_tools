@@ -21,8 +21,8 @@ const prodSupabase = isConfigured ? createClient(PROD_CONFIG.url, PROD_CONFIG.an
 const EMAIL_TEMPLATES = {
   call_reward: {
     id: 'call_reward',
-    name: 'User Research Email (30min Call + $100 Reward)',
-    subject: (petName) => `A gift for ${petName || 'you'} 🎁 + $100 for a 30 min chat?`,
+    name: 'User Research Email (30min Call)',
+    subject: (petName) => `Quick question about ${petName || 'your pet'}`,
     variables: ['pet_name', 'upload_id', 'user_email']
   }
 }
@@ -42,6 +42,7 @@ export default function CustomerEmails() {
   const [filterPetName, setFilterPetName] = useState('')
   const [filterEmail, setFilterEmail] = useState('')
   const [filterByShop, setFilterByShop] = useState(true)
+  const [filterHasPhone, setFilterHasPhone] = useState(false)
   const [sending, setSending] = useState(false)
   const [sendStatus, setSendStatus] = useState(null)
   const [previewHTML, setPreviewHTML] = useState('')
@@ -49,51 +50,23 @@ export default function CustomerEmails() {
 
   const ITEMS_PER_PAGE = 30
 
-  // Load items from pets table (only with user_email)
+  // Load items from pets table joined with customers (only where customer has email)
   const loadItems = useCallback(async (pageNum = 0, append = false) => {
     if (!prodSupabase) return
 
     setLoading(true)
     try {
-      // Build query for pets table
-      let query = prodSupabase
-        .from('pets')
-        .select('*')
-        .not('user_email', 'is', null)
-        .neq('user_email', '')
-
-      // Apply shop filter if enabled
-      if (filterByShop) {
-        query = query.eq('shop', 'vuse04-um.myshopify.com')
-      }
-
-      // Apply user ID filter if provided
-      if (filterUserId.trim()) {
-        query = query.eq('user_id', filterUserId.trim())
-      }
-
-      // Apply upload ID filter if provided
-      if (filterUploadId.trim()) {
-        const uploadIdValue = String(filterUploadId.trim())
-        query = query.eq('upload_id', uploadIdValue)
-      }
-
-      // Apply pet name filter if provided
-      if (filterPetName.trim()) {
-        query = query.ilike('pet_name', `%${filterPetName.trim()}%`)
-      }
-
-      // Apply email filter if provided
-      if (filterEmail.trim()) {
-        query = query.ilike('user_email', `%${filterEmail.trim()}%`)
-      }
-
-      // Apply ordering and pagination
-      query = query
-        .order('created_at', { ascending: false })
-        .range(pageNum * ITEMS_PER_PAGE, (pageNum + 1) * ITEMS_PER_PAGE - 1)
-
-      const { data, error } = await query
+      // Use RPC function to join pets with customers
+      const { data, error } = await prodSupabase.rpc('get_pets_with_customers', {
+        p_shop: filterByShop ? 'vuse04-um.myshopify.com' : null,
+        p_user_id: filterUserId.trim() || null,
+        p_upload_id: filterUploadId.trim() || null,
+        p_pet_name: filterPetName.trim() || null,
+        p_email: filterEmail.trim() || null,
+        p_has_phone: filterHasPhone || null,
+        p_limit: ITEMS_PER_PAGE,
+        p_offset: pageNum * ITEMS_PER_PAGE
+      })
 
       if (error) {
         console.error('Supabase query error:', error)
@@ -115,7 +88,7 @@ export default function CustomerEmails() {
     } finally {
       setLoading(false)
     }
-  }, [filterUserId, filterUploadId, filterPetName, filterEmail, filterByShop])
+  }, [filterUserId, filterUploadId, filterPetName, filterEmail, filterByShop, filterHasPhone])
 
   // Load more items when scrolling
   const loadMore = useCallback(async () => {
@@ -150,7 +123,7 @@ export default function CustomerEmails() {
     setPage(0)
     setHasMore(true)
     loadItems(0, false)
-  }, [filterByShop, loadItems])
+  }, [filterByShop, filterHasPhone, loadItems])
 
   // Cleanup observer on unmount
   useEffect(() => {
@@ -244,14 +217,31 @@ export default function CustomerEmails() {
     try {
       const selectedItemsData = items.filter(item => selectedItems.has(item.id))
 
+      // Deduplicate by email - pick random item for each unique email
+      const emailToItems = new Map()
+      for (const item of selectedItemsData) {
+        const email = item.user_email?.toLowerCase()
+        if (!email) continue
+        if (!emailToItems.has(email)) {
+          emailToItems.set(email, [])
+        }
+        emailToItems.get(email).push(item)
+      }
+
+      // Pick one random item per email
+      const dedupedItems = Array.from(emailToItems.values()).map(items => {
+        return items[Math.floor(Math.random() * items.length)]
+      })
+
       const response = await fetch(`${LOCAL_API_URL}/api/email/send`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          recipients: selectedItemsData.map(item => ({
+          recipients: dedupedItems.map(item => ({
             email: item.user_email,
+            phone: item.user_phone || '',
             pet_name: item.pet_name || 'there',
             upload_id: item.upload_id || '',
             user_id: item.user_id || '',
@@ -442,6 +432,24 @@ export default function CustomerEmails() {
                 />
               </button>
             </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Has Phone:</label>
+              <button
+                onClick={() => {
+                  setFilterHasPhone(!filterHasPhone)
+                  setTimeout(() => handleSearch(), 0)
+                }}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${filterHasPhone ? 'bg-blue-500' : 'bg-gray-300'
+                  }`}
+                role="switch"
+                aria-checked={filterHasPhone}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${filterHasPhone ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                />
+              </button>
+            </div>
             <button
               onClick={handleSearch}
               className="px-4 py-2 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 flex items-center gap-2"
@@ -541,6 +549,9 @@ export default function CustomerEmails() {
                       </div>
                       <div className="text-xs text-gray-600">
                         <strong>Email:</strong> {item.user_email || 'N/A'}
+                      </div>
+                      <div className="text-xs text-gray-600">
+                        <strong>Phone:</strong> {item.user_phone || 'N/A'}
                       </div>
                       <div className="text-xs text-gray-600">
                         <strong>Upload ID:</strong> {item.upload_id || 'N/A'}

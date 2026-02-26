@@ -438,6 +438,7 @@ export default function MiddlePanel({
             <option value="1024×1024">1024×1024</option>
             <option value="1024×1536">1024×1536</option>
             <option value="1536×1024">1536×1024</option>
+            <option value="1440×2560">1440×2560</option>
           </select>
         </div>
 

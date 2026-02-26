@@ -46,7 +46,7 @@ Migrating from OpenAI to **Gemini 2.5 Flash** for image generation while maintai
 
 #### ✅ **Completed**
 - **Gemini 2.5 Flash Integration**: Already working via existing API
-  - Uses `gemini-2.5-flash-image-preview` model
+  - Uses `gemini-3-pro-image-preview` model
   - Endpoint: `POST /api/generate-images`
   - Supports image-to-image generation
 

@@ -57,7 +57,7 @@ async function generateWithGemini(
 
   const genAI = new GoogleGenerativeAI(geminiApiKey);
   const model = genAI.getGenerativeModel({
-    model: "gemini-2.5-flash-image-preview",
+    model: "gemini-3-pro-image-preview",
     generationConfig: {
       temperature: 0.4,
       topP: 0.9,
@@ -148,7 +148,7 @@ async function generateWithGeminiImg2Img(
 
   const genAI = new GoogleGenerativeAI(geminiApiKey);
   const model = genAI.getGenerativeModel({
-    model: "gemini-2.5-flash-image-preview",
+    model: "gemini-3-pro-image-preview",
     generationConfig: {
       temperature: 0.4,
       topP: 0.9,

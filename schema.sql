@@ -14,7 +14,7 @@ CREATE TABLE generated_images (
   image_url TEXT NOT NULL,
   similar_examples TEXT,
   number SERIAL,
-  size TEXT CHECK (size IN ('auto', '1024×1024', '1024×1536', '1536×1024')),
+  size TEXT,
   background TEXT CHECK (background IN ('opaque', 'transparent', 'auto')),
   model TEXT CHECK (model IN ('openai', 'gemini', 'gemini-img2img', 'seedream')) DEFAULT NULL,
   model_config JSONB,

@@ -214,6 +214,7 @@ export default function ConfigPanel({ currentConfig, onConfigChange, onStartIter
               <option value="1024x1024">1024×1024</option>
               <option value="1024x1536">1024×1536</option>
               <option value="1536x1024">1536×1024</option>
+              <option value="1440x2560">1440×2560</option>
             </select>
           </div>
           <div>

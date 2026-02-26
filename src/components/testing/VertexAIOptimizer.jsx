@@ -31,7 +31,7 @@ const VertexAIOptimizer = () => {
   const [pollingInterval, setPollingInterval] = useState(null);
   const [trainingDataCount, setTrainingDataCount] = useState(0);
   // Fixed model - matches what's hardcoded in cloud function
-  const fixedModel = "gemini-2.5-flash-image-preview";
+  const fixedModel = "gemini-3-pro-image-preview";
   const [currentSessionId, setCurrentSessionId] = useState("");
 
   // Available evaluation criteria options

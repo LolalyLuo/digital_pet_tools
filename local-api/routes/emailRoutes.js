@@ -24,166 +24,47 @@ function renderEmailTemplate(templateId, variables) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>A gift for ${
-    variables.pet_name || "you"
-  } 🎁 + $100 for a 30 min chat?</title>
 </head>
-<body style="margin: 0; padding: 0; background-color: #f9f9f9; font-family: Arial, Helvetica, sans-serif;">
-        <!-- Main content container -->
-        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
-          
-          <!-- Banner -->
-          <tr>
-            <td>
-              <img src="https://cdn.shopify.com/s/files/1/0719/7088/1728/files/banner.png?v=1767992269" 
-                   alt="InstaMe - Turn your pet photos into custom products" 
-                   width="600" 
-                   style="display: block; width: 100%; height: auto;">
-            </td>
-          </tr>
-          
-          <!-- Logo -->
-          <tr>
-            <td align="center" style="padding: 30px 40px 20px 40px;">
-              <img src="https://cdn.shopify.com/s/files/1/0719/7088/1728/files/logo.png?v=1767992135" 
-                   alt="InstaMe" 
-                   width="120" 
-                   style="display: block; height: auto;">
-            </td>
-          </tr>
-          
-          <!-- Email body -->
-          <tr>
-            <td style="padding: 0 40px 30px 40px; color: #333333; font-size: 16px; line-height: 1.6;">
-              
-              <p style="margin: 0 0 20px 0;">Hi there,</p>
-              
-              <p style="margin: 0 0 20px 0;">
-                I'm Laly, founder of InstaMe. I wanted to reach out personally because you took the time to upload <strong>${
-                  variables.pet_name || "your pet"
-                }</strong>'s photo — and that means a lot to us.
-              </p>
-              
-              <p style="margin: 0 0 20px 0;">
-                I have a small favor to ask. We're a small, new team that's eager to learn from our customers. If you'd be open to a 30-minute chat to share your experience, I'd love to send you a <strong>$100 gift card</strong> to wherever you'd like — Amazon, Target, Starbucks...
-              </p>
-              
-              <p style="margin: 0 0 20px 0;">
-                It would mean the world to hear your thoughts on InstaMe! You can reply directly to this email, or book a time that works for you:
-              </p>
-              
-              <!-- CTA Button for booking -->
-              <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 25px 0;">
-                <tr>
-                  <td align="center" style="background-color: #98c3ae; border-radius: 8px;">
-                    <a href="https://calendar.app.google/Bqn8SrhdUfm8GYwr9" 
-                       style="display: inline-block; padding: 14px 28px; color: #ffffff; text-decoration: none; font-weight: bold; font-size: 16px;">
-                      Book a 30-Min Chat 📞
-                    </a>
-                  </td>
-                </tr>
-              </table>
-              
-              <p style="margin: 0 0 20px 0;">
-                I hope you enjoy <strong>${
-                  variables.pet_name || "your pet"
-                }</strong>'s designs — looking forward to chatting with you soon! 🐾
-              </p>
-              
-              <p style="margin: 0 0 20px 0;">
-                P.S. I put together all of <strong>${
-                  variables.pet_name || "your pet"
-                }</strong>'s designs in high-res for you to download and keep. It is a small thank you for checking us out:
-              </p>
-              
-              <!-- CTA Button for designs -->
-              <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 25px 0;">
-                <tr>
-                  <td align="center" style="background-color: #98c3ae; border-radius: 8px;">
-                    <a href="https://instame.co/apps/instame/images/${
-                      variables.upload_id || ""
-                    }" 
-                       style="display: inline-block; padding: 14px 28px; color: #ffffff; text-decoration: none; font-weight: bold; font-size: 16px;">
-                      Download ${variables.pet_name || "your pet"}'s Designs 🎨
-                    </a>
-                  </td>
-                </tr>
-              </table>
-              
-              <p style="margin: 0 0 5px 0;">Warmly,</p>
-              <p style="margin: 0 0 30px 0;"><strong>Laly</strong><br>Founder, InstaMe</p>
-              
-              <!-- Divider -->
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="border-top: 1px solid #e5e5e5; padding-top: 25px;">
-                    
-                    <!-- P.S. Section -->
-                    <p style="margin: 0 0 15px 0; color: #666666; font-size: 14px;">
-                      <strong>P.S.</strong> Here's a peek at my typical workday — I'm sure you can relate to having "helpful" coworkers! 😄
-                    </p>
-                    
-                    <!-- Workday image -->
-                    <img src="https://cdn.shopify.com/s/files/1/0719/7088/1728/files/workday.png?v=1767994823" 
-                         alt="Laly working with her dogs" 
-                         width="520" 
-                         style="display: block; width: 100%; max-width: 520px; height: auto; border-radius: 8px;">
-                    
-                  </td>
-                </tr>
-              </table>
-              
-            </td>
-          </tr>
-          
-          <!-- Footer -->
-          <tr>
-            <td style="background-color: #f3f4f6; padding: 25px 40px; text-align: center;">
-              <p style="margin: 0 0 10px 0; color: #888888; font-size: 13px;">
-                Made with 🐾 by InstaMe
-              </p>
-              <p style="margin: 0; color: #aaaaaa; font-size: 12px;">
-                <a href="https://instame.co" style="color: #7c3aed; text-decoration: none;">instame.co</a>
-              </p>
-            </td>
-          </tr>
-          
-        </table>
-  
+<body style="margin: 0; padding: 20px; background-color: #ffffff; font-family: Arial, Helvetica, sans-serif; font-size: 15px; line-height: 1.6; color: #333333;">
+
+<p>Hi there,</p>
+
+<p>I'm Laly Luo, founder of InstaMe. This is a personal reach out — thank you so much for sharing a photo of <strong>${variables.pet_name || "your pet"}</strong> with us.</p>
+
+<p>We're a new company and genuinely want to learn about our users' experiences so we can keep improving. Would you be open to a quick 30-minute phone call to share your thoughts? We're offering $60 as a thank you for your time.</p>
+
+<p>If you're interested, just reply to this email and we can find a time that works for you.</p>
+
+<p>Thanks again,<br>
+Laly Luo<br>
+Founder, InstaMe</p>
+
+<p style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e5e5; color: #666666; font-size: 14px;">
+P.S. Here's a peek at my typical workday — I'm sure you can relate to having "helpful" coworkers!
+</p>
+
+<img src="https://cdn.shopify.com/s/files/1/0719/7088/1728/files/workday.png?v=1767994823" 
+     alt="Laly working with her dogs" 
+     width="400" 
+     style="display: block; max-width: 100%; height: auto; border-radius: 8px; margin-top: 15px;">
+
 </body>
 </html>
         `.trim(),
         text: `
 Hi there,
 
-I'm Laly, founder of InstaMe. I wanted to reach out personally because you took the time to upload ${
-          variables.pet_name || "your pet"
-        }'s photo — and that means a lot to us.
+I'm Laly Luo, founder of InstaMe. This is a personal reach out — thank you so much for sharing a photo of ${variables.pet_name || "your pet"} with us.
 
-I have a small favor to ask. We're a small, new team that's eager to learn from our customers and find ways to improve. If you'd be open to a 30-minute chat to share your experience, I'd love to send you a $100 gift card to wherever you'd like — Amazon, Target, Starbucks, you name it.
+We're a new company and genuinely want to learn about our users' experiences so we can keep improving. Would you be open to a quick 30-minute phone call to share your thoughts? We're offering $60 as a thank you for your time.
 
-It would mean the world to hear your thoughts and feedback on InstaMe! You can reply directly to this email, or book a time that works for you:
+If you're interested, just reply to this email and we can find a time that works for you.
 
-Book a 30-Min Chat: https://calendar.app.google/Bqn8SrhdUfm8GYwr9
-
-I am looking forward to chatting with you soon! 🐾
-
-P.S. I put together all of ${
-          variables.pet_name || "your pet"
-        }'s designs in high-res for you to download and share as a small thank you for checking us out:
-
-Download ${
-          variables.pet_name || "your pet"
-        }'s Designs: https://instame.co/apps/instame/images/${
-          variables.upload_id || ""
-        }
-
-Warmly,
-Laly
+Thanks again,
+Laly Luo
 Founder, InstaMe
 
-Made with 🐾 by InstaMe
-instame.co
+P.S. Here's a peek at my typical workday — I'm sure you can relate to having "helpful" coworkers!
         `.trim(),
       };
     default:

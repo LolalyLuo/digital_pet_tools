@@ -32,6 +32,7 @@ import vertexRoutes from "./routes/vertexRoutes.js";
 import utilRoutes from "./routes/utilRoutes.js";
 import emailRoutes from "./routes/emailRoutes.js";
 import shopifyRoutes from "./routes/shopifyRoutes.js";
+import printifyRoutes from "./routes/printifyRoutes.js";
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -57,6 +58,7 @@ app.use("/api/vertex-ai", vertexRoutes);
 app.use("/api", utilRoutes);
 app.use("/api/email", emailRoutes);
 app.use("/api/shopify", shopifyRoutes);
+app.use("/api/printify", printifyRoutes);
 
 // Start server
 app.listen(PORT, () => {

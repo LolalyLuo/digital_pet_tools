@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 
 let supabase = null;
 let prodSupabase = null;
+let instameshopSupabase = null;
 
 // Initialize Supabase clients (called after dotenv.config())
 export function initializeClients() {
@@ -23,8 +24,14 @@ export function initializeClients() {
     process.env.PROD_SUPABASE_SERVICE_ROLE_KEY
   );
 
+  instameshopSupabase = createClient(
+    process.env.INSTAME_SHOP_SUPABASE_URL,
+    process.env.INSTAME_SHOP_SERVICE_ROLE_KEY
+  );
+
   console.log("✅ Supabase client initialized");
   console.log("✅ Production Supabase client initialized");
+  console.log("✅ InstaMeShop Supabase client initialized");
 }
 
 // Getter functions to access the clients
@@ -40,6 +47,13 @@ export function getProdSupabase() {
     throw new Error("Production Supabase client not initialized. Call initializeClients() first.");
   }
   return prodSupabase;
+}
+
+export function getInstameshopSupabase() {
+  if (!instameshopSupabase) {
+    throw new Error("InstaMeShop Supabase client not initialized. Call initializeClients() first.");
+  }
+  return instameshopSupabase;
 }
 
 // Initialize database tables

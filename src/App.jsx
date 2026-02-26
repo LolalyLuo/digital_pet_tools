@@ -23,7 +23,7 @@ const APP_MENU_ITEMS = [
   { id: "evaluation-tester", label: "Evaluation Test" },
   { id: "vertex-ai-optimizer", label: "Vertex AI Optimizer" },
   { type: "divider" },
-  { id: "create-products", label: "Create Products" },
+  { id: "create-products", label: "Create Product Images" },
   { type: "divider" },
   { id: "prod-images", label: "Production Images" },
   { id: "customer-emails", label: "Customer Emails" },

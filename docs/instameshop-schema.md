@@ -71,12 +71,13 @@ Final mockup images downloaded after uploading AI images to Printify (or other f
 | Column | Type | Nullable | Notes |
 |---|---|---|---|
 | `id` | UUID PK | No | |
-| `ai_image_id` | UUID FK → ai_generated_images | No | |
+| `ai_image_id` | UUID FK → ai_generated_images | Yes | null for seed mockups |
+| `seed_image_id` | UUID FK → seed_images | Yes | set only for seed color mockups |
 | `product_id` | UUID FK → products | No | denormalized for fast lookup |
 | `printify_catalog_product_id` | TEXT | Yes | blank base product from Printify's catalog |
 | `printify_custom_product_id` | TEXT | Yes | our design applied to the base product |
 | `storage_path` | TEXT | No | filename in `product-images` bucket |
-| `variant_attributes` | JSONB | No | see notes below |
+| `variant_attributes` | JSONB | Yes | see notes below; null for seed mockups |
 | `created_at` | TIMESTAMPTZ | No | `now()` |
 
 **`variant_attributes` examples:**

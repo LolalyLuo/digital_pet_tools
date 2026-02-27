@@ -250,26 +250,38 @@ router.post("/variant-images", async (req, res) => {
       urlToMediaId[imageUrl] = mediaId;
     }
 
-    // Step 3: Batch-assign all variant → mediaId pairs in one call
-    const variantMedia = assignments.flatMap(({ imageUrl, variantIds }) =>
-      variantIds.map((variantId) => ({
-        variantId,
-        mediaIds: [urlToMediaId[imageUrl]],
-      }))
-    );
+    // Step 3: One mutation call per unique image (each variantId must appear only once per call).
+    // Shopify also limits to 100 variant-media pairs per mutation, so chunk large sets.
+    const CHUNK_SIZE = 100;
+    for (const { imageUrl, variantIds } of assignments) {
+      const mediaId = urlToMediaId[imageUrl];
+      for (let i = 0; i < variantIds.length; i += CHUNK_SIZE) {
+        const chunkIds = variantIds.slice(i, i + CHUNK_SIZE);
+        const variantMedia = chunkIds.map((variantId) => ({
+          variantId,
+          mediaIds: [mediaId],
+        }));
+        const assignResult = await shopifyGraphQL(token, `
+          mutation productVariantAppendMedia($productId: ID!, $variantMedia: [ProductVariantAppendMediaInput!]!) {
+            productVariantAppendMedia(productId: $productId, variantMedia: $variantMedia) {
+              product { id }
+              userErrors { field message }
+            }
+          }
+        `, { productId: shopifyProductGid, variantMedia });
 
-    const assignResult = await shopifyGraphQL(token, `
-      mutation productVariantAppendMedia($productId: ID!, $variantMedia: [ProductVariantAppendMediaInput!]!) {
-        productVariantAppendMedia(productId: $productId, variantMedia: $variantMedia) {
-          product { id }
-          userErrors { field message }
+        const assignErrors = assignResult.data?.productVariantAppendMedia?.userErrors;
+        if (assignErrors?.length) {
+          // "already has attached media" is not fatal — variant was assigned in a previous attempt
+          const fatalErrors = assignErrors.filter(
+            (e) => !e.message.toLowerCase().includes("already has attached media")
+          );
+          if (fatalErrors.length) {
+            return res.status(400).json({ error: "Variant assign error", details: fatalErrors });
+          }
+          console.warn("⚠️  Some variants already had media attached — skipping:", assignErrors.length);
         }
       }
-    `, { productId: shopifyProductGid, variantMedia });
-
-    const assignErrors = assignResult.data?.productVariantAppendMedia?.userErrors;
-    if (assignErrors?.length) {
-      return res.status(400).json({ error: "Variant assign error", details: assignErrors });
     }
 
     res.json({ success: true, uploadedMedia: urlToMediaId });

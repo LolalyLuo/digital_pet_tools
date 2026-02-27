@@ -1,5 +1,21 @@
 import { useState } from "react";
 
+// Normalize frame color for comparison: lowercase, strip hyphens/spaces
+// Handles "Poster-Only" (Shopify) vs "Poster Only" (Printify) etc.
+function normFC(fc) {
+  return (fc || "").toLowerCase().replace(/[-\s]/g, "");
+}
+
+// Maps Printify variant ID → frame color from variant title (e.g. "Black / 8x10" → "Black")
+function buildVarFrameMap(variants) {
+  const map = {};
+  (variants || []).forEach((v) => {
+    const fc = v.title?.split("/")[0]?.trim() || null;
+    if (fc) map[v.id] = fc;
+  });
+  return map;
+}
+
 export default function ConfirmUploadStep({ sessionData, onBack }) {
   const {
     shopifyProduct,
@@ -9,19 +25,41 @@ export default function ConfirmUploadStep({ sessionData, onBack }) {
     productId,
     seedImageId,
     hexCodes,
+    seedColor,
+    printifyTemplate,
   } = sessionData;
 
   const [status, setStatus] = useState("idle"); // idle | uploading | done | error
   const [errorMsg, setErrorMsg] = useState(null);
   const [shopifyAdminUrl, setShopifyAdminUrl] = useState(null);
 
+  // Build variant ID → frame color map from the seed template's variants
+  const templateVarMap = buildVarFrameMap(printifyTemplate?.variants || []);
+
+  // Seed product mockup images — filter by frame color so each frame variant gets the right image
+  const allSeedMockups = (printifyTemplate?.images || []).map((img, i) => ({
+    src: img.src,
+    position: i,
+    color: seedColor,
+    printifyProductId: printifyTemplate?.id,
+    frameColor: img.variant_ids?.[0] ? (templateVarMap[img.variant_ids[0]] || null) : null,
+  }));
+
   // Build variant → mockup mapping
   const variants = shopifyProduct?.variants || [];
   const mappingRows = variants.map((variant) => {
     const bgOption = variant.selectedOptions?.find((o) => /background.?color/i.test(o.name));
     const bgColor = bgOption?.value;
-    const matchingMockups = (selectedMockups || []).filter((m) => m.color === bgColor);
-    return { variant, bgColor, matchingMockups };
+    const frameOption = variant.selectedOptions?.find((o) => /frame.?color/i.test(o.name));
+    const frameColor = frameOption?.value || null;
+    const isSeed = bgColor === seedColor;
+
+    const matchingMockups = isSeed
+      ? allSeedMockups.filter((m) => normFC(m.frameColor) === normFC(frameColor))
+      : (selectedMockups || []).filter(
+          (m) => m.color === bgColor && normFC(m.frameColor) === normFC(frameColor)
+        );
+    return { variant, bgColor, frameColor, matchingMockups };
   });
 
   const handleConfirm = async () => {
@@ -66,13 +104,22 @@ export default function ConfirmUploadStep({ sessionData, onBack }) {
             breed: img.breed,
             petName: img.petName,
           })),
-          mockupImages: (selectedMockups || []).map((m) => ({
-            aiImageIndex: (approvedImages || []).findIndex((a) => a.color === m.color),
-            printifyProductId: m.printifyProductId,
-            position: m.position,
-            src: m.src,
-            variantAttributes: m.variantAttributes,
-          })),
+          mockupImages: [
+            ...(selectedMockups || []).map((m) => ({
+              aiImageIndex: (approvedImages || []).findIndex((a) => a.color === m.color),
+              printifyProductId: m.printifyProductId,
+              position: m.position,
+              src: m.src,
+              variantAttributes: m.variantAttributes,
+            })),
+            ...allSeedMockups.map((m) => ({
+              isSeedMockup: true,
+              printifyProductId: printifyTemplate?.id,
+              position: m.position,
+              src: m.src,
+              variantAttributes: null,
+            })),
+          ],
         }),
       });
       if (!saveRes.ok) throw new Error(await saveRes.text());

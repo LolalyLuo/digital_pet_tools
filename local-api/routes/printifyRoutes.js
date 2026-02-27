@@ -50,7 +50,7 @@ router.get("/product/:id", async (req, res) => {
       print_provider_id: product.print_provider_id,
       variants: product.variants
         .filter((v) => v.is_enabled)
-        .map((v) => ({ id: v.id, price: v.price })),
+        .map((v) => ({ id: v.id, price: v.price, title: v.title })),
       print_areas: product.print_areas,
       images: product.images, // mockup images of the seed product
     });

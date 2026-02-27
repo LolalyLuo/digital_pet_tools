@@ -1,6 +1,6 @@
 import express from "express";
 import multer from "multer";
-import { getInstameshopSupabase } from "../config/database.js";
+import { getInstameshopSupabase, getProdSupabase } from "../config/database.js";
 import { getGenAI, getOpenAI } from "../config/ai.js";
 
 const router = express.Router();
@@ -65,42 +65,64 @@ router.post("/init", upload.single("seedImage"), async (req, res) => {
 });
 
 // POST /api/product-images/breed-names
-// Body: { count: 4, animalType: "dog" | "cat" | "pet" }
+// Body: { count: 4, animalType: "dog" | "cat" | "pet", excludeBreeds: [] }
 // Returns: { combos: [{ breed: "Maine Coon", name: "Oliver" }, ...] }
+// LLM generates breeds + picks normal-sounding names from DB candidates
 router.post("/breed-names", async (req, res) => {
   try {
-    const { count = 4, animalType = "pet" } = req.body;
+    const { count = 4, animalType = "pet", excludeBreeds = [] } = req.body;
 
-    let combos;
-
+    // Step 1: Fetch a pool of candidate names from prod DB
+    let nameCandidates = [];
     try {
-      // Use OpenAI if the client is initialized
+      const db = getProdSupabase();
+      const { data } = await db
+        .from("pets")
+        .select("pet_name")
+        .not("pet_name", "is", null)
+        .limit(200);
+      if (data?.length) {
+        const names = [...new Set(data.map((r) => r.pet_name).filter(Boolean))];
+        for (let i = names.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [names[i], names[j]] = [names[j], names[i]];
+        }
+        // Pass a larger pool so LLM has plenty of normal names to pick from
+        nameCandidates = names.slice(0, Math.min(50, names.length));
+      }
+    } catch (dbErr) {
+      console.warn("⚠️ Could not fetch pet names from prod DB:", dbErr.message);
+    }
+
+    // Step 2: Single LLM call — generate breeds AND pick normal names from candidates
+    const excludeClause = excludeBreeds.length
+      ? ` Do NOT use these breeds: ${excludeBreeds.join(", ")}.`
+      : "";
+    const nameClause = nameCandidates.length
+      ? `\n\nFor names, pick ${count} from this list of real pet names — choose only normal, cute-sounding ones (skip anything weird, misspelled, or nonsensical): ${nameCandidates.join(", ")}.`
+      : `\n\nFor names, use common cute pet names like Bella, Max, Luna, Charlie, Daisy, Milo.`;
+
+    const prompt = `Generate ${count} unique and diverse ${animalType} breeds for a product image. Each must be a completely different breed (absolutely no repeats).${excludeClause}${nameClause}
+
+Respond with ONLY a valid JSON array of objects: [{"breed":"breed1","name":"name1"}, ...] No markdown, no explanation.`;
+
+    let combos = [];
+    try {
       const client = getOpenAI();
       const completion = await client.chat.completions.create({
         model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "user",
-            content: `Generate ${count} unique and diverse ${animalType} breed + name combinations for a product image. Each should be a different breed (no repeats). Names should be cute pet names. Respond with ONLY valid JSON array: [{"breed":"...", "name":"..."}, ...] No markdown, no explanation.`,
-          },
-        ],
+        messages: [{ role: "user", content: prompt }],
         max_tokens: 300,
       });
-      const raw = completion.choices[0].message.content.trim();
-      combos = JSON.parse(raw);
-    } catch (openaiErr) {
-      // Fallback: use Gemini text generation
-      console.warn("⚠️ OpenAI unavailable, falling back to Gemini:", openaiErr.message);
+      combos = JSON.parse(completion.choices[0].message.content.trim());
+    } catch {
       const genAI = getGenAI();
       const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-      const result = await model.generateContent(
-        `Generate ${count} unique and diverse ${animalType} breed + name combinations for a product image. Each should be a different breed (no repeats). Names should be cute pet names. Respond with ONLY valid JSON array: [{"breed":"...", "name":"..."}, ...] No markdown, no explanation.`
-      );
-      const raw = result.response.text().trim();
-      combos = JSON.parse(raw);
+      const result = await model.generateContent(prompt);
+      combos = JSON.parse(result.response.text().trim());
     }
 
-    res.json({ combos });
+    res.json({ combos: combos.slice(0, count) });
   } catch (err) {
     console.error("❌ breed-names:", err.message);
     res.status(500).json({ error: err.message });
@@ -150,7 +172,7 @@ ${feedbackText ? `\nAdditional adjustment: ${feedbackText}` : ""}
 Output only the modified image.`;
 
     const genAI = getGenAI();
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    const model = genAI.getGenerativeModel({ model: "gemini-3-pro-image-preview" });
 
     const result = await model.generateContent([
       prompt,
@@ -224,10 +246,14 @@ router.post("/save-results", async (req, res) => {
     // Download and save mockup images
     const mockupImageIds = [];
     for (const mockup of (mockupImages || [])) {
-      const aiImageId = aiImageRecords[mockup.aiImageIndex]?.id;
-      if (!aiImageId) {
-        console.warn(`⚠️ Skipping mockup at position ${mockup.position}: no AI image at index ${mockup.aiImageIndex}`);
-        continue;
+      // Seed mockups use seed_image_id (null ai_image_id); non-seed use ai_image_id
+      let aiImageId = null;
+      if (!mockup.isSeedMockup) {
+        aiImageId = aiImageRecords[mockup.aiImageIndex]?.id;
+        if (!aiImageId) {
+          console.warn(`⚠️ Skipping mockup at position ${mockup.position}: no AI image at index ${mockup.aiImageIndex}`);
+          continue;
+        }
       }
 
       // Download mockup image from Printify CDN
@@ -245,10 +271,11 @@ router.post("/save-results", async (req, res) => {
         .from("product_mockup_images")
         .insert({
           ai_image_id: aiImageId,
+          seed_image_id: mockup.isSeedMockup ? seedImageId : null,
           product_id: productId,
           printify_custom_product_id: mockup.printifyProductId,
           storage_path: fileName,
-          variant_attributes: mockup.variantAttributes,
+          variant_attributes: mockup.variantAttributes ?? null,
         })
         .select()
         .single();

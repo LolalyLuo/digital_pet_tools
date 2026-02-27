@@ -88,11 +88,14 @@ export default function GenerateImagesStep({ sessionData, updateSession, onNext,
     let breed = card.breed || "Golden Retriever";
     let petName = card.petName || "Buddy";
 
+    // Exclude breeds already used by other cards to keep all designs unique
+    const otherBreeds = cards.filter((c) => c.color !== color && c.breed).map((c) => c.breed);
+
     try {
       const res = await fetch("http://localhost:3001/api/product-images/breed-names", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ count: 1, animalType: "pet" }),
+        body: JSON.stringify({ count: 1, animalType: "pet", excludeBreeds: otherBreeds }),
       });
       if (res.ok) {
         const { combos } = await res.json();

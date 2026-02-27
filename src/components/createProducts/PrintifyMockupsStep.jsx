@@ -1,5 +1,23 @@
 import { useState, useEffect, useRef } from "react";
 
+// Maps Printify variant ID → frame color name (parsed from variant title e.g. "Black / 8x10")
+function buildVarFrameMap(variants) {
+  const map = {};
+  (variants || []).forEach((v) => {
+    const fc = v.title?.split("/")[0]?.trim() || null;
+    if (fc) map[v.id] = fc;
+  });
+  return map;
+}
+
+const POSITION_LABEL_MAP = {
+  front: "Front View",
+  back: "Back View",
+  side: "Side/Tilted View",
+  lifestyle: "Lifestyle",
+  other: "Other View",
+};
+
 export default function PrintifyMockupsStep({ sessionData, updateSession, onNext, onBack }) {
   const { approvedImages, printifyTemplate, hexCodes } = sessionData;
 
@@ -9,6 +27,7 @@ export default function PrintifyMockupsStep({ sessionData, updateSession, onNext
       status: "uploading",
       productId: null,
       images: [],
+      variants: [],
       error: null,
     }))
   );
@@ -55,6 +74,7 @@ export default function PrintifyMockupsStep({ sessionData, updateSession, onNext
           status: "done",
           productId: product.id,
           images: product.images || [],
+          variants: product.variants || [],
         });
       } catch (err) {
         updateProgress(img.color, { status: "error", error: err.message });
@@ -62,19 +82,41 @@ export default function PrintifyMockupsStep({ sessionData, updateSession, onNext
     });
   }, []);
 
-  // Group mockup images by position index across all done products
+  // Group mockup images by (frame color × view angle) using Printify variant titles + image.variant_ids
   const positionGroups = (() => {
     const done = progress.filter((p) => p.status === "done");
     if (!done.length) return [];
     const maxLen = Math.max(...done.map((p) => p.images.length));
-    const POSITION_LABELS = ["Front View", "Side/Tilted View", "Lifestyle View"];
-    return Array.from({ length: maxLen }, (_, posIdx) => ({
-      posIdx,
-      label: POSITION_LABELS[posIdx] || `View ${posIdx + 1}`,
-      entries: done
-        .map((p) => ({ color: p.color, productId: p.productId, image: p.images[posIdx] || null }))
-        .filter((e) => e.image),
-    })).filter((g) => g.entries.length > 0);
+
+    // Use first done product as reference for label/frameColor structure
+    const ref = done[0];
+    const refVarMap = buildVarFrameMap(ref.variants);
+
+    // Assign each posIdx a (frameColor, viewIdx) using the reference product
+    const frameViewCount = {};
+    const posMeta = Array.from({ length: maxLen }, (_, posIdx) => {
+      const img = ref.images[posIdx];
+      const frameColor = img?.variant_ids?.[0]
+        ? (refVarMap[img.variant_ids[0]] || "Unknown")
+        : "Unknown";
+      if (!frameViewCount[frameColor]) frameViewCount[frameColor] = 0;
+      const viewIdx = frameViewCount[frameColor]++;
+      const posStr = img?.position;
+      const posLabel = posStr ? (POSITION_LABEL_MAP[posStr] || `View ${viewIdx + 1}`) : `View ${viewIdx + 1}`;
+      return { frameColor, viewIdx, label: `${posLabel} — ${frameColor}` };
+    });
+
+    return Array.from({ length: maxLen }, (_, posIdx) => {
+      const { frameColor, label } = posMeta[posIdx];
+      return {
+        posIdx,
+        frameColor,
+        label,
+        entries: done
+          .map((p) => ({ color: p.color, productId: p.productId, image: p.images[posIdx] || null, frameColor }))
+          .filter((e) => e.image),
+      };
+    }).filter((g) => g.entries.length > 0);
   })();
 
   const allDone =
@@ -102,16 +144,19 @@ export default function PrintifyMockupsStep({ sessionData, updateSession, onNext
     progress
       .filter((p) => p.status === "done")
       .forEach((p, colorIdx) => {
+        const vMap = buildVarFrameMap(p.variants);
         p.images.forEach((img, posIdx) => {
           const key = `${p.productId}:${posIdx}`;
           if (selectedMockups.has(key)) {
+            const frameColor = img.variant_ids?.[0] ? (vMap[img.variant_ids[0]] || null) : null;
             selected.push({
               aiImageIndex: colorIdx,
               printifyProductId: p.productId,
               position: posIdx,
               src: img.src,
               color: p.color,
-              variantAttributes: { background_color: p.color },
+              frameColor,
+              variantAttributes: { background_color: p.color, frame_color: frameColor },
             });
           }
         });

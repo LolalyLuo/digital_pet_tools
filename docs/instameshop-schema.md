@@ -36,7 +36,47 @@ Central registry. All other product pipeline tables reference this.
 | `shopify_product_id` | TEXT | No | e.g. `gid://shopify/Product/123` |
 | `name` | TEXT | No | e.g. `Deluxe Pet Portrait` |
 | `product_type` | TEXT | No | `portrait` / `mug` / `blanket` |
+| `config` | JSONB | Yes | Full product creation config — see shape below |
 | `created_at` | TIMESTAMPTZ | No | `now()` |
+
+#### `config` JSONB shape
+
+```json
+{
+  "title": "Custom One Pet Portrait",
+  "vendor": "InstaMe",
+  "productType": "Custom Portrait",
+  "descriptionHtml": "<p>...</p>",
+  "options": [
+    {
+      "name": "Background Color",
+      "values": ["Soft White", "Dusty Pink", "..."],
+      "colorMap": { "Soft White": "#f7f7f7", "..." : "..." }
+    },
+    { "name": "Size", "values": ["8\"x10\"", "12\"x16\"", "18\"x24\""] },
+    { "name": "Frame Option", "values": ["Black", "White", "Walnut", "Poster-Only"] }
+  ],
+  "prices": {
+    "8\"x10\"": {
+      "Black": ["77.00", "105.00"],
+      "...": ["price", "compareAtPrice"]
+    }
+  },
+  "extras": [
+    { "label": "Rush Processing", "description": "...", "price": "10.00" }
+  ],
+  "personalizationGIDs": [
+    "gid://shopify/Metaobject/181824421993",
+    "gid://shopify/Metaobject/181824454761"
+  ],
+  "publicationIDs": [
+    "gid://shopify/Publication/151855169641",
+    "gid://shopify/Publication/151855267945"
+  ]
+}
+```
+
+To recreate a product from config: read the row, pass `config` to `create-from-config.js`.
 
 ---
 

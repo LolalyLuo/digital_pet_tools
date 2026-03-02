@@ -1,11 +1,15 @@
 import { useState, useEffect, useRef } from "react";
 
-// Maps Printify variant ID → frame color name (parsed from variant title e.g. "Black / 8x10")
-function buildVarFrameMap(variants) {
+// Maps Printify variant ID → frame color name.
+// Uses known Shopify frame values to find the right segment in titles like "18x24 / White" or "White / 8x10".
+// Falls back to the first segment if no known frame value matches.
+function buildVarFrameMap(variants, frameValues = []) {
+  const knownFrames = frameValues.map((v) => v.toLowerCase().trim());
   const map = {};
   (variants || []).forEach((v) => {
-    const fc = v.title?.split("/")[0]?.trim() || null;
-    if (fc) map[v.id] = fc;
+    const parts = (v.title || "").split("/").map((p) => p.trim());
+    const match = parts.find((p) => knownFrames.includes(p.toLowerCase()));
+    map[v.id] = match || parts[0] || null;
   });
   return map;
 }
@@ -19,26 +23,44 @@ const POSITION_LABEL_MAP = {
 };
 
 export default function PrintifyMockupsStep({ sessionData, updateSession, onNext, onBack }) {
-  const { approvedImages, printifyTemplate, hexCodes } = sessionData;
+  const { approvedImages, printifyTemplate, hexCodes, frameValues = [] } = sessionData;
 
-  const [progress, setProgress] = useState(() =>
-    (approvedImages || []).map((img) => ({
+  const [progress, setProgress] = useState(() => {
+    // Restore from cache if it covers all current approvedImages (back navigation)
+    const cache = sessionData.printifyProductsCache;
+    if (cache?.length && approvedImages?.length) {
+      const cacheByColor = Object.fromEntries(cache.map((p) => [p.color, p]));
+      if (approvedImages.every((img) => cacheByColor[img.color]?.status === "done")) {
+        return approvedImages.map((img) => ({ ...cacheByColor[img.color], status: "done" }));
+      }
+    }
+    return (approvedImages || []).map((img) => ({
       color: img.color,
       status: "uploading",
       productId: null,
       images: [],
       variants: [],
       error: null,
-    }))
-  );
+    }));
+  });
   const [selectedMockups, setSelectedMockups] = useState(new Set());
   const initiated = useRef(false);
+
+  // Persist completed products to sessionData so back navigation doesn't re-create them
+  useEffect(() => {
+    const done = progress.filter((p) => p.status === "done");
+    const allSettled = progress.length > 0 && progress.every((p) => p.status === "done" || p.status === "error");
+    if (allSettled && done.length > 0) {
+      updateSession({ printifyProductsCache: done });
+    }
+  }, [progress]);
 
   const updateProgress = (color, updates) =>
     setProgress((prev) => prev.map((p) => (p.color === color ? { ...p, ...updates } : p)));
 
   useEffect(() => {
-    if (initiated.current || !approvedImages?.length) return;
+    const alreadyDone = progress.every((p) => p.status === "done" || p.status === "error");
+    if (initiated.current || !approvedImages?.length || alreadyDone) return;
     initiated.current = true;
 
     approvedImages.forEach(async (img) => {
@@ -90,7 +112,7 @@ export default function PrintifyMockupsStep({ sessionData, updateSession, onNext
 
     // Use first done product as reference for label/frameColor structure
     const ref = done[0];
-    const refVarMap = buildVarFrameMap(ref.variants);
+    const refVarMap = buildVarFrameMap(ref.variants, frameValues);
 
     // Assign each posIdx a (frameColor, viewIdx) using the reference product
     const frameViewCount = {};
@@ -144,7 +166,7 @@ export default function PrintifyMockupsStep({ sessionData, updateSession, onNext
     progress
       .filter((p) => p.status === "done")
       .forEach((p, colorIdx) => {
-        const vMap = buildVarFrameMap(p.variants);
+        const vMap = buildVarFrameMap(p.variants, frameValues);
         p.images.forEach((img, posIdx) => {
           const key = `${p.productId}:${posIdx}`;
           if (selectedMockups.has(key)) {

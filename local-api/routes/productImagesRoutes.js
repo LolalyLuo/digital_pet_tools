@@ -7,16 +7,16 @@ const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
 // POST /api/product-images/init
-// Multipart: seedImage file + fields: shopifyProductId, shopifyProductTitle
-// Creates products + seed_images rows in InstaMeShop DB
+// Multipart: seedImage file + fields: shopifyProductId
+// Fetches existing products row by shopifyProductId, uploads seed image, creates seed_images row
 // Returns: { productId, seedImageId, seedImageUrl }
 router.post("/init", upload.single("seedImage"), async (req, res) => {
   try {
-    const { shopifyProductId, shopifyProductTitle } = req.body;
+    const { shopifyProductId } = req.body;
     const file = req.file;
 
-    if (!shopifyProductId || !shopifyProductTitle || !file) {
-      return res.status(400).json({ error: "shopifyProductId, shopifyProductTitle, and seedImage required" });
+    if (!shopifyProductId || !file) {
+      return res.status(400).json({ error: "shopifyProductId and seedImage required" });
     }
 
     const db = getInstameshopSupabase();
@@ -31,18 +31,14 @@ router.post("/init", upload.single("seedImage"), async (req, res) => {
 
     const { data: { publicUrl } } = db.storage.from("seed-images").getPublicUrl(fileName);
 
-    // Create products row
+    // Fetch existing products row (created during config step)
     const { data: product, error: productError } = await db
       .from("products")
-      .insert({
-        shopify_product_id: shopifyProductId,
-        name: shopifyProductTitle,
-        product_type: "portrait",
-      })
       .select()
+      .eq("shopify_product_id", shopifyProductId)
       .single();
 
-    if (productError) throw new Error(`Products insert failed: ${productError.message}`);
+    if (productError) throw new Error(`Products fetch failed: ${productError.message}`);
 
     // Create seed_images row
     const { data: seedImage, error: seedError } = await db
@@ -102,7 +98,15 @@ router.post("/breed-names", async (req, res) => {
       ? `\n\nFor names, pick ${count} from this list of real pet names — choose only normal, cute-sounding ones (skip anything weird, misspelled, or nonsensical): ${nameCandidates.join(", ")}.`
       : `\n\nFor names, use common cute pet names like Bella, Max, Luna, Charlie, Daisy, Milo.`;
 
-    const prompt = `Generate ${count} unique and diverse ${animalType} breeds for a product image. Each must be a completely different breed (absolutely no repeats).${excludeClause}${nameClause}
+    // Allocate slots: at most 1 non-dog/cat, rest are dogs and cats (alternating or random mix)
+    const dogSlots = Math.ceil((count - 1) / 2);
+    const catSlots = Math.floor((count - 1) / 2);
+    const wildcardSlot = count > 1 ? 1 : 0;
+    const slotDescription = wildcardSlot
+      ? `${dogSlots} dog breed${dogSlots !== 1 ? "s" : ""}, ${catSlots} cat breed${catSlots !== 1 ? "s" : ""}, and exactly 1 other pet (rabbit, hamster, bird, etc.)`
+      : `${count} dog or cat breed${count !== 1 ? "s" : ""}`;
+
+    const prompt = `Generate ${count} unique pet breed + name combinations for a product image. Use exactly: ${slotDescription}. All breeds must be completely different (no repeats).${excludeClause}${nameClause}
 
 Respond with ONLY a valid JSON array of objects: [{"breed":"breed1","name":"name1"}, ...] No markdown, no explanation.`;
 
@@ -130,7 +134,8 @@ Respond with ONLY a valid JSON array of objects: [{"breed":"breed1","name":"name
 });
 
 // POST /api/product-images/generate-variant
-// Body: { seedImageBase64, seedImageMimeType, backgroundColor, colorName, breed, petName, feedbackText }
+// Body: { seedImageBase64, seedImageMimeType, backgroundColor, colorName, breed, petName, feedbackText, refineMode? }
+// refineMode: true — applies only feedbackText to the provided image, keeps everything else identical
 // Returns: { imageBase64, mimeType }
 router.post("/generate-variant", async (req, res) => {
   try {
@@ -142,21 +147,42 @@ router.post("/generate-variant", async (req, res) => {
       breed,
       petName,
       feedbackText = "",
+      refineMode = false,
     } = req.body;
 
-    if (!seedImageBase64 || !backgroundColor || !colorName || !breed || !petName) {
-      return res.status(400).json({ error: "seedImageBase64, backgroundColor, colorName, breed, petName required" });
+    if (!seedImageBase64) {
+      return res.status(400).json({ error: "seedImageBase64 required" });
+    }
+    if (!refineMode && (!backgroundColor || !colorName || !breed || !petName)) {
+      return res.status(400).json({ error: "backgroundColor, colorName, breed, petName required when not in refineMode" });
+    }
+    if (refineMode && !feedbackText) {
+      return res.status(400).json({ error: "feedbackText required in refineMode" });
     }
 
-    // Determine name text color based on background luminance
-    const hex = backgroundColor.replace("#", "");
-    const r = parseInt(hex.substring(0, 2), 16);
-    const g = parseInt(hex.substring(2, 4), 16);
-    const b = parseInt(hex.substring(4, 6), 16);
-    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-    const nameColor = luminance < 0.5 ? "white" : "black";
+    let prompt;
 
-    const prompt = `You are editing this existing artwork. Make ONLY these specific changes:
+    if (refineMode) {
+      // Tweak mode: apply only the user's adjustment to the current image
+      prompt = `You are editing this existing artwork. Apply ONLY this adjustment: ${feedbackText}
+
+Keep EVERYTHING else completely unchanged:
+- The background color, breed, and name text must stay exactly as they are
+- The exact same artistic style (brushstrokes, texture, medium — watercolor/pencil/cartoon/etc.)
+- The same overall composition, layout, and decorative elements
+- The same image dimensions and aspect ratio
+
+Output only the modified image.`;
+    } else {
+      // Initial generation: apply full color + breed + name transformation
+      const hex = backgroundColor.replace("#", "");
+      const r = parseInt(hex.substring(0, 2), 16);
+      const g = parseInt(hex.substring(2, 4), 16);
+      const b = parseInt(hex.substring(4, 6), 16);
+      const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+      const nameColor = luminance < 0.5 ? "white" : "black";
+
+      prompt = `You are editing this existing artwork. Make ONLY these specific changes:
 1. Change the background color to ${colorName} (${backgroundColor})
 2. Change the pet in the image to a ${breed}
 3. Change the pet's name text to "${petName}" in ${nameColor} color
@@ -170,6 +196,7 @@ Keep EVERYTHING else identical:
 ${feedbackText ? `\nAdditional adjustment: ${feedbackText}` : ""}
 
 Output only the modified image.`;
+    }
 
     const genAI = getGenAI();
     const model = genAI.getGenerativeModel({ model: "gemini-3-pro-image-preview" });
@@ -196,13 +223,40 @@ Output only the modified image.`;
   }
 });
 
-// POST /api/product-images/save-results
-// Body: { productId, seedImageId, aiImages: [...], mockupImages: [...] }
-// Saves ai_generated_images + product_mockup_images rows to InstaMeShop DB
-// Returns: { aiImageIds: [...], mockupImageIds: [...] }
-router.post("/save-results", async (req, res) => {
+// POST /api/product-images/upload-image
+// Body: { imageBase64, mimeType? }
+// Uploads a single image to the ai-images storage bucket and returns its public URL.
+// Used by step 5 when a locally-uploaded image needs a real URL before being sent to Shopify.
+router.post("/upload-image", async (req, res) => {
   try {
-    const { productId, seedImageId, aiImages, mockupImages } = req.body;
+    const { imageBase64, mimeType = "image/png" } = req.body;
+    if (!imageBase64) return res.status(400).json({ error: "imageBase64 required" });
+
+    const db = getInstameshopSupabase();
+    const ext = mimeType === "image/jpeg" ? "jpg" : "png";
+    const fileName = `upload_${Date.now()}.${ext}`;
+    const buffer = Buffer.from(imageBase64, "base64");
+
+    const { error: storageErr } = await db.storage
+      .from("product-images")
+      .upload(fileName, buffer, { contentType: mimeType, upsert: false });
+    if (storageErr) throw new Error(`Storage upload failed: ${storageErr.message}`);
+
+    const { data: { publicUrl } } = db.storage.from("product-images").getPublicUrl(fileName);
+    res.json({ publicUrl });
+  } catch (err) {
+    console.error("❌ upload-image:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/product-images/save-ai-images
+// Body: { productId, seedImageId, aiImages: [{imageBase64, mimeType, colorName, hexCode, breed, petName}] }
+// Uploads images to storage and inserts ai_generated_images rows.
+// Returns: { aiImageRecords: [{id, color, publicUrl}] }
+router.post("/save-ai-images", async (req, res) => {
+  try {
+    const { productId, seedImageId, aiImages } = req.body;
     if (!productId || !seedImageId || !aiImages?.length) {
       return res.status(400).json({ error: "productId, seedImageId, aiImages required" });
     }
@@ -210,7 +264,6 @@ router.post("/save-results", async (req, res) => {
     const db = getInstameshopSupabase();
     const aiImageRecords = [];
 
-    // Upload each AI image to storage + insert row
     for (const img of aiImages) {
       const buffer = Buffer.from(img.imageBase64, "base64");
       const ext = img.mimeType === "image/jpeg" ? "jpg" : "png";
@@ -240,7 +293,69 @@ router.post("/save-results", async (req, res) => {
         .single();
       if (dbErr) throw new Error(`ai_generated_images insert failed: ${dbErr.message}`);
 
-      aiImageRecords.push({ id: row.id, publicUrl });
+      aiImageRecords.push({ id: row.id, color: img.colorName, publicUrl });
+    }
+
+    res.json({ aiImageRecords });
+  } catch (err) {
+    console.error("❌ save-ai-images:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/product-images/save-results
+// Body: { productId, seedImageId, aiImages?: [...], aiImageRecords?: [...], mockupImages: [...] }
+// If aiImageRecords is provided (pre-saved in step 3), skips re-uploading aiImages.
+// Returns: { aiImageIds: [...], mockupImageIds: [...] }
+router.post("/save-results", async (req, res) => {
+  try {
+    const { productId, seedImageId, aiImages, aiImageRecords: presavedRecords, mockupImages } = req.body;
+    if (!productId || !seedImageId) {
+      return res.status(400).json({ error: "productId and seedImageId required" });
+    }
+    if (!presavedRecords?.length && !aiImages?.length) {
+      return res.status(400).json({ error: "aiImages or aiImageRecords required" });
+    }
+
+    const db = getInstameshopSupabase();
+    let aiImageRecords = [];
+
+    if (presavedRecords?.length) {
+      // AI images already saved in step 3 — reuse without re-uploading
+      aiImageRecords = presavedRecords;
+    } else {
+      // Upload each AI image to storage + insert row
+      for (const img of aiImages) {
+        const buffer = Buffer.from(img.imageBase64, "base64");
+        const ext = img.mimeType === "image/jpeg" ? "jpg" : "png";
+        const safeName = (img.colorName || "unnamed").replace(/\s/g, "_");
+        const fileName = `ai_${Date.now()}_${safeName}.${ext}`;
+
+        const { error: storageErr } = await db.storage
+          .from("ai-images")
+          .upload(fileName, buffer, { contentType: img.mimeType, upsert: false });
+        if (storageErr) throw new Error(`AI image storage upload failed: ${storageErr.message}`);
+
+        const { data: { publicUrl } } = db.storage.from("ai-images").getPublicUrl(fileName);
+
+        const { data: row, error: dbErr } = await db
+          .from("ai_generated_images")
+          .insert({
+            seed_image_id: seedImageId,
+            storage_path: fileName,
+            generation_params: {
+              colorName: img.colorName,
+              hexCode: img.hexCode,
+              breed: img.breed,
+              petName: img.petName,
+            },
+          })
+          .select()
+          .single();
+        if (dbErr) throw new Error(`ai_generated_images insert failed: ${dbErr.message}`);
+
+        aiImageRecords.push({ id: row.id, color: img.colorName, publicUrl });
+      }
     }
 
     // Download and save mockup images

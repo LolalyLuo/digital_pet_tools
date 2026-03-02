@@ -11,7 +11,7 @@ function isSizeOption(name) {
   return /^size$/i.test(name);
 }
 function isFrameColorOption(name) {
-  return /frame.?color/i.test(name);
+  return /frame/i.test(name);
 }
 
 export default function ConfigureVariantsStep({ sessionData, updateSession, onNext, onBack }) {
@@ -19,6 +19,9 @@ export default function ConfigureVariantsStep({ sessionData, updateSession, onNe
   const bgOption = options.find((o) => isBgColorOption(o.name));
   const sizeOption = options.find((o) => isSizeOption(o.name));
   const frameOption = options.find((o) => isFrameColorOption(o.name));
+  const otherOptions = options.filter(
+    (o) => !isBgColorOption(o.name) && !isSizeOption(o.name) && !isFrameColorOption(o.name)
+  );
 
   const initHexCodes = () => {
     try {
@@ -33,6 +36,12 @@ export default function ConfigureVariantsStep({ sessionData, updateSession, onNe
   };
 
   const [hexCodes, setHexCodes] = useState(initHexCodes);
+  const [frameAliases, setFrameAliases] = useState(() => {
+    // Pre-fill aliases with the Shopify values (identity mapping by default)
+    const result = {};
+    (frameOption?.values || []).forEach((v) => { result[v] = ""; });
+    return result;
+  });
   const [seedColor, setSeedColor] = useState(() => localStorage.getItem(LS_SEED) || "");
   const [sizeShared, setSizeShared] = useState(() => {
     const stored = localStorage.getItem(LS_SIZE_SHARED);
@@ -45,10 +54,17 @@ export default function ConfigureVariantsStep({ sessionData, updateSession, onNe
 
   const bgColors = bgOption?.values || [];
   const nonSeedColors = bgColors.filter((c) => c !== seedColor);
-  const allHexesFilled = bgColors.every((c) => hexCodes[c]?.match(/^#[0-9a-fA-F]{6}$/));
+  const isValidHex = (val) => /^#[0-9a-fA-F]{6}$/.test((val || "").trim());
+  const allHexesFilled = bgColors.every((c) => isValidHex(hexCodes[c]));
   const canNext = !bgOption || (seedColor && allHexesFilled);
 
   const handleNext = () => {
+    // Build alias map: only include entries where user typed a different name
+    const resolvedAliases = {};
+    (frameOption?.values || []).forEach((v) => {
+      const alias = frameAliases[v]?.trim();
+      if (alias && alias.toLowerCase() !== v.toLowerCase()) resolvedAliases[v] = alias;
+    });
     updateSession({
       bgColors,
       seedColor,
@@ -56,6 +72,7 @@ export default function ConfigureVariantsStep({ sessionData, updateSession, onNe
       sizeShared,
       sizeValues: sizeOption?.values || [],
       frameValues: frameOption?.values || [],
+      frameAliases: resolvedAliases,
     });
     onNext();
   };
@@ -81,8 +98,10 @@ export default function ConfigureVariantsStep({ sessionData, updateSession, onNe
                   type="text"
                   placeholder="#FFFFFF"
                   value={hexCodes[color] || ""}
-                  onChange={(e) => setHexCodes((prev) => ({ ...prev, [color]: e.target.value }))}
-                  className="w-28 border border-gray-300 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  onChange={(e) => setHexCodes((prev) => ({ ...prev, [color]: e.target.value.trim() }))}
+                  className={`w-28 border rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 ${
+                    hexCodes[color] && !isValidHex(hexCodes[color]) ? "border-red-400" : "border-gray-300"
+                  }`}
                 />
                 <button
                   onClick={() => setSeedColor(color)}
@@ -131,18 +150,49 @@ export default function ConfigureVariantsStep({ sessionData, updateSession, onNe
       {frameOption && (
         <section>
           <h3 className="text-sm font-semibold text-gray-700 mb-2">
-            Frame Color <span className="text-gray-400 text-xs font-normal">(Shopify/Printify variant only — shares AI image)</span>
+            Frame Color <span className="text-gray-400 text-xs font-normal">(shares AI image — used for mockup matching)</span>
           </h3>
-          <div className="flex gap-2 flex-wrap">
+          <div className="space-y-2">
             {frameOption.values.map((f) => (
-              <span key={f} className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">{f}</span>
+              <div key={f} className="flex items-center gap-3">
+                <span className="text-sm text-gray-700 w-28 truncate">{f}</span>
+                <span className="text-gray-300 text-xs">→</span>
+                <input
+                  type="text"
+                  placeholder={`Printify name (default: "${f}")`}
+                  value={frameAliases[f] || ""}
+                  onChange={(e) => setFrameAliases((prev) => ({ ...prev, [f]: e.target.value }))}
+                  className="w-44 border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-gray-400 mt-2">
+            Leave blank if Shopify and Printify use the same name. Fill in when they differ (e.g. Shopify "Walnut" → Printify "Brown").
+          </p>
+        </section>
+      )}
+
+      {otherOptions.length > 0 && (
+        <section>
+          <h3 className="text-sm font-semibold text-gray-700 mb-2">Other Options <span className="text-gray-400 text-xs font-normal">(info only)</span></h3>
+          <div className="space-y-2">
+            {otherOptions.map((opt) => (
+              <div key={opt.id || opt.name}>
+                <p className="text-xs text-gray-500 mb-1">{opt.name}</p>
+                <div className="flex gap-2 flex-wrap">
+                  {opt.values.map((v) => (
+                    <span key={v} className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">{v}</span>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         </section>
       )}
 
-      {!bgOption && !sizeOption && !frameOption && (
-        <p className="text-sm text-gray-500">No recognized variant options found on this product.</p>
+      {!bgOption && !sizeOption && !frameOption && otherOptions.length === 0 && (
+        <p className="text-sm text-gray-500">No variant options found on this product.</p>
       )}
 
       <div className="flex justify-between">

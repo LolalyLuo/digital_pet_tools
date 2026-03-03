@@ -201,7 +201,8 @@ export default function PetPhotoProductGenerator() {
 
   // ── Section 4 helpers ──
   const extractPrintifyId = (urlOrId) => {
-    const match = urlOrId.match(/\/(\d{6,})/);
+    // Match hex IDs in URLs like /product-details/69a729d6... or /editor/69a729d6...
+    const match = urlOrId.match(/\/([a-f0-9]{20,})/);
     return match ? match[1] : urlOrId.trim();
   };
 

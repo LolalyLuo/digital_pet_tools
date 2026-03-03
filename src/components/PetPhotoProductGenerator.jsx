@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { supabase } from "../utils/supabaseClient";
 
 const PRINTIFY_SHOPS = [
   { id: "24261029", label: "InstaMe (Manual)" },
@@ -13,6 +14,9 @@ const PRINTIFY_SHOPS = [
 ];
 
 export default function PetPhotoProductGenerator() {
+  // Existing photos from Supabase
+  const [existingPhotos, setExistingPhotos] = useState([]); // [{id, url, file_name}]
+
   // Section 1: pet photos
   const [petPhotos, setPetPhotos] = useState([]); // [{id, file, dataUrl, petName}]
 
@@ -39,12 +43,26 @@ export default function PetPhotoProductGenerator() {
   const [createdProducts, setCreatedProducts] = useState([]);
   const [targetShopId, setTargetShopId] = useState("24261029");
 
-  // Load prompts on mount
+  // Load prompts and existing photos on mount
   useEffect(() => {
     fetch("http://localhost:3001/api/shopify-v2/ai-prompts")
       .then((r) => r.json())
       .then((data) => setAvailablePrompts(data.prompts || []))
       .catch((err) => console.error("Failed to load prompts:", err));
+
+    supabase
+      .from("uploaded_photos")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .then(({ data, error }) => {
+        if (error) return console.error("Failed to load photos:", error);
+        setExistingPhotos(
+          data.map((p) => ({
+            ...p,
+            url: supabase.storage.from("uploaded-photos").getPublicUrl(p.file_path).data.publicUrl,
+          }))
+        );
+      });
   }, []);
 
   // When a prompt is selected from the dropdown, populate all fields
@@ -72,6 +90,22 @@ export default function PetPhotoProductGenerator() {
 
   const removePhoto = (id) => {
     setPetPhotos((prev) => prev.filter((p) => p.id !== id));
+  };
+
+  const addExistingPhoto = async (photo) => {
+    // Skip if already added
+    if (petPhotos.some((p) => p.sourceId === photo.id)) return;
+    try {
+      const res = await fetch(photo.url);
+      const blob = await res.blob();
+      const file = new File([blob], photo.file_name, { type: blob.type || "image/jpeg" });
+      setPetPhotos((prev) => [
+        ...prev,
+        { id: crypto.randomUUID(), sourceId: photo.id, file, dataUrl: photo.url, petName: "" },
+      ]);
+    } catch (err) {
+      console.error("Failed to fetch existing photo:", err);
+    }
   };
 
   const updatePetName = (id, name) => {
@@ -254,6 +288,32 @@ export default function PetPhotoProductGenerator() {
       {/* ── Section 1: Pet Photos ── */}
       <section>
         <h2 className="text-lg font-semibold mb-3">1. Pet Photos</h2>
+
+        {/* Existing photos from Supabase */}
+        {existingPhotos.length > 0 && (
+          <div className="mb-4">
+            <p className="text-sm text-gray-500 mb-2">Click to add from your library:</p>
+            <div className="flex gap-2 overflow-x-auto pb-2">
+              {existingPhotos.map((photo) => {
+                const alreadyAdded = petPhotos.some((p) => p.sourceId === photo.id);
+                return (
+                  <button
+                    key={photo.id}
+                    onClick={() => addExistingPhoto(photo)}
+                    disabled={alreadyAdded}
+                    className={`flex-shrink-0 w-20 h-20 rounded overflow-hidden border-2 transition-all ${
+                      alreadyAdded
+                        ? "border-blue-500 opacity-60"
+                        : "border-transparent hover:border-blue-300"
+                    }`}
+                  >
+                    <img src={photo.url} alt={photo.file_name} className="w-full h-full object-cover" />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <label
           className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg p-8 cursor-pointer hover:border-blue-400 transition-colors"

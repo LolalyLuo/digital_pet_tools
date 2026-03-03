@@ -267,10 +267,13 @@ export default function PetPhotoProductGenerator() {
         const createData = await createRes.json();
         if (!createRes.ok) throw new Error(createData.error || "Create failed");
 
+        const productId = createData.product.id;
+        console.log("Created Printify product:", productId, "in shop:", targetShopId);
+
         results.push({
-          id: createData.product.id,
+          id: productId,
           title: customTitle,
-          url: `https://printify.com/app/editor/${createData.product.id}`,
+          url: `https://printify.com/app/store/products/${targetShopId}/${productId}`,
         });
       } catch (err) {
         results.push({ error: err.message, index: i });

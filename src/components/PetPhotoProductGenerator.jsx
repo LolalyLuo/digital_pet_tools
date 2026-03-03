@@ -153,31 +153,32 @@ export default function PetPhotoProductGenerator() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Generation failed");
 
-      let images = data.results.map((r) => ({ ...r, selected: false }));
+      const images = data.results.map((r) => ({ ...r, selected: false }));
 
-      // If background is transparent, auto-remove background via PhotoRoom
-      if (background === "transparent") {
-        images = await Promise.all(
-          images.map(async (img) => {
-            try {
-              const bgRes = await fetch("http://localhost:3001/api/pet-photo-generator/remove-background", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ imageBase64: img.imageBase64, mimeType: img.mimeType }),
-              });
-              const bgData = await bgRes.json();
-              if (bgRes.ok && bgData.imageBase64) {
-                return { ...img, imageBase64: bgData.imageBase64, mimeType: "image/png" };
-              }
-            } catch (e) {
-              console.warn("BG removal failed for one image:", e.message);
-            }
-            return img;
-          })
-        );
-      }
-
+      // Show images immediately, then remove backgrounds in the background
       setGeneratedImages(images);
+      setIsGenerating(false);
+
+      if (background === "transparent") {
+        for (let idx = 0; idx < images.length; idx++) {
+          try {
+            const img = images[idx];
+            const bgRes = await fetch("http://localhost:3001/api/pet-photo-generator/remove-background", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ imageBase64: img.imageBase64, mimeType: img.mimeType }),
+            });
+            const bgData = await bgRes.json();
+            if (bgRes.ok && bgData.imageBase64) {
+              setGeneratedImages((prev) =>
+                prev.map((p, i) => i === idx ? { ...p, imageBase64: bgData.imageBase64, mimeType: "image/png" } : p)
+              );
+            }
+          } catch (e) {
+            console.warn("BG removal failed for image", idx, e.message);
+          }
+        }
+      }
     } catch (err) {
       setGenerateError(err.message);
     } finally {

@@ -268,12 +268,15 @@ export default function PetPhotoProductGenerator() {
         if (!createRes.ok) throw new Error(createData.error || "Create failed");
 
         const productId = createData.product.id;
-        console.log("Created Printify product:", productId, "in shop:", targetShopId);
+        const createdInShop = createData.shopId || targetShopId;
+        const shopLabel = PRINTIFY_SHOPS.find((s) => s.id === createdInShop)?.label || createdInShop;
+        console.log("Created Printify product:", productId, "in shop:", createdInShop, shopLabel);
 
         results.push({
           id: productId,
           title: customTitle,
-          url: `https://printify.com/app/store/products/${targetShopId}/${productId}`,
+          shopLabel,
+          shopId: createdInShop,
         });
       } catch (err) {
         results.push({ error: err.message, index: i });
@@ -564,14 +567,11 @@ export default function PetPhotoProductGenerator() {
                 {p.error ? (
                   <span className="text-red-500">Image {p.index + 1}: {p.error}</span>
                 ) : (
-                  <a
-                    href={p.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-600 hover:underline"
-                  >
-                    {p.title} &rarr;
-                  </a>
+                  <div className="flex items-center gap-2">
+                    <span className="text-green-600 font-medium">{p.title}</span>
+                    <span className="text-gray-400">in {p.shopLabel}</span>
+                    <code className="text-xs text-gray-400 bg-gray-100 px-1 rounded">{p.id}</code>
+                  </div>
                 )}
               </div>
             ))}

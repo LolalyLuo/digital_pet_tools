@@ -131,17 +131,22 @@ router.post("/create-product", async (req, res) => {
       print_areas: replacePrintAreaImage(template.print_areas, uploadedImageId),
     };
 
+    console.log(`📦 Creating product in shop ${targetShopId}:`, customTitle);
+    console.log(`   Blueprint: ${productData.blueprint_id}, Provider: ${productData.print_provider_id}, Variants: ${productData.variants.length}`);
+
     const created = await printifyFetch(
       `/shops/${targetShopId}/products.json`,
       { method: "POST", body: JSON.stringify(productData) }
     );
+
+    console.log(`✅ Product created: ${created.id} in shop ${targetShopId}`);
 
     // Fetch full product details (includes mockup images)
     const full = await printifyFetch(
       `/shops/${targetShopId}/products/${created.id}.json`
     );
 
-    res.json({ product: full });
+    res.json({ product: full, shopId: targetShopId });
   } catch (err) {
     console.error("❌ Printify create-product:", err.message);
     res.status(500).json({ error: err.message });

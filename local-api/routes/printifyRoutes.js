@@ -36,14 +36,39 @@ function replacePrintAreaImage(printAreas, newImageId) {
   }));
 }
 
+const ALL_SHOP_IDS = [
+  "24261029", "24488950", "24489195", "26612298",
+  "24237495", "24471428", "26180670", "26205430", "26252347",
+];
+
 // GET /api/printify/product/:id
 // Returns the template fields needed to create a new product: blueprint_id, print_provider_id, variants, print_areas, title
+// If shopId is provided, tries that shop first. Otherwise tries all shops.
 router.get("/product/:id", async (req, res) => {
   try {
-    const targetShopId = req.query.shopId || getShopId();
-    const product = await printifyFetch(
-      `/shops/${targetShopId}/products/${req.params.id}.json`
-    );
+    const productId = req.params.id;
+    const preferredShopId = req.query.shopId || getShopId();
+
+    // Build search order: preferred shop first, then the rest
+    const shopOrder = [preferredShopId, ...ALL_SHOP_IDS.filter((id) => id !== preferredShopId)];
+
+    let product = null;
+    let foundShopId = null;
+
+    for (const shopId of shopOrder) {
+      try {
+        product = await printifyFetch(`/shops/${shopId}/products/${productId}.json`);
+        foundShopId = shopId;
+        break;
+      } catch {
+        // Product not in this shop, try next
+      }
+    }
+
+    if (!product) {
+      return res.status(404).json({ error: `Product ${productId} not found in any shop` });
+    }
+
     res.json({
       id: product.id,
       title: product.title,
@@ -53,7 +78,8 @@ router.get("/product/:id", async (req, res) => {
         .filter((v) => v.is_enabled)
         .map((v) => ({ id: v.id, price: v.price, title: v.title })),
       print_areas: product.print_areas,
-      images: product.images, // mockup images of the seed product
+      images: product.images,
+      shopId: foundShopId,
     });
   } catch (err) {
     console.error("❌ Printify product fetch:", err.message);

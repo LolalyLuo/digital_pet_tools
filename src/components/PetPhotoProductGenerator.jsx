@@ -531,6 +531,9 @@ export default function PetPhotoProductGenerator() {
             <p><span className="font-medium">Template:</span> {printifyTemplate.title}</p>
             <p><span className="font-medium">Blueprint:</span> {printifyTemplate.blueprint_id}</p>
             <p><span className="font-medium">Variants:</span> {printifyTemplate.variants?.length}</p>
+            {printifyTemplate.shopId && (
+              <p><span className="font-medium">Found in:</span> {PRINTIFY_SHOPS.find((s) => s.id === printifyTemplate.shopId)?.label || printifyTemplate.shopId}</p>
+            )}
           </div>
         )}
 

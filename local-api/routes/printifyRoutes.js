@@ -40,8 +40,9 @@ function replacePrintAreaImage(printAreas, newImageId) {
 // Returns the template fields needed to create a new product: blueprint_id, print_provider_id, variants, print_areas, title
 router.get("/product/:id", async (req, res) => {
   try {
+    const targetShopId = req.query.shopId || getShopId();
     const product = await printifyFetch(
-      `/shops/${getShopId()}/products/${req.params.id}.json`
+      `/shops/${targetShopId}/products/${req.params.id}.json`
     );
     res.json({
       id: product.id,
@@ -85,7 +86,8 @@ router.post("/upload-image", async (req, res) => {
 // Returns: { product } — full product object including images array with mockup URLs
 router.post("/create-product", async (req, res) => {
   try {
-    const { template, uploadedImageId, customTitle } = req.body;
+    const { template, uploadedImageId, customTitle, shopId } = req.body;
+    const targetShopId = shopId || getShopId();
     if (!template || !uploadedImageId || !customTitle) {
       return res.status(400).json({ error: "template, uploadedImageId, customTitle required" });
     }
@@ -104,13 +106,13 @@ router.post("/create-product", async (req, res) => {
     };
 
     const created = await printifyFetch(
-      `/shops/${getShopId()}/products.json`,
+      `/shops/${targetShopId}/products.json`,
       { method: "POST", body: JSON.stringify(productData) }
     );
 
     // Fetch full product details (includes mockup images)
     const full = await printifyFetch(
-      `/shops/${getShopId()}/products/${created.id}.json`
+      `/shops/${targetShopId}/products/${created.id}.json`
     );
 
     res.json({ product: full });

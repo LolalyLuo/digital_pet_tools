@@ -13,6 +13,7 @@ import VertexAIOptimizer from "./components/testing/VertexAIOptimizer";
 import ProdImages from "./components/ProdImages";
 import CustomerEmails from "./components/CustomerEmails";
 import CreateProducts from "./components/CreateProducts";
+import PetPhotoProductGenerator from "./components/PetPhotoProductGenerator";
 
 const APP_MENU_ITEMS = [
   { id: "explore-ideas", label: "Explore Ideas" },
@@ -24,6 +25,7 @@ const APP_MENU_ITEMS = [
   { id: "vertex-ai-optimizer", label: "Vertex AI Optimizer" },
   { type: "divider" },
   { id: "create-products", label: "Create Product Images" },
+  { id: "pet-photo-generator", label: "Pet Photo Generator" },
   { type: "divider" },
   { id: "prod-images", label: "Production Images" },
   { id: "customer-emails", label: "Customer Emails" },
@@ -127,6 +129,8 @@ function App() {
         return <VertexAIOptimizer />;
       case "create-products":
         return <CreateProducts />;
+      case "pet-photo-generator":
+        return <PetPhotoProductGenerator />;
       case "prod-images":
         return <ProdImages />;
       case "customer-emails":

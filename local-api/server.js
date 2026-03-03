@@ -34,6 +34,8 @@ import emailRoutes from "./routes/emailRoutes.js";
 import shopifyRoutes from "./routes/shopifyRoutes.js";
 import printifyRoutes from "./routes/printifyRoutes.js";
 import productImagesRoutes from "./routes/productImagesRoutes.js";
+import shopifyV2Routes from "./routes/shopifyV2Routes.js";
+import petPhotoGeneratorRoutes from "./routes/petPhotoGeneratorRoutes.js";
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -61,6 +63,8 @@ app.use("/api/email", emailRoutes);
 app.use("/api/shopify", shopifyRoutes);
 app.use("/api/printify", printifyRoutes);
 app.use("/api/product-images", productImagesRoutes);
+app.use("/api/shopify-v2", shopifyV2Routes);
+app.use("/api/pet-photo-generator", petPhotoGeneratorRoutes);
 
 // Start server
 app.listen(PORT, () => {

@@ -25,7 +25,7 @@ const APP_MENU_ITEMS = [
   { id: "vertex-ai-optimizer", label: "Vertex AI Optimizer" },
   { type: "divider" },
   { id: "create-products", label: "Create Product Images" },
-  { id: "pet-photo-generator", label: "Pet Photo Generator" },
+  { id: "pet-photo-generator", label: "Printify Product Generator" },
   { type: "divider" },
   { id: "prod-images", label: "Production Images" },
   { id: "customer-emails", label: "Customer Emails" },

@@ -291,7 +291,7 @@ export default function PetPhotoProductGenerator() {
   return (
     <div className="w-full overflow-y-auto">
     <div className="max-w-3xl mx-auto p-6 space-y-10">
-      <h1 className="text-2xl font-bold">Pet Photo Product Generator</h1>
+      <h1 className="text-2xl font-bold">Printify Product Generator</h1>
 
       {/* ── Section 1: Pet Photos ── */}
       <section>

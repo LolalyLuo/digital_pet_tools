@@ -568,10 +568,19 @@ export default function PetPhotoProductGenerator() {
                 {p.error ? (
                   <span className="text-red-500">Image {p.index + 1}: {p.error}</span>
                 ) : (
-                  <div className="flex items-center gap-2">
-                    <span className="text-green-600 font-medium">{p.title}</span>
-                    <span className="text-gray-400">in {p.shopLabel}</span>
-                    <code className="text-xs text-gray-400 bg-gray-100 px-1 rounded">{p.id}</code>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-green-600 font-medium">{p.title}</span>
+                      <span className="text-gray-400">in {p.shopLabel}</span>
+                    </div>
+                    <a
+                      href={`https://printify.com/app/product-details/${p.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline text-xs"
+                    >
+                      printify.com/app/product-details/{p.id} &rarr;
+                    </a>
                   </div>
                 )}
               </div>

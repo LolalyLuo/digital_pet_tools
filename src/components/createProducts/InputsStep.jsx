@@ -10,6 +10,7 @@ function StatusBadge({ status, label }) {
 export default function InputsStep({ updateSession, onNext }) {
   const [seedFile, setSeedFile] = useState(null);
   const [seedPreview, setSeedPreview] = useState(null);
+  const [numberOfPets, setNumberOfPets] = useState(1);
   const [shopifyUrl, setShopifyUrl] = useState("");
   const [printifyUrl, setPrintifyUrl] = useState("");
   const [shopifyStatus, setShopifyStatus] = useState(null); // null | "loading" | "ok" | "error"
@@ -116,6 +117,7 @@ export default function InputsStep({ updateSession, onNext }) {
         seedImageId,
         seedImageUrl,
         seedFileDataUrl: seedPreview,
+        numberOfPets,
         shopifyProduct: shopifyData,
         printifyTemplate: printifyData,
         shopifyProductNumericId: extractShopifyId(shopifyUrl),
@@ -150,6 +152,29 @@ export default function InputsStep({ updateSession, onNext }) {
         </div>
         <input id="seed-file-input" type="file" accept="image/*" className="hidden"
           onChange={(e) => handleSeedFile(e.target.files[0])} />
+      </div>
+
+      {/* Number of Pets */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Number of Pets</label>
+        <div className="flex items-center gap-2">
+          {[1, 2, 3, 4, 5].map((n) => (
+            <button
+              key={n}
+              onClick={() => setNumberOfPets(n)}
+              className={`w-10 h-10 rounded-lg text-sm font-medium border-2 transition-colors ${
+                numberOfPets === n
+                  ? "border-blue-600 bg-blue-50 text-blue-700"
+                  : "border-gray-200 bg-white text-gray-600 hover:border-gray-300"
+              }`}
+            >
+              {n}
+            </button>
+          ))}
+          <span className="text-xs text-gray-400 ml-2">
+            {numberOfPets === 1 ? "1 pet per image" : `${numberOfPets} pets per image`}
+          </span>
+        </div>
       </div>
 
       {/* Shopify URL */}

@@ -7,7 +7,7 @@ function dataUrlToBase64(dataUrl) {
 }
 
 export default function GenerateImagesStep({ sessionData, updateSession, onNext, onBack }) {
-  const { seedFileDataUrl, hexCodes, seedColor, bgColors } = sessionData;
+  const { seedFileDataUrl, hexCodes, seedColor, bgColors, numberOfPets = 1 } = sessionData;
   const nonSeedColors = (bgColors || []).filter((c) => c !== seedColor);
 
   const [cards, setCards] = useState(() =>
@@ -17,8 +17,8 @@ export default function GenerateImagesStep({ sessionData, updateSession, onNext,
       imageDataUrl: null,
       generatedBase64: null,
       generatedMimeType: null,
-      breed: null,
-      petName: null,
+      breeds: [], // array of breeds (length = numberOfPets)
+      petNames: [], // array of names (length = numberOfPets)
       error: null,
     }))
   );
@@ -29,8 +29,8 @@ export default function GenerateImagesStep({ sessionData, updateSession, onNext,
   const updateCard = (color, updates) =>
     setCards((prev) => prev.map((c) => (c.color === color ? { ...c, ...updates } : c)));
 
-  const generateForColor = async (color, breed, petName, extraFeedback = "", sourceBase64 = null, sourceMimeType = null, refineMode = false) => {
-    updateCard(color, { status: "generating", error: null, ...(refineMode ? {} : { breed, petName }) });
+  const generateForColor = async (color, breeds, petNames, extraFeedback = "", sourceBase64 = null, sourceMimeType = null, refineMode = false) => {
+    updateCard(color, { status: "generating", error: null, ...(refineMode ? {} : { breeds, petNames }) });
     try {
       const seed = sourceBase64
         ? { imageBase64: sourceBase64, mimeType: sourceMimeType }
@@ -43,8 +43,9 @@ export default function GenerateImagesStep({ sessionData, updateSession, onNext,
           seedImageMimeType: seed.mimeType,
           backgroundColor: hexCodes[color],
           colorName: color,
-          breed,
-          petName,
+          breeds,
+          petNames,
+          numberOfPets,
           feedbackText: extraFeedback,
           refineMode,
         }),
@@ -66,21 +67,27 @@ export default function GenerateImagesStep({ sessionData, updateSession, onNext,
     if (initiated.current || !seedFileDataUrl || nonSeedColors.length === 0) return;
     initiated.current = true;
 
+    const totalPets = nonSeedColors.length * numberOfPets;
+
     fetch("http://localhost:3001/api/product-images/breed-names", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ count: nonSeedColors.length, animalType: "pet" }),
+      body: JSON.stringify({ count: totalPets, animalType: "pet" }),
     })
       .then((r) => r.json())
       .then(({ combos }) => {
         nonSeedColors.forEach((color, i) => {
-          const breed = combos[i]?.breed || "Golden Retriever";
-          const petName = combos[i]?.name || "Buddy";
-          generateForColor(color, breed, petName);
+          const startIdx = i * numberOfPets;
+          const colorCombos = combos.slice(startIdx, startIdx + numberOfPets);
+          const breeds = colorCombos.map((c) => c?.breed || "Golden Retriever");
+          const petNames = colorCombos.map((c) => c?.name || "Buddy");
+          generateForColor(color, breeds, petNames);
         });
       })
       .catch(() => {
-        nonSeedColors.forEach((color) => generateForColor(color, "Golden Retriever", "Buddy"));
+        const defaultBreeds = Array(numberOfPets).fill("Golden Retriever");
+        const defaultNames = Array(numberOfPets).fill("Buddy");
+        nonSeedColors.forEach((color) => generateForColor(color, defaultBreeds, defaultNames));
       });
   }, []);
 
@@ -108,11 +115,11 @@ export default function GenerateImagesStep({ sessionData, updateSession, onNext,
     const hasFeedback = feedback.trim().length > 0;
 
     if (hasFeedback && card.generatedBase64) {
-      // Refine mode: use the current generated image as base, apply only the tweak
-      generateForColor(color, card.breed, card.petName, feedback, card.generatedBase64, card.generatedMimeType, true);
+      generateForColor(color, card.breeds, card.petNames, feedback, card.generatedBase64, card.generatedMimeType, true);
     } else {
-      // Fresh re-roll: start from seed with same breed/name (no new combo fetch)
-      generateForColor(color, card.breed || "Golden Retriever", card.petName || "Buddy", feedback);
+      const fallbackBreeds = card.breeds.length ? card.breeds : Array(numberOfPets).fill("Golden Retriever");
+      const fallbackNames = card.petNames.length ? card.petNames : Array(numberOfPets).fill("Buddy");
+      generateForColor(color, fallbackBreeds, fallbackNames, feedback);
     }
 
     setShowFeedback((prev) => ({ ...prev, [color]: false }));
@@ -129,8 +136,11 @@ export default function GenerateImagesStep({ sessionData, updateSession, onNext,
     const approvedImages = cards.map((c) => ({
       color: c.color,
       hexCode: hexCodes[c.color],
-      breed: c.breed,
-      petName: c.petName,
+      breeds: c.breeds,
+      petNames: c.petNames,
+      // Keep single-value aliases for downstream compatibility
+      breed: c.breeds[0],
+      petName: c.petNames[0],
       imageBase64: c.generatedBase64,
       mimeType: c.generatedMimeType,
       imageDataUrl: c.imageDataUrl,
@@ -149,6 +159,8 @@ export default function GenerateImagesStep({ sessionData, updateSession, onNext,
             mimeType: img.mimeType,
             colorName: img.color,
             hexCode: img.hexCode,
+            breeds: img.breeds,
+            petNames: img.petNames,
             breed: img.breed,
             petName: img.petName,
           })),
@@ -157,10 +169,10 @@ export default function GenerateImagesStep({ sessionData, updateSession, onNext,
       if (res.ok) {
         ({ aiImageRecords } = await res.json());
       } else {
-        console.warn("⚠️ save-ai-images failed:", await res.text());
+        console.warn("save-ai-images failed:", await res.text());
       }
     } catch (err) {
-      console.warn("⚠️ save-ai-images error:", err.message);
+      console.warn("save-ai-images error:", err.message);
     }
 
     updateSession({ approvedImages, aiImageRecords });
@@ -168,26 +180,34 @@ export default function GenerateImagesStep({ sessionData, updateSession, onNext,
     onNext();
   };
 
+  const formatPetInfo = (breeds, petNames) => {
+    if (!breeds?.length) return null;
+    return breeds.map((b, i) => `${b} · ${petNames[i] || "?"}`).join("  |  ");
+  };
+
   return (
     <div className="space-y-6">
       <h2 className="text-xl font-semibold text-gray-800">Step 3 — Generate Images</h2>
       <p className="text-sm text-gray-500">
-        Generating {nonSeedColors.length} image{nonSeedColors.length !== 1 ? "s" : ""} in parallel...
+        Generating {nonSeedColors.length} image{nonSeedColors.length !== 1 ? "s" : ""} in parallel
+        {numberOfPets > 1 ? ` (${numberOfPets} pets each)` : ""}...
       </p>
 
       <div className="grid grid-cols-2 gap-4">
         {cards.map((card) => (
           <div key={card.color} className="border border-gray-200 rounded-xl overflow-hidden">
-            <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 border-b border-gray-200">
-              <div
-                className="w-4 h-4 rounded-full border border-gray-300 flex-shrink-0"
-                style={{ backgroundColor: hexCodes?.[card.color] || "#ccc" }}
-              />
-              <span className="text-sm font-medium text-gray-700">{card.color}</span>
-              {card.breed && (
-                <span className="text-xs text-gray-400 ml-auto truncate">
-                  {card.breed} · {card.petName}
-                </span>
+            <div className="px-4 py-2 bg-gray-50 border-b border-gray-200">
+              <div className="flex items-center gap-2">
+                <div
+                  className="w-4 h-4 rounded-full border border-gray-300 flex-shrink-0"
+                  style={{ backgroundColor: hexCodes?.[card.color] || "#ccc" }}
+                />
+                <span className="text-sm font-medium text-gray-700">{card.color}</span>
+              </div>
+              {card.breeds?.length > 0 && (
+                <div className="text-xs text-gray-400 mt-1 truncate">
+                  {formatPetInfo(card.breeds, card.petNames)}
+                </div>
               )}
             </div>
 

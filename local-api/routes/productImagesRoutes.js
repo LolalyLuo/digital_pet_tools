@@ -134,7 +134,8 @@ Respond with ONLY a valid JSON array of objects: [{"breed":"breed1","name":"name
 });
 
 // POST /api/product-images/generate-variant
-// Body: { seedImageBase64, seedImageMimeType, backgroundColor, colorName, breed, petName, feedbackText, refineMode? }
+// Body: { seedImageBase64, seedImageMimeType, backgroundColor, colorName, breeds, petNames, numberOfPets, feedbackText, refineMode? }
+// Supports single pet (breed/petName strings) or multiple pets (breeds/petNames arrays)
 // refineMode: true — applies only feedbackText to the provided image, keeps everything else identical
 // Returns: { imageBase64, mimeType }
 router.post("/generate-variant", async (req, res) => {
@@ -144,17 +145,26 @@ router.post("/generate-variant", async (req, res) => {
       seedImageMimeType = "image/png",
       backgroundColor,
       colorName,
-      breed,
-      petName,
+      // Support both old single-value and new array formats
+      breed: singleBreed,
+      petName: singlePetName,
+      breeds: breedsArray,
+      petNames: petNamesArray,
+      numberOfPets = 1,
       feedbackText = "",
       refineMode = false,
     } = req.body;
 
+    // Normalize to arrays
+    const breeds = breedsArray || (singleBreed ? [singleBreed] : []);
+    const petNames = petNamesArray || (singlePetName ? [singlePetName] : []);
+    const petCount = numberOfPets || breeds.length || 1;
+
     if (!seedImageBase64) {
       return res.status(400).json({ error: "seedImageBase64 required" });
     }
-    if (!refineMode && (!backgroundColor || !colorName || !breed || !petName)) {
-      return res.status(400).json({ error: "backgroundColor, colorName, breed, petName required when not in refineMode" });
+    if (!refineMode && (!backgroundColor || !colorName || breeds.length === 0 || petNames.length === 0)) {
+      return res.status(400).json({ error: "backgroundColor, colorName, breeds, petNames required when not in refineMode" });
     }
     if (refineMode && !feedbackText) {
       return res.status(400).json({ error: "feedbackText required in refineMode" });
@@ -163,18 +173,16 @@ router.post("/generate-variant", async (req, res) => {
     let prompt;
 
     if (refineMode) {
-      // Tweak mode: apply only the user's adjustment to the current image
       prompt = `You are editing this existing artwork. Apply ONLY this adjustment: ${feedbackText}
 
 Keep EVERYTHING else completely unchanged:
-- The background color, breed, and name text must stay exactly as they are
+- The background color, breeds, and name text must stay exactly as they are
 - The exact same artistic style (brushstrokes, texture, medium — watercolor/pencil/cartoon/etc.)
 - The same overall composition, layout, and decorative elements
 - The same image dimensions and aspect ratio
 
 Output only the modified image.`;
     } else {
-      // Initial generation: apply full color + breed + name transformation
       const hex = backgroundColor.replace("#", "");
       const r = parseInt(hex.substring(0, 2), 16);
       const g = parseInt(hex.substring(2, 4), 16);
@@ -182,10 +190,12 @@ Output only the modified image.`;
       const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
       const nameColor = luminance < 0.5 ? "white" : "black";
 
-      prompt = `You are editing this existing artwork. Make ONLY these specific changes:
+      if (petCount === 1) {
+        // Single pet — original prompt
+        prompt = `You are editing this existing artwork. Make ONLY these specific changes:
 1. Change the background color to ${colorName} (${backgroundColor})
-2. Change the pet in the image to a ${breed}
-3. Change the pet's name text to "${petName}" in ${nameColor} color
+2. Change the pet in the image to a ${breeds[0]}
+3. Change the pet's name text to "${petNames[0]}" in ${nameColor} color
 
 Keep EVERYTHING else identical:
 - The exact same artistic style (brushstrokes, texture, medium — watercolor/pencil/cartoon/etc.)
@@ -196,6 +206,29 @@ Keep EVERYTHING else identical:
 ${feedbackText ? `\nAdditional adjustment: ${feedbackText}` : ""}
 
 Output only the modified image.`;
+      } else {
+        // Multi-pet prompt
+        const petDescriptions = breeds.map((breed, i) => `  - A ${breed} named "${petNames[i]}"`).join("\n");
+        const namesList = petNames.map((n) => `"${n}"`).join(", ");
+
+        prompt = `You are editing this existing artwork. Make ONLY these specific changes:
+1. Change the background color to ${colorName} (${backgroundColor})
+2. Replace the pet in the image with ${petCount} pets together in the scene:
+${petDescriptions}
+3. Show the names ${namesList} as text in the image in ${nameColor} color
+
+The ${petCount} pets should be together in the scene — interacting naturally (sitting side by side, playing together, etc.). Each pet should be clearly recognizable as its breed. Keep their relative sizes realistic.
+
+Keep EVERYTHING else identical:
+- The exact same artistic style (brushstrokes, texture, medium — watercolor/pencil/cartoon/etc.)
+- The same overall composition and layout style
+- The same decorative elements, borders, and framing
+- The same level of detail and rendering quality
+- The same image dimensions and aspect ratio
+${feedbackText ? `\nAdditional adjustment: ${feedbackText}` : ""}
+
+Output only the modified image.`;
+      }
     }
 
     const genAI = getGenAI();
@@ -287,6 +320,8 @@ router.post("/save-ai-images", async (req, res) => {
             hexCode: img.hexCode,
             breed: img.breed,
             petName: img.petName,
+            breeds: img.breeds,
+            petNames: img.petNames,
           },
         })
         .select()

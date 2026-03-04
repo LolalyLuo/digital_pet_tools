@@ -23,7 +23,8 @@ const router = express.Router();
 router.post("/generate-images", async (req, res) => {
   try {
     const {
-      photoIds,
+      photoIds = [],
+      photoUrls = [],
       prompts,
       size = "auto",
       background = "opaque",
@@ -40,7 +41,7 @@ router.post("/generate-images", async (req, res) => {
       : DEFAULT_MODEL_CONFIGS[model];
 
     console.log(
-      `Input: ${photoIds?.length || 0} photos, ${
+      `Input: ${photoIds?.length || 0} local photos + ${photoUrls?.length || 0} prod URLs, ${
         prompts?.length || 0
       } prompts, model: ${model}, size: ${size}, background: ${background}${
         templateNumbers?.length > 0
@@ -49,15 +50,15 @@ router.post("/generate-images", async (req, res) => {
       }${modelConfig ? `, modelConfig: ${JSON.stringify(modelConfig)}` : ""}`
     );
 
+    const totalPhotos = (photoIds?.length || 0) + (photoUrls?.length || 0);
     if (
-      !photoIds ||
       !prompts ||
-      photoIds.length === 0 ||
+      totalPhotos === 0 ||
       prompts.length === 0
     ) {
       console.error("❌ Error: Missing required parameters");
       return res.status(400).json({
-        error: "Missing required parameters: photoIds and prompts are required",
+        error: "Missing required parameters: photoIds/photoUrls and prompts are required",
       });
     }
 
@@ -126,6 +127,20 @@ router.post("/generate-images", async (req, res) => {
           });
         }
       }
+      // Also handle prod photo URLs for img2img
+      for (const photoUrl of photoUrls) {
+        for (const templateGroup of templateImages) {
+          combinations.push({
+            photoUrl,
+            prompt: prompts[0],
+            size,
+            background,
+            model,
+            templateGroup,
+            modelConfig: finalModelConfig,
+          });
+        }
+      }
     } else {
       // For regular generation: combine each pet photo with each prompt
       for (const photoId of photoIds) {
@@ -146,6 +161,24 @@ router.post("/generate-images", async (req, res) => {
           });
         }
       }
+      // Also handle prod photo URLs for regular generation
+      for (const photoUrl of photoUrls) {
+        for (let i = 0; i < prompts.length; i++) {
+          const prompt = prompts[i];
+          const promptSize = sizes.length === prompts.length ? sizes[i] : size;
+          const promptBackground =
+            backgrounds.length === prompts.length ? backgrounds[i] : background;
+
+          combinations.push({
+            photoUrl,
+            prompt,
+            size: promptSize,
+            background: promptBackground,
+            model,
+            modelConfig: finalModelConfig,
+          });
+        }
+      }
     }
 
     // Process combinations in batches to avoid overwhelming CPU and hitting rate limits
@@ -157,6 +190,7 @@ router.post("/generate-images", async (req, res) => {
       const batchPromises = batch.map(
         async ({
           photoId,
+          photoUrl,
           prompt,
           size,
           background,
@@ -165,37 +199,45 @@ router.post("/generate-images", async (req, res) => {
           modelConfig,
         }) => {
           try {
-            // Get photo details from database
-            console.log(`🔍 Looking up photo data for ID: ${photoId}`);
+            let petImageUrl;
+            let petBuffer;
 
-            const { data: photoData, error: photoError } = await getSupabase()
-              .from("uploaded_photos")
-              .select("*")
-              .eq("id", photoId)
-              .single();
+            if (photoUrl) {
+              // Direct URL (production pet photo) — fetch directly
+              console.log(`🔍 Using prod photo URL: ${photoUrl.substring(0, 80)}...`);
+              petImageUrl = photoUrl;
+              petBuffer = await fetchImageAsBuffer(petImageUrl);
+              console.log(`✅ Prod pet image buffer size: ${petBuffer.length} bytes`);
+            } else {
+              // Local photo ID — look up in database
+              console.log(`🔍 Looking up photo data for ID: ${photoId}`);
 
-            if (photoError || !photoData) {
-              console.error(`❌ Error: No photo data found for ID: ${photoId}`);
-              console.error("📋 Photo lookup error:", {
-                error: photoError,
-                photoId: photoId,
+              const { data: photoData, error: photoError } = await getSupabase()
+                .from("uploaded_photos")
+                .select("*")
+                .eq("id", photoId)
+                .single();
+
+              if (photoError || !photoData) {
+                console.error(`❌ Error: No photo data found for ID: ${photoId}`);
+                console.error("📋 Photo lookup error:", {
+                  error: photoError,
+                  photoId: photoId,
+                });
+                return null;
+              }
+
+              console.log(`✅ Found photo data:`, {
+                id: photoData.id,
+                fileName: photoData.file_name,
+                filePath: photoData.file_path,
               });
-              return null;
+
+              petImageUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/uploaded-photos/${photoData.file_path}?width=400&height=400&quality=80&format=webp`;
+              console.log(`🖼️  Pet image URL: ${petImageUrl}`);
+              petBuffer = await fetchImageAsBuffer(petImageUrl);
+              console.log(`✅ Pet image buffer size: ${petBuffer.length} bytes`);
             }
-
-            console.log(`✅ Found photo data:`, {
-              id: photoData.id,
-              fileName: photoData.file_name,
-              filePath: photoData.file_path,
-            });
-
-            // Get pet image URL with transformation to ensure proper format and size
-            const petImageUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/uploaded-photos/${photoData.file_path}?width=400&height=400&quality=80&format=webp`;
-            console.log(`🖼️  Pet image URL: ${petImageUrl}`);
-
-            // Fetch pet image as buffer
-            const petBuffer = await fetchImageAsBuffer(petImageUrl);
-            console.log(`✅ Pet image buffer size: ${petBuffer.length} bytes`);
 
             let b64Image;
             let mimeType = "image/png";

@@ -35,6 +35,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedPhotos, setSelectedPhotos] = useState([]);
+  const [selectedProdPhotoUrls, setSelectedProdPhotoUrls] = useState([]);
   const [generatedPrompts, setGeneratedPrompts] = useState([]);
   const [results, setResults] = useState([]);
   const [currentApp, setCurrentApp] = useState("explore-ideas");
@@ -92,6 +93,7 @@ function App() {
     await supabase.auth.signOut();
     setUser(null);
     setSelectedPhotos([]);
+    setSelectedProdPhotoUrls([]);
     setGeneratedPrompts([]);
     setResults([]);
   };
@@ -104,9 +106,12 @@ function App() {
             <LeftPanel
               selectedPhotos={selectedPhotos}
               setSelectedPhotos={setSelectedPhotos}
+              selectedProdPhotoUrls={selectedProdPhotoUrls}
+              setSelectedProdPhotoUrls={setSelectedProdPhotoUrls}
             />
             <MiddlePanel
               selectedPhotos={selectedPhotos}
+              selectedProdPhotoUrls={selectedProdPhotoUrls}
               generatedPrompts={generatedPrompts}
               setGeneratedPrompts={setGeneratedPrompts}
               results={results}

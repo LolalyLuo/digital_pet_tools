@@ -4,6 +4,7 @@ import { useImageGeneration } from '../hooks/useImageGeneration'
 
 export default function MiddlePanel({
   selectedPhotos,
+  selectedProdPhotoUrls = [],
   generatedPrompts,
   setGeneratedPrompts,
   results,
@@ -80,9 +81,11 @@ export default function MiddlePanel({
   }
 
   const handleGenerateImages = async () => {
+    const hasAnyPhotos = selectedPhotos.length > 0 || selectedProdPhotoUrls.length > 0
+
     // For img2img, we don't need prompts, just photos and template numbers
     if (selectedModel === 'gemini-img2img') {
-      if (selectedPhotos.length === 0) {
+      if (!hasAnyPhotos) {
         alert('Please select at least one pet photo for image-to-image generation')
         return
       }
@@ -99,7 +102,7 @@ export default function MiddlePanel({
       }
     } else {
       // For regular generation, we need both photos and prompts
-      if (selectedPhotos.length === 0 || generatedPrompts.length === 0) return
+      if (!hasAnyPhotos || generatedPrompts.length === 0) return
     }
 
     // For img2img, we use a default prompt since the task is predefined
@@ -118,6 +121,11 @@ export default function MiddlePanel({
     const additionalParams = selectedModel === 'gemini-img2img' ? {
       templateNumbers: templateNumbers.split(/[,\s]+/).map(n => n.trim()).filter(n => n !== '').map(n => parseInt(n))
     } : {}
+
+    // Pass prod photo URLs alongside local photo IDs
+    if (selectedProdPhotoUrls.length > 0) {
+      additionalParams.photoUrls = selectedProdPhotoUrls
+    }
 
     const newResults = await generateImages(selectedPhotos, prompts, apiSize, selectedBackground, selectedModel, additionalParams, sizes, backgrounds)
 
@@ -168,9 +176,10 @@ export default function MiddlePanel({
     }
   }
 
+  const hasAnyPhotos = selectedPhotos.length > 0 || selectedProdPhotoUrls.length > 0
   const canGenerateImages = selectedModel === 'gemini-img2img'
-    ? selectedPhotos.length > 0 && templateNumbers.trim() !== ''
-    : selectedPhotos.length > 0 && generatedPrompts.length > 0
+    ? hasAnyPhotos && templateNumbers.trim() !== ''
+    : hasAnyPhotos && generatedPrompts.length > 0
 
   return (
     <div className="w-[25%] bg-white px-6 py-6 flex flex-col overflow-y-auto max-h-screen">
@@ -480,7 +489,7 @@ export default function MiddlePanel({
 
       {/* Status Info */}
       <div className="mt-4 text-sm text-gray-500">
-        <p>Photos selected: {selectedPhotos.length}</p>
+        <p>Photos selected: {selectedPhotos.length + selectedProdPhotoUrls.length}</p>
         <p>Prompts ready: {generatedPrompts.length}</p>
         <p>Total results: {results.length}</p>
       </div>

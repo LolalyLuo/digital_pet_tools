@@ -182,7 +182,8 @@ export const useImageGeneration = () => {
       );
 
       // Calculate timeout based on number of combinations - reduced for img2img
-      const totalCombinations = photoIds.length * prompts.length;
+      const totalPhotos = photoIds.length + (additionalParams.photoUrls?.length || 0);
+      const totalCombinations = totalPhotos * prompts.length;
       const timeoutDuration = Math.max(30000, totalCombinations * 5000); // 5s per combination minimum
 
       const timeoutPromise = new Promise((_, reject) =>

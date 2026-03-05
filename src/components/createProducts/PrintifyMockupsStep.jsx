@@ -1,15 +1,24 @@
 import { useState, useEffect, useRef } from "react";
 
-// Maps Printify variant ID → frame color name.
-// Uses known Shopify frame values to find the right segment in titles like "18x24 / White" or "White / 8x10".
+// Maps Printify variant ID → frame color name (normalized to Shopify names).
+// Uses known Shopify frame values AND their Printify aliases to match segments
+// in titles like "18x24 / White" or "Brown / 8x10".
 // Falls back to the first segment if no known frame value matches.
-function buildVarFrameMap(variants, frameValues = []) {
-  const knownFrames = frameValues.map((v) => v.toLowerCase().trim());
+function buildVarFrameMap(variants, frameValues = [], reverseAliases = {}) {
+  // Build a lookup: lowercase name → Shopify name
+  // Includes both Shopify names and Printify aliases
+  const frameLookup = {};
+  frameValues.forEach((v) => { frameLookup[v.toLowerCase().trim()] = v; });
+  // Add reverse aliases: e.g. "brown" → "Walnut"
+  Object.entries(reverseAliases).forEach(([printifyLower, shopifyName]) => {
+    frameLookup[printifyLower] = shopifyName;
+  });
+
   const map = {};
   (variants || []).forEach((v) => {
     const parts = (v.title || "").split("/").map((p) => p.trim());
-    const match = parts.find((p) => knownFrames.includes(p.toLowerCase()));
-    map[v.id] = match || parts[0] || null;
+    const matchPart = parts.find((p) => frameLookup[p.toLowerCase()] !== undefined);
+    map[v.id] = matchPart ? frameLookup[matchPart.toLowerCase()] : (parts[0] || null);
   });
   return map;
 }
@@ -23,7 +32,12 @@ const POSITION_LABEL_MAP = {
 };
 
 export default function PrintifyMockupsStep({ sessionData, updateSession, onNext, onBack }) {
-  const { approvedImages, printifyTemplate, hexCodes, frameValues = [] } = sessionData;
+  const { approvedImages, printifyTemplate, hexCodes, frameValues = [], frameAliases = {} } = sessionData;
+
+  // Build reverse alias map: Printify name → Shopify name (e.g. "Brown" → "Walnut")
+  const reverseAliases = Object.fromEntries(
+    Object.entries(frameAliases).map(([shopify, printify]) => [printify.toLowerCase(), shopify])
+  );
 
   const [progress, setProgress] = useState(() => {
     // Restore from cache if it covers all current approvedImages (back navigation)
@@ -112,7 +126,7 @@ export default function PrintifyMockupsStep({ sessionData, updateSession, onNext
 
     // Use first done product as reference for label/frameColor structure
     const ref = done[0];
-    const refVarMap = buildVarFrameMap(ref.variants, frameValues);
+    const refVarMap = buildVarFrameMap(ref.variants, frameValues, reverseAliases);
 
     // Assign each posIdx a (frameColor, viewIdx) using the reference product
     const frameViewCount = {};
@@ -166,7 +180,7 @@ export default function PrintifyMockupsStep({ sessionData, updateSession, onNext
     progress
       .filter((p) => p.status === "done")
       .forEach((p, colorIdx) => {
-        const vMap = buildVarFrameMap(p.variants, frameValues);
+        const vMap = buildVarFrameMap(p.variants, frameValues, reverseAliases);
         p.images.forEach((img, posIdx) => {
           const key = `${p.productId}:${posIdx}`;
           if (selectedMockups.has(key)) {

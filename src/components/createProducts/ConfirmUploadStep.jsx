@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 
 // Normalize frame color for comparison: lowercase, strip hyphens/spaces
 // Handles "Poster-Only" (Shopify) vs "Poster Only" (Printify) etc.
@@ -6,15 +6,19 @@ function normFC(fc) {
   return (fc || "").toLowerCase().replace(/[-\s]/g, "");
 }
 
-// Maps Printify variant ID → frame color from variant title.
-// Uses known Shopify frame values to find the right segment (handles "18x24 / White" and "White / 8x10").
-function buildVarFrameMap(variants, frameValues = []) {
-  const knownFrames = frameValues.map((v) => v.toLowerCase().trim());
+// Maps Printify variant ID → frame color name (normalized to Shopify names).
+// Uses known Shopify frame values AND their Printify aliases to match segments.
+function buildVarFrameMap(variants, frameValues = [], reverseAliases = {}) {
+  const frameLookup = {};
+  frameValues.forEach((v) => { frameLookup[v.toLowerCase().trim()] = v; });
+  Object.entries(reverseAliases).forEach(([printifyLower, shopifyName]) => {
+    frameLookup[printifyLower] = shopifyName;
+  });
   const map = {};
   (variants || []).forEach((v) => {
     const parts = (v.title || "").split("/").map((p) => p.trim());
-    const match = parts.find((p) => knownFrames.includes(p.toLowerCase()));
-    map[v.id] = match || parts[0] || null;
+    const matchPart = parts.find((p) => frameLookup[p.toLowerCase()] !== undefined);
+    map[v.id] = matchPart ? frameLookup[matchPart.toLowerCase()] : (parts[0] || null);
   });
   return map;
 }
@@ -35,14 +39,20 @@ export default function ConfirmUploadStep({ sessionData, onBack }) {
     frameAliases,
   } = sessionData;
 
-  const [status, setStatus] = useState("idle"); // idle | uploading | done | error
+  // Build reverse alias map: Printify name → Shopify name (e.g. "Brown" → "Walnut")
+  const reverseAliases = Object.fromEntries(
+    Object.entries(frameAliases || {}).map(([shopify, printify]) => [printify.toLowerCase(), shopify])
+  );
+
+  const [status, setStatus] = useState("idle"); // idle | generating-poster | uploading | done | error
   const [errorMsg, setErrorMsg] = useState(null);
   const [shopifyAdminUrl, setShopifyAdminUrl] = useState(null);
   const [pickerVariantId, setPickerVariantId] = useState(null);
   const [uploadedImages, setUploadedImages] = useState([]);
+  const [posterMockups, setPosterMockups] = useState([]); // auto-generated poster-only mockups
 
   // Build variant ID → frame color map from the seed template's variants
-  const templateVarMap = buildVarFrameMap(printifyTemplate?.variants || [], frameValues || []);
+  const templateVarMap = buildVarFrameMap(printifyTemplate?.variants || [], frameValues || [], reverseAliases);
 
   // Seed product mockup images — filter by frame color so each frame variant gets the right image
   const allSeedMockups = (printifyTemplate?.images || []).map((img, i) => ({
@@ -64,19 +74,119 @@ export default function ConfirmUploadStep({ sessionData, onBack }) {
       const frameOption = variant.selectedOptions?.find((o) => /frame/i.test(o.name));
       const frameColor = frameOption?.value || null;
       const isSeed = bgColor === seedColor;
-      const resolvedFrameColor = (frameAliases || {})[frameColor] || frameColor;
+      const isPosterOnly = normFC(frameColor) === normFC("Poster-Only");
 
+      // Skip poster-only variants here — they'll be assigned after poster mockup generation
+      if (isPosterOnly) {
+        map[variant.id] = [];
+        return;
+      }
+
+      // Both selectedMockups and allSeedMockups now have frameColor in Shopify names
+      // (thanks to buildVarFrameMap using reverseAliases), so compare directly
       const matchingMockups = isSeed
-        ? allSeedMockups.filter((m) => normFC(m.frameColor) === normFC(resolvedFrameColor))
+        ? allSeedMockups.filter((m) => normFC(m.frameColor) === normFC(frameColor))
         : (selectedMockups || []).filter(
-            (m) => m.color === bgColor && normFC(m.frameColor) === normFC(resolvedFrameColor)
+            (m) => m.color === bgColor && normFC(m.frameColor) === normFC(frameColor)
           );
       map[variant.id] = matchingMockups;
     });
     return map;
   });
 
-  // All available mockups for picker: selectedMockups + seed mockups + locally uploaded images
+  // Auto-generate poster mockups for "Poster-Only" variants on mount
+  const posterGenerated = useRef(false);
+  useEffect(() => {
+    if (posterGenerated.current) return;
+    posterGenerated.current = true;
+
+    // Collect all unique bg colors that need poster mockups
+    const posterVariants = variants.filter((v) => {
+      const frame = v.selectedOptions?.find((o) => /frame/i.test(o.name))?.value;
+      return normFC(frame) === normFC("Poster-Only");
+    });
+    if (posterVariants.length === 0) return;
+
+    const bgColors = [...new Set(posterVariants.map((v) =>
+      v.selectedOptions?.find((o) => /background.?color/i.test(o.name))?.value
+    ).filter(Boolean))];
+
+    setStatus("generating-poster");
+
+    // For each bg color, find the design image and generate a poster mockup
+    const generateAll = async () => {
+      const newMockups = [];
+      for (const bgColor of bgColors) {
+        const isSeed = bgColor === seedColor;
+        // Find the design image for this bg color
+        let imageBase64 = null;
+        let mimeType = "image/png";
+        if (isSeed) {
+          // Use the seed image from sessionData
+          const seedDataUrl = sessionData.seedFileDataUrl;
+          if (seedDataUrl) {
+            const [header, data] = seedDataUrl.split(",");
+            imageBase64 = data;
+            mimeType = header.match(/:(.*?);/)?.[1] || "image/png";
+          }
+        } else {
+          const approved = (approvedImages || []).find((a) => a.color === bgColor);
+          if (approved) {
+            imageBase64 = approved.imageBase64;
+            mimeType = approved.mimeType || "image/png";
+          }
+        }
+
+        if (!imageBase64) continue;
+
+        try {
+          const res = await fetch("http://localhost:3001/api/product-images/poster-mockup", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ imageBase64, mimeType }),
+          });
+          if (!res.ok) continue;
+          const { imageBase64: mockupBase64, mimeType: mockupMime } = await res.json();
+          const dataUrl = `data:${mockupMime};base64,${mockupBase64}`;
+
+          const mockup = {
+            src: dataUrl,
+            imageBase64: mockupBase64,
+            mimeType: mockupMime,
+            isLocalUpload: true,
+            position: 0,
+            color: bgColor,
+            frameColor: "Poster-Only",
+            printifyProductId: null,
+          };
+          newMockups.push(mockup);
+        } catch (err) {
+          console.warn(`Poster mockup generation failed for ${bgColor}:`, err.message);
+        }
+      }
+
+      if (newMockups.length > 0) {
+        setPosterMockups(newMockups);
+        // Assign poster mockups to matching variants
+        setVariantAssignments((prev) => {
+          const updated = { ...prev };
+          posterVariants.forEach((variant) => {
+            const bgColor = variant.selectedOptions?.find((o) => /background.?color/i.test(o.name))?.value;
+            const matching = newMockups.filter((m) => m.color === bgColor);
+            if (matching.length > 0) {
+              updated[variant.id] = matching;
+            }
+          });
+          return updated;
+        });
+      }
+      setStatus("idle");
+    };
+
+    generateAll();
+  }, []);
+
+  // All available mockups for picker: selectedMockups + seed mockups + poster mockups + locally uploaded images
   const allAvailableMockups = (() => {
     const seen = new Set();
     const all = [];
@@ -84,6 +194,9 @@ export default function ConfirmUploadStep({ sessionData, onBack }) {
       if (!seen.has(m.src)) { seen.add(m.src); all.push(m); }
     });
     allSeedMockups.forEach((m) => {
+      if (!seen.has(m.src)) { seen.add(m.src); all.push(m); }
+    });
+    posterMockups.forEach((m) => {
       if (!seen.has(m.src)) { seen.add(m.src); all.push(m); }
     });
     uploadedImages.forEach((m) => {
@@ -252,6 +365,13 @@ export default function ConfirmUploadStep({ sessionData, onBack }) {
       <p className="text-sm text-gray-500">
         Review and adjust the mockup assignments below, then confirm to upload to Shopify and save to Supabase.
       </p>
+
+      {status === "generating-poster" && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm text-blue-700 flex items-center gap-2">
+          <div className="animate-spin w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full" />
+          Generating poster mockups for frameless variants...
+        </div>
+      )}
 
       {/* Mapping table */}
       <div className="border border-gray-200 rounded-xl overflow-hidden">

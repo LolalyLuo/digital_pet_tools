@@ -1,7 +1,13 @@
 import express from "express";
 import multer from "multer";
+import sharp from "sharp";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
 import { getInstameshopSupabase, getProdSupabase } from "../config/database.js";
 import { getGenAI, getOpenAI } from "../config/ai.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -806,6 +812,81 @@ router.post("/create-from-scrape", async (req, res) => {
     });
   } catch (err) {
     console.error("❌ create-from-scrape:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/product-images/poster-mockup
+// Body: { imageBase64, mimeType? , canvasSize? }
+// Composites the design image with the poster shadow on a transparent background.
+// Used for "Poster-Only" variants that don't have a Printify frame mockup.
+// Returns: { imageBase64, mimeType: "image/png" }
+router.post("/poster-mockup", async (req, res) => {
+  try {
+    const { imageBase64, mimeType = "image/png", canvasSize = 2000 } = req.body;
+    if (!imageBase64) return res.status(400).json({ error: "imageBase64 required" });
+
+    const designBuffer = Buffer.from(imageBase64, "base64");
+
+    // Load and resize shadow to canvas size
+    const shadowPath = join(__dirname, "..", "assets", "poster-shadow.png");
+    const shadowResized = await sharp(shadowPath)
+      .resize(canvasSize, canvasSize, { fit: "fill" })
+      .toBuffer();
+
+    // Get design dimensions to preserve aspect ratio
+    const designMeta = await sharp(designBuffer).metadata();
+    const designAspect = designMeta.width / designMeta.height;
+
+    // Poster area within the canvas (from analysis of the Canva template)
+    // Poster sits at ~14.2% from left, ~10% from top, ~65.9% width, ~79.9% height
+    const posterAreaW = Math.round(canvasSize * 0.659);
+    const posterAreaH = Math.round(canvasSize * 0.799);
+    const posterX = Math.round(canvasSize * 0.142);
+    const posterY = Math.round(canvasSize * 0.100);
+
+    // Fit design into poster area while preserving aspect ratio
+    let designW, designH;
+    if (designAspect > posterAreaW / posterAreaH) {
+      // Design is wider — fit to width
+      designW = posterAreaW;
+      designH = Math.round(posterAreaW / designAspect);
+    } else {
+      // Design is taller — fit to height
+      designH = posterAreaH;
+      designW = Math.round(posterAreaH * designAspect);
+    }
+
+    // Center design within poster area
+    const designX = posterX + Math.round((posterAreaW - designW) / 2);
+    const designY = posterY + Math.round((posterAreaH - designH) / 2);
+
+    const designResized = await sharp(designBuffer)
+      .resize(designW, designH, { fit: "fill" })
+      .toBuffer();
+
+    // Composite: transparent canvas → shadow → design
+    const result = await sharp({
+      create: {
+        width: canvasSize,
+        height: canvasSize,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      },
+    })
+      .composite([
+        { input: shadowResized, top: 0, left: 0 },
+        { input: designResized, top: designY, left: designX },
+      ])
+      .png()
+      .toBuffer();
+
+    res.json({
+      imageBase64: result.toString("base64"),
+      mimeType: "image/png",
+    });
+  } catch (err) {
+    console.error("❌ poster-mockup:", err.message);
     res.status(500).json({ error: err.message });
   }
 });

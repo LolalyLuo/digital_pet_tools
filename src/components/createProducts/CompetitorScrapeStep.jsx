@@ -231,7 +231,15 @@ export default function CompetitorScrapeStep({ updateSession, onNext }) {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-xl font-semibold text-gray-800">Step 1 — Scrape Competitor Product</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold text-gray-800">Step 1 — Scrape Competitor Product</h2>
+        <button
+          onClick={onNext}
+          className="text-sm text-gray-500 hover:text-gray-700"
+        >
+          Skip — I already have a product →
+        </button>
+      </div>
 
       {/* URL Input */}
       <div>

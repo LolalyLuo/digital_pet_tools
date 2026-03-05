@@ -1,4 +1,5 @@
 import { useState } from "react";
+import CompetitorScrapeStep from "./createProducts/CompetitorScrapeStep";
 import InputsStep from "./createProducts/InputsStep";
 import ConfigureVariantsStep from "./createProducts/ConfigureVariantsStep";
 import GenerateImagesStep from "./createProducts/GenerateImagesStep";
@@ -6,6 +7,7 @@ import PrintifyMockupsStep from "./createProducts/PrintifyMockupsStep";
 import ConfirmUploadStep from "./createProducts/ConfirmUploadStep";
 
 const STEPS = [
+  { id: "scrape", label: "Competitor Scrape" },
   { id: "inputs", label: "Inputs" },
   { id: "configure", label: "Configure Variants" },
   { id: "generate", label: "Generate Images" },
@@ -40,7 +42,7 @@ function CreateProducts() {
                       : "border-gray-300 text-gray-400 bg-white"
                   }`}
                 >
-                  {i < currentStep ? "✓" : i + 1}
+                  {i < currentStep ? "\u2713" : i + 1}
                 </div>
                 <span
                   className={`text-xs mt-1 whitespace-nowrap ${
@@ -63,18 +65,21 @@ function CreateProducts() {
 
         {/* Step content */}
         {currentStep === 0 && (
-          <InputsStep sessionData={sessionData} updateSession={updateSession} onNext={next} />
+          <CompetitorScrapeStep sessionData={sessionData} updateSession={updateSession} onNext={next} />
         )}
         {currentStep === 1 && (
-          <ConfigureVariantsStep sessionData={sessionData} updateSession={updateSession} onNext={next} onBack={back} />
+          <InputsStep sessionData={sessionData} updateSession={updateSession} onNext={next} onBack={back} />
         )}
         {currentStep === 2 && (
-          <GenerateImagesStep sessionData={sessionData} updateSession={updateSession} onNext={next} onBack={back} />
+          <ConfigureVariantsStep sessionData={sessionData} updateSession={updateSession} onNext={next} onBack={back} />
         )}
         {currentStep === 3 && (
-          <PrintifyMockupsStep sessionData={sessionData} updateSession={updateSession} onNext={next} onBack={back} />
+          <GenerateImagesStep sessionData={sessionData} updateSession={updateSession} onNext={next} onBack={back} />
         )}
         {currentStep === 4 && (
+          <PrintifyMockupsStep sessionData={sessionData} updateSession={updateSession} onNext={next} onBack={back} />
+        )}
+        {currentStep === 5 && (
           <ConfirmUploadStep sessionData={sessionData} updateSession={updateSession} onBack={back} />
         )}
       </div>

@@ -24,11 +24,18 @@ export default function ConfigureVariantsStep({ sessionData, updateSession, onNe
   );
 
   const initHexCodes = () => {
+    // If coming from scrape step, use the colorMap from the config
+    const scrapeColorMap = sessionData?.scrapeConfig?.options?.find(
+      (o) => o.colorMap && Object.keys(o.colorMap).length > 0
+    )?.colorMap;
+
     try {
       const stored = JSON.parse(localStorage.getItem(LS_HEX) || "{}");
       if (bgOption) {
         const result = {};
-        bgOption.values.forEach((v) => { result[v] = stored[v] || ""; });
+        bgOption.values.forEach((v) => {
+          result[v] = scrapeColorMap?.[v] || stored[v] || "";
+        });
         return result;
       }
     } catch { /* ignore malformed localStorage value */ }
@@ -79,7 +86,7 @@ export default function ConfigureVariantsStep({ sessionData, updateSession, onNe
 
   return (
     <div className="space-y-8">
-      <h2 className="text-xl font-semibold text-gray-800">Step 2 — Configure Variants</h2>
+      <h2 className="text-xl font-semibold text-gray-800">Step 3 — Configure Variants</h2>
 
       {bgOption && (
         <section>

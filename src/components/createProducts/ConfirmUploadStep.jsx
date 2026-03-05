@@ -248,7 +248,7 @@ export default function ConfirmUploadStep({ sessionData, onBack }) {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-xl font-semibold text-gray-800">Step 5 — Confirm & Upload</h2>
+      <h2 className="text-xl font-semibold text-gray-800">Step 6 — Confirm & Upload</h2>
       <p className="text-sm text-gray-500">
         Review and adjust the mockup assignments below, then confirm to upload to Shopify and save to Supabase.
       </p>

@@ -173,15 +173,14 @@ router.post("/generate-variant", async (req, res) => {
     let prompt;
 
     if (refineMode) {
-      prompt = `You are editing this existing artwork. Apply ONLY this adjustment: ${feedbackText}
+      prompt = `Edit this image. Apply ONLY this adjustment: ${feedbackText}
 
-Keep EVERYTHING else completely unchanged:
-- The background color, breeds, and name text must stay exactly as they are
-- The exact same artistic style (brushstrokes, texture, medium — watercolor/pencil/cartoon/etc.)
-- The same overall composition, layout, and decorative elements
-- The same image dimensions and aspect ratio
-
-Output only the modified image.`;
+CRITICAL — preserve EXACTLY:
+- The same crop, framing, and composition (if it's a headshot, keep it a headshot)
+- The same artistic medium and style (watercolor brushstrokes, pencil texture, etc.)
+- The background color, pet breed, and any name text
+- All decorative elements, borders, and layout
+- The same image dimensions and aspect ratio`;
     } else {
       const hex = backgroundColor.replace("#", "");
       const r = parseInt(hex.substring(0, 2), 16);
@@ -190,44 +189,44 @@ Output only the modified image.`;
       const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
       const nameColor = luminance < 0.5 ? "white" : "black";
 
+      // Pick a random expression variation for each generation
+      const expressions = [
+        "with a gentle soft smile",
+        "with a neutral calm expression",
+        "with a relaxed content look",
+        "with a subtle warm smile",
+      ];
+      const expression = expressions[Math.floor(Math.random() * expressions.length)];
+
       if (petCount === 1) {
-        // Single pet — original prompt
-        prompt = `You are editing this existing artwork. Make ONLY these specific changes:
-1. Change the background color to ${colorName} (${backgroundColor})
-2. Change the pet in the image to a ${breeds[0]}
-3. Change the pet's name text to "${petNames[0]}" in ${nameColor} color
+        prompt = `Edit this image. Make ONLY these changes:
+1. Background: fill the ENTIRE background with a single pure flat color — ${colorName} (${backgroundColor}). No gradients, no textures, no patterns — just solid ${backgroundColor}.
+2. Change the pet breed to a ${breeds[0]} ${expression} — but keep the EXACT same pose, crop, and framing as the original (headshot stays headshot, same zoom level, same scale)
+3. Change the name text to "${petNames[0]}" in ${nameColor} color
 
-Keep EVERYTHING else identical:
-- The exact same artistic style (brushstrokes, texture, medium — watercolor/pencil/cartoon/etc.)
-- The same overall composition and layout
-- The same decorative elements, borders, and framing
-- The same level of detail and rendering quality
+CRITICAL — preserve EXACTLY:
+- The same artistic medium and rendering technique (watercolor wash, pencil strokes, paint texture — match it precisely)
+- The same crop, zoom level, and composition — do NOT change from headshot to full-body or vice versa
+- All decorative elements, borders, text placement, and layout
 - The same image dimensions and aspect ratio
-${feedbackText ? `\nAdditional adjustment: ${feedbackText}` : ""}
-
-Output only the modified image.`;
+${feedbackText ? `\nAdditional adjustment: ${feedbackText}` : ""}`;
       } else {
-        // Multi-pet prompt
-        const petDescriptions = breeds.map((breed, i) => `  - A ${breed} named "${petNames[i]}"`).join("\n");
+        const petDescriptions = breeds.map((breed, i) => `  - A ${breed} ${expressions[Math.floor(Math.random() * expressions.length)]} named "${petNames[i]}"`).join("\n");
         const namesList = petNames.map((n) => `"${n}"`).join(", ");
 
-        prompt = `You are editing this existing artwork. Make ONLY these specific changes:
-1. Change the background color to ${colorName} (${backgroundColor})
-2. Replace the pet in the image with ${petCount} pets together in the scene:
+        prompt = `Edit this image. Make ONLY these changes:
+1. Background: fill the ENTIRE background with a single pure flat color — ${colorName} (${backgroundColor}). No gradients, no textures, no patterns — just solid ${backgroundColor}.
+2. Replace the pet(s) with ${petCount} pets, keeping the same framing and crop style (if original is headshots, keep headshots):
 ${petDescriptions}
+   The pets should sit naturally together (side by side). Each must be clearly its breed. Keep realistic relative sizes.
 3. Show the names ${namesList} as text in the image in ${nameColor} color
 
-The ${petCount} pets should be together in the scene — interacting naturally (sitting side by side, playing together, etc.). Each pet should be clearly recognizable as its breed. Keep their relative sizes realistic.
-
-Keep EVERYTHING else identical:
-- The exact same artistic style (brushstrokes, texture, medium — watercolor/pencil/cartoon/etc.)
-- The same overall composition and layout style
-- The same decorative elements, borders, and framing
-- The same level of detail and rendering quality
+CRITICAL — preserve EXACTLY:
+- The same artistic medium and rendering technique (watercolor wash, pencil strokes, paint texture — match it precisely)
+- The same crop style and composition layout — if the original shows heads/shoulders, keep that framing
+- All decorative elements, borders, text placement, and layout
 - The same image dimensions and aspect ratio
-${feedbackText ? `\nAdditional adjustment: ${feedbackText}` : ""}
-
-Output only the modified image.`;
+${feedbackText ? `\nAdditional adjustment: ${feedbackText}` : ""}`;
       }
     }
 
@@ -437,6 +436,424 @@ router.post("/save-results", async (req, res) => {
     res.json({ aiImageIds: aiImageRecords.map((r) => r.id), mockupImageIds });
   } catch (err) {
     console.error("❌ save-results:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/product-images/scrape-competitor
+// Body: { url: "https://competitor-store.com/products/some-product" }
+// Fetches the Shopify product JSON and normalizes into our config shape.
+// Returns: { config: { title, descriptionHtml, options, prices, vendor, ... }, rawVariants: [...] }
+router.post("/scrape-competitor", async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ error: "url required" });
+
+    // Normalize URL to .json endpoint
+    let jsonUrl = url.replace(/\/$/, "");
+    if (!jsonUrl.endsWith(".json")) jsonUrl += ".json";
+
+    const response = await fetch(jsonUrl, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; InstaMe/1.0)" },
+    });
+    if (!response.ok) throw new Error(`Failed to fetch product (${response.status})`);
+
+    const data = await response.json();
+    const product = data.product;
+    if (!product) throw new Error("No product data found in response");
+
+    // Extract options
+    const options = (product.options || []).map((opt) => ({
+      name: opt.name,
+      values: opt.values || [],
+      // Initialize empty colorMap for Background Color option
+      ...(opt.name.toLowerCase().includes("color") || opt.name.toLowerCase().includes("background")
+        ? { colorMap: {} }
+        : {}),
+    }));
+
+    // Build prices map from variants
+    // Format: prices[sizeValue][frameValue] = [price, compareAtPrice]
+    // Detect which option is which by name heuristics
+    const sizeOptIdx = options.findIndex((o) =>
+      /size|dimension/i.test(o.name)
+    );
+    const frameOptIdx = options.findIndex((o) =>
+      /frame|border|mount/i.test(o.name)
+    );
+    const bgOptIdx = options.findIndex((o) =>
+      /color|background|colour/i.test(o.name)
+    );
+
+    const prices = {};
+    for (const variant of product.variants || []) {
+      const opts = [variant.option1, variant.option2, variant.option3].filter(Boolean);
+      const price = variant.price ? parseFloat(variant.price).toFixed(2) : "0.00";
+      const compareAt = variant.compare_at_price
+        ? parseFloat(variant.compare_at_price).toFixed(2)
+        : null;
+
+      // Build price key based on size and frame options
+      // Try to use size as first key and frame as second key (matching existing config convention)
+      let key1 = null;
+      let key2 = null;
+
+      if (sizeOptIdx !== -1 && frameOptIdx !== -1) {
+        key1 = opts[sizeOptIdx] || null;
+        key2 = opts[frameOptIdx] || null;
+      } else if (options.length >= 2) {
+        // Fallback: use option2 as key1, option3 as key2 (skip background color)
+        const nonBgOpts = [0, 1, 2].filter((i) => i !== bgOptIdx && i < opts.length);
+        key1 = nonBgOpts[0] !== undefined ? opts[nonBgOpts[0]] : null;
+        key2 = nonBgOpts[1] !== undefined ? opts[nonBgOpts[1]] : null;
+      }
+
+      if (key1 && key2) {
+        if (!prices[key1]) prices[key1] = {};
+        // Only set if not already set (avoid overwrites from different bg colors)
+        if (!prices[key1][key2]) {
+          prices[key1][key2] = [price, compareAt];
+        }
+      } else if (key1) {
+        if (!prices[key1]) prices[key1] = [price, compareAt];
+      }
+    }
+
+    // Build config in our standard shape
+    const config = {
+      title: product.title || "",
+      descriptionHtml: product.body_html || "",
+      vendor: "InstaMe",
+      productType: product.product_type || "Custom Portrait",
+      options,
+      prices,
+      extras: [],
+      personalizationGIDs: [],
+      publicationIDs: [
+        "gid://shopify/Publication/151855169641",
+        "gid://shopify/Publication/151855267945",
+      ],
+    };
+
+    // Also return raw variants for the UI to display the full price table
+    const rawVariants = (product.variants || []).map((v) => ({
+      title: v.title,
+      price: v.price,
+      compare_at_price: v.compare_at_price,
+      option1: v.option1,
+      option2: v.option2,
+      option3: v.option3,
+    }));
+
+    res.json({ config, rawVariants, sourceTitle: product.title, sourceVendor: product.vendor });
+  } catch (err) {
+    console.error("❌ scrape-competitor:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/product-images/create-from-scrape
+// Body: { config: { title, descriptionHtml, vendor, productType, options, prices, personalizationGIDs, publicationIDs, ... } }
+// Creates the full Shopify product and saves config to Supabase.
+// Returns: { shopifyProductId, shopifyProductNumericId, adminUrl, supabaseProductId }
+router.post("/create-from-scrape", async (req, res) => {
+  try {
+    const { config } = req.body;
+    if (!config?.title || !config?.options?.length) {
+      return res.status(400).json({ error: "config with title and options required" });
+    }
+
+    const SHOPIFY_SHOP = process.env.SHOPIFY_SHOP;
+    const SHOPIFY_API_VERSION = "2026-01";
+
+    // Get Shopify access token
+    const tokenRes = await fetch(`https://${SHOPIFY_SHOP}/admin/oauth/access_token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_id: process.env.SHOPIFY_CLIENT_ID,
+        client_secret: process.env.SHOPIFY_CLIENT_SECRET,
+        grant_type: "client_credentials",
+      }),
+    });
+    const { access_token: token } = await tokenRes.json();
+    if (!token) throw new Error("Failed to get Shopify access token");
+
+    async function gql(query, variables = {}) {
+      const r = await fetch(
+        `https://${SHOPIFY_SHOP}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token },
+          body: JSON.stringify({ query, variables }),
+        }
+      );
+      return r.json();
+    }
+
+    // 1. Create product as DRAFT
+    const createResult = await gql(
+      `mutation productCreate($product: ProductCreateInput!) {
+        productCreate(product: $product) {
+          product { id title status }
+          userErrors { field message }
+        }
+      }`,
+      {
+        product: {
+          title: config.title,
+          descriptionHtml: config.descriptionHtml || "",
+          vendor: config.vendor || "InstaMe",
+          productType: config.productType || "",
+          status: "DRAFT",
+        },
+      }
+    );
+    const createErrors = createResult.data?.productCreate?.userErrors;
+    if (createErrors?.length) throw new Error("productCreate: " + JSON.stringify(createErrors));
+    const productId = createResult.data.productCreate.product.id;
+
+    // 2. Create options
+    const optionsResult = await gql(
+      `mutation productOptionsCreate($productId: ID!, $options: [OptionCreateInput!]!) {
+        productOptionsCreate(productId: $productId, options: $options) {
+          product { options { id name position optionValues { id name } } }
+          userErrors { field message }
+        }
+      }`,
+      {
+        productId,
+        options: config.options.map((o) => ({
+          name: o.name,
+          values: o.values.map((v) => ({ name: v })),
+        })),
+      }
+    );
+    const optErrors = optionsResult.data?.productOptionsCreate?.userErrors;
+    if (optErrors?.length) throw new Error("productOptionsCreate: " + JSON.stringify(optErrors));
+    const shopifyOptions = optionsResult.data.productOptionsCreate.product.options;
+    const optionMap = Object.fromEntries(shopifyOptions.map((o) => [o.name, o]));
+
+    // 3. Build and create variants
+    const [opt1, opt2, opt3] = config.options;
+    const allVariants = [];
+
+    for (const v1 of opt1.values) {
+      for (const v2 of opt2?.values ?? [null]) {
+        for (const v3 of opt3?.values ?? [null]) {
+          let priceEntry =
+            config.prices?.[v2]?.[v3] ??
+            config.prices?.[v1]?.[v2] ??
+            config.prices?.[v1] ??
+            null;
+
+          const [price, compareAtPrice] = Array.isArray(priceEntry) ? priceEntry : ["0.00", null];
+
+          const optionValues = [
+            { optionId: optionMap[opt1.name].id, name: v1 },
+            ...(opt2 ? [{ optionId: optionMap[opt2.name].id, name: v2 }] : []),
+            ...(opt3 ? [{ optionId: optionMap[opt3.name].id, name: v3 }] : []),
+          ];
+
+          allVariants.push({ optionValues, price, compareAtPrice, inventoryPolicy: "CONTINUE" });
+        }
+      }
+    }
+
+    // Check for auto-created variants
+    const existingData = await gql(
+      `query { product(id: "${productId}") { variants(first: 100) { nodes { id title } } } }`
+    );
+    const existingTitles = new Set(existingData.data.product.variants.nodes.map((v) => v.title));
+    const existingIds = Object.fromEntries(
+      existingData.data.product.variants.nodes.map((v) => [v.title, v.id])
+    );
+
+    const toCreate = allVariants.filter(
+      (v) => !existingTitles.has(v.optionValues.map((o) => o.name).join(" / "))
+    );
+    const toUpdate = allVariants.filter((v) =>
+      existingTitles.has(v.optionValues.map((o) => o.name).join(" / "))
+    );
+
+    if (toUpdate.length > 0) {
+      const updateInputs = toUpdate.map((v) => ({
+        id: existingIds[v.optionValues.map((o) => o.name).join(" / ")],
+        price: v.price,
+        compareAtPrice: v.compareAtPrice,
+        inventoryPolicy: "CONTINUE",
+      }));
+      const r = await gql(
+        `mutation productVariantsBulkUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+          productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+            productVariants { id }
+            userErrors { field message }
+          }
+        }`,
+        { productId, variants: updateInputs }
+      );
+      const ue = r.data?.productVariantsBulkUpdate?.userErrors;
+      if (ue?.length) throw new Error("variantsBulkUpdate: " + JSON.stringify(ue));
+    }
+
+    const BATCH = 25;
+    for (let i = 0; i < toCreate.length; i += BATCH) {
+      const batch = toCreate.slice(i, i + BATCH);
+      const r = await gql(
+        `mutation productVariantsBulkCreate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+          productVariantsBulkCreate(productId: $productId, variants: $variants) {
+            productVariants { id title }
+            userErrors { field message }
+          }
+        }`,
+        { productId, variants: batch }
+      );
+      const ue = r.data?.productVariantsBulkCreate?.userErrors;
+      if (ue?.length) throw new Error("variantsBulkCreate: " + JSON.stringify(ue));
+    }
+
+    // 4. Disable inventory tracking on all variants
+    const invResult = await gql(
+      `query { product(id: "${productId}") {
+        variants(first: 250) { nodes { inventoryItem { id tracked } } }
+      }}`
+    );
+    const trackedItems = invResult.data.product.variants.nodes
+      .map((v) => v.inventoryItem)
+      .filter((i) => i.tracked);
+
+    for (const item of trackedItems) {
+      const r = await gql(
+        `mutation inventoryItemUpdate($id: ID!, $input: InventoryItemInput!) {
+          inventoryItemUpdate(id: $id, input: $input) {
+            inventoryItem { id }
+            userErrors { field message }
+          }
+        }`,
+        { id: item.id, input: { tracked: false } }
+      );
+      const ue = r.data?.inventoryItemUpdate?.userErrors;
+      if (ue?.length) throw new Error("inventoryItemUpdate: " + JSON.stringify(ue));
+    }
+
+    // 5. Set personalization metafield if provided
+    if (config.personalizationGIDs?.length) {
+      const r = await gql(
+        `mutation productUpdate($product: ProductUpdateInput!) {
+          productUpdate(product: $product) {
+            product { id }
+            userErrors { field message }
+          }
+        }`,
+        {
+          product: {
+            id: productId,
+            metafields: [
+              {
+                namespace: "custom",
+                key: "personalization_options",
+                type: "list.metaobject_reference",
+                value: JSON.stringify(config.personalizationGIDs),
+              },
+            ],
+          },
+        }
+      );
+      const ue = r.data?.productUpdate?.userErrors;
+      if (ue?.length) throw new Error("metafield: " + JSON.stringify(ue));
+    }
+
+    // 6. Publish to Online Store + Shop
+    if (config.publicationIDs?.length) {
+      const r = await gql(
+        `mutation publishablePublish($id: ID!, $input: [PublicationInput!]!) {
+          publishablePublish(id: $id, input: $input) {
+            publishable { ... on Product { id title } }
+            userErrors { field message }
+          }
+        }`,
+        {
+          id: productId,
+          input: config.publicationIDs.map((publicationId) => ({ publicationId })),
+        }
+      );
+      const ue = r.data?.publishablePublish?.userErrors;
+      if (ue?.length) throw new Error("publish: " + JSON.stringify(ue));
+    }
+
+    // 7. Save config to Supabase
+    const db = getInstameshopSupabase();
+    const { data: row, error: dbErr } = await db
+      .from("products")
+      .insert({
+        shopify_product_id: productId,
+        name: config.title,
+        product_type: config.productType || "portrait",
+        config,
+      })
+      .select()
+      .single();
+    if (dbErr) throw new Error("Supabase insert failed: " + dbErr.message);
+
+    const numericId = productId.split("/").pop();
+    const adminUrl = `https://${SHOPIFY_SHOP}/admin/products/${numericId}`;
+
+    res.json({
+      shopifyProductId: productId,
+      shopifyProductNumericId: numericId,
+      adminUrl,
+      supabaseProductId: row.id,
+    });
+  } catch (err) {
+    console.error("❌ create-from-scrape:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/product-images/metaobjects
+// Returns existing personalization_fields metaobjects for the UI to display as options.
+router.get("/metaobjects", async (req, res) => {
+  try {
+    const SHOPIFY_SHOP = process.env.SHOPIFY_SHOP;
+    const SHOPIFY_API_VERSION = "2026-01";
+
+    const tokenRes = await fetch(`https://${SHOPIFY_SHOP}/admin/oauth/access_token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_id: process.env.SHOPIFY_CLIENT_ID,
+        client_secret: process.env.SHOPIFY_CLIENT_SECRET,
+        grant_type: "client_credentials",
+      }),
+    });
+    const { access_token: token } = await tokenRes.json();
+
+    const r = await fetch(
+      `https://${SHOPIFY_SHOP}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token },
+        body: JSON.stringify({
+          query: `{
+            metaobjects(type: "personalization_fields", first: 50) {
+              nodes { id handle displayName fields { key value } }
+            }
+          }`,
+        }),
+      }
+    );
+    const data = await r.json();
+    const nodes = data.data?.metaobjects?.nodes || [];
+
+    res.json({
+      metaobjects: nodes.map((n) => ({
+        id: n.id,
+        handle: n.handle,
+        label: n.fields?.find((f) => f.key === "name")?.value || n.displayName || n.handle,
+      })),
+    });
+  } catch (err) {
+    console.error("❌ metaobjects:", err.message);
     res.status(500).json({ error: err.message });
   }
 });

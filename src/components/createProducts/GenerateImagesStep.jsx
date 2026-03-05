@@ -24,7 +24,16 @@ export default function GenerateImagesStep({ sessionData, updateSession, onNext,
   );
   const [feedbackText, setFeedbackText] = useState({});
   const [showFeedback, setShowFeedback] = useState({});
+  const [seedAspectRatio, setSeedAspectRatio] = useState(1);
   const initiated = useRef(false);
+
+  // Measure seed image aspect ratio on mount
+  useEffect(() => {
+    if (!seedFileDataUrl) return;
+    const img = new Image();
+    img.onload = () => setSeedAspectRatio(img.width / img.height);
+    img.src = seedFileDataUrl;
+  }, [seedFileDataUrl]);
 
   const updateCard = (color, updates) =>
     setCards((prev) => prev.map((c) => (c.color === color ? { ...c, ...updates } : c)));
@@ -126,6 +135,38 @@ export default function GenerateImagesStep({ sessionData, updateSession, onNext,
     setFeedbackText((prev) => ({ ...prev, [color]: "" }));
   };
 
+  const handleRegenerateAll = () => {
+    initiated.current = false;
+    setCards((prev) => prev.map((c) => ({ ...c, status: "pending", imageDataUrl: null, generatedBase64: null, generatedMimeType: null, error: null })));
+    setFeedbackText({});
+    setShowFeedback({});
+
+    const totalPets = nonSeedColors.length * numberOfPets;
+    fetch("http://localhost:3001/api/product-images/breed-names", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ count: totalPets, animalType: "pet" }),
+    })
+      .then((r) => r.json())
+      .then(({ combos }) => {
+        nonSeedColors.forEach((color, i) => {
+          const startIdx = i * numberOfPets;
+          const colorCombos = combos.slice(startIdx, startIdx + numberOfPets);
+          const breeds = colorCombos.map((c) => c?.breed || "Golden Retriever");
+          const petNames = colorCombos.map((c) => c?.name || "Buddy");
+          generateForColor(color, breeds, petNames);
+        });
+      })
+      .catch(() => {
+        const defaultBreeds = Array(numberOfPets).fill("Golden Retriever");
+        const defaultNames = Array(numberOfPets).fill("Buddy");
+        nonSeedColors.forEach((color) => generateForColor(color, defaultBreeds, defaultNames));
+      });
+
+    initiated.current = true;
+  };
+
+  const anyGenerating = cards.some((c) => c.status === "generating");
   const allDone = cards.length > 0 && cards.every((c) => c.status === "done");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
@@ -187,11 +228,20 @@ export default function GenerateImagesStep({ sessionData, updateSession, onNext,
 
   return (
     <div className="space-y-6">
-      <h2 className="text-xl font-semibold text-gray-800">Step 3 — Generate Images</h2>
-      <p className="text-sm text-gray-500">
-        Generating {nonSeedColors.length} image{nonSeedColors.length !== 1 ? "s" : ""} in parallel
-        {numberOfPets > 1 ? ` (${numberOfPets} pets each)` : ""}...
-      </p>
+      <h2 className="text-xl font-semibold text-gray-800">Step 4 — Generate Images</h2>
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-gray-500">
+          Generating {nonSeedColors.length} image{nonSeedColors.length !== 1 ? "s" : ""} in parallel
+          {numberOfPets > 1 ? ` (${numberOfPets} pets each)` : ""}...
+        </p>
+        <button
+          onClick={handleRegenerateAll}
+          disabled={anyGenerating}
+          className="text-xs text-blue-600 hover:text-blue-800 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          ↺ Regenerate All
+        </button>
+      </div>
 
       <div className="grid grid-cols-2 gap-4">
         {cards.map((card) => (
@@ -211,7 +261,7 @@ export default function GenerateImagesStep({ sessionData, updateSession, onNext,
               )}
             </div>
 
-            <div className="aspect-square bg-gray-100 flex items-center justify-center relative">
+            <div className="bg-gray-100 flex items-center justify-center relative" style={{ aspectRatio: seedAspectRatio }}>
               {card.status === "generating" && (
                 <div className="text-center">
                   <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full mx-auto mb-2" />
@@ -269,6 +319,18 @@ export default function GenerateImagesStep({ sessionData, updateSession, onNext,
                         onChange={(e) => handleUpload(card.color, e.target.files[0])}
                       />
                     </label>
+                    {card.imageDataUrl && (
+                      <>
+                        <span className="text-gray-200">|</span>
+                        <a
+                          href={card.imageDataUrl}
+                          download={`${card.color.replace(/\s+/g, "-").toLowerCase()}.png`}
+                          className="text-xs text-gray-500 hover:text-gray-700"
+                        >
+                          ↓ Download
+                        </a>
+                      </>
+                    )}
                   </div>
                 )}
               </div>

@@ -193,7 +193,7 @@ export default function PrintifyMockupsStep({ sessionData, updateSession, onNext
 
   return (
     <div className="space-y-6">
-      <h2 className="text-xl font-semibold text-gray-800">Step 4 — Printify Mockups</h2>
+      <h2 className="text-xl font-semibold text-gray-800">Step 5 — Printify Mockups</h2>
 
       {/* Creation progress */}
       <div className="space-y-1">

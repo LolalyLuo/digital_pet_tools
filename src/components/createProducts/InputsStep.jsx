@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 
 function StatusBadge({ status, label }) {
   if (status === "loading") return <span className="text-xs text-blue-500 ml-2">Checking...</span>;
@@ -7,11 +7,20 @@ function StatusBadge({ status, label }) {
   return null;
 }
 
-export default function InputsStep({ updateSession, onNext }) {
+export default function InputsStep({ sessionData, updateSession, onNext, onBack }) {
+  // Auto-fill from scrape step if available
+  const fromScrape = sessionData?.createdFromScrape;
+  const autoShopifyId = sessionData?.shopifyProductNumericId;
+  const autoNumberOfPets = sessionData?.numberOfPets;
+
   const [seedFile, setSeedFile] = useState(null);
   const [seedPreview, setSeedPreview] = useState(null);
-  const [numberOfPets, setNumberOfPets] = useState(1);
-  const [shopifyUrl, setShopifyUrl] = useState("");
+  const [numberOfPets, setNumberOfPets] = useState(autoNumberOfPets || 1);
+  const [shopifyUrl, setShopifyUrl] = useState(
+    fromScrape && autoShopifyId
+      ? `https://admin.shopify.com/store/instame-shop/products/${autoShopifyId}`
+      : ""
+  );
   const [printifyUrl, setPrintifyUrl] = useState("");
   const [shopifyStatus, setShopifyStatus] = useState(null); // null | "loading" | "ok" | "error"
   const [printifyStatus, setPrintifyStatus] = useState(null);
@@ -23,6 +32,15 @@ export default function InputsStep({ updateSession, onNext }) {
   const [saveError, setSaveError] = useState(null);
   const shopifyTimer = useRef(null);
   const printifyTimer = useRef(null);
+  const autoFetched = useRef(false);
+
+  // Auto-fetch Shopify product when coming from scrape step
+  useEffect(() => {
+    if (fromScrape && autoShopifyId && !autoFetched.current) {
+      autoFetched.current = true;
+      fetchShopify(`https://admin.shopify.com/store/instame-shop/products/${autoShopifyId}`);
+    }
+  }, [fromScrape, autoShopifyId]);
 
   const handleSeedFile = (file) => {
     if (!file) return;
@@ -133,7 +151,24 @@ export default function InputsStep({ updateSession, onNext }) {
 
   return (
     <div className="space-y-8">
-      <h2 className="text-xl font-semibold text-gray-800">Step 1 — Inputs</h2>
+      <h2 className="text-xl font-semibold text-gray-800">Step 2 — Inputs</h2>
+
+      {/* Auto-filled notice */}
+      {fromScrape && (
+        <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 text-sm text-green-700">
+          Shopify product created from competitor scrape. URL auto-filled below.
+          {sessionData.adminUrl && (
+            <a
+              href={sessionData.adminUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="ml-2 underline text-green-800"
+            >
+              View in Shopify
+            </a>
+          )}
+        </div>
+      )}
 
       {/* Seed Image */}
       <div>
@@ -209,7 +244,14 @@ export default function InputsStep({ updateSession, onNext }) {
 
       {saveError && <p className="text-sm text-red-500">{saveError}</p>}
 
-      <div className="flex justify-end">
+      <div className="flex justify-between">
+        {onBack ? (
+          <button onClick={onBack} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">
+            ← Back
+          </button>
+        ) : (
+          <div />
+        )}
         <button
           onClick={handleNext}
           disabled={!canNext}

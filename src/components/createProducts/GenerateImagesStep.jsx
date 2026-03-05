@@ -72,33 +72,7 @@ export default function GenerateImagesStep({ sessionData, updateSession, onNext,
     }
   };
 
-  useEffect(() => {
-    if (initiated.current || !seedFileDataUrl || nonSeedColors.length === 0) return;
-    initiated.current = true;
-
-    const totalPets = nonSeedColors.length * numberOfPets;
-
-    fetch("http://localhost:3001/api/product-images/breed-names", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ count: totalPets, animalType: "pet" }),
-    })
-      .then((r) => r.json())
-      .then(({ combos }) => {
-        nonSeedColors.forEach((color, i) => {
-          const startIdx = i * numberOfPets;
-          const colorCombos = combos.slice(startIdx, startIdx + numberOfPets);
-          const breeds = colorCombos.map((c) => c?.breed || "Golden Retriever");
-          const petNames = colorCombos.map((c) => c?.name || "Buddy");
-          generateForColor(color, breeds, petNames);
-        });
-      })
-      .catch(() => {
-        const defaultBreeds = Array(numberOfPets).fill("Golden Retriever");
-        const defaultNames = Array(numberOfPets).fill("Buddy");
-        nonSeedColors.forEach((color) => generateForColor(color, defaultBreeds, defaultNames));
-      });
-  }, []);
+  // No auto-generation on mount — use "Generate All" or upload manually per card
 
   const handleUpload = (color, file) => {
     if (!file) return;
@@ -231,15 +205,16 @@ export default function GenerateImagesStep({ sessionData, updateSession, onNext,
       <h2 className="text-xl font-semibold text-gray-800">Step 4 — Generate Images</h2>
       <div className="flex items-center justify-between">
         <p className="text-sm text-gray-500">
-          Generating {nonSeedColors.length} image{nonSeedColors.length !== 1 ? "s" : ""} in parallel
-          {numberOfPets > 1 ? ` (${numberOfPets} pets each)` : ""}...
+          {nonSeedColors.length} image{nonSeedColors.length !== 1 ? "s" : ""} needed
+          {numberOfPets > 1 ? ` (${numberOfPets} pets each)` : ""}
+          — upload or generate per card
         </p>
         <button
           onClick={handleRegenerateAll}
           disabled={anyGenerating}
           className="text-xs text-blue-600 hover:text-blue-800 disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          ↺ Regenerate All
+          Generate All
         </button>
       </div>
 

@@ -401,14 +401,15 @@ router.post("/save-results", async (req, res) => {
     // Download and save mockup images
     const mockupImageIds = [];
     for (const mockup of (mockupImages || [])) {
-      // Seed mockups use seed_image_id (null ai_image_id); non-seed use ai_image_id
+      // Resolve ai_image_id; skip DB insert for mockups without one (seed/poster mockups)
       let aiImageId = null;
       if (!mockup.isSeedMockup) {
         aiImageId = aiImageRecords[mockup.aiImageIndex]?.id;
-        if (!aiImageId) {
-          console.warn(`⚠️ Skipping mockup at position ${mockup.position}: no AI image at index ${mockup.aiImageIndex}`);
-          continue;
-        }
+      }
+      if (!aiImageId) {
+        // ai_image_id is NOT NULL in DB — skip saving seed/poster mockups to product_mockup_images
+        // They'll still be uploaded to Shopify variants via the assignments flow
+        continue;
       }
 
       // Download mockup image from Printify CDN
@@ -426,7 +427,6 @@ router.post("/save-results", async (req, res) => {
         .from("product_mockup_images")
         .insert({
           ai_image_id: aiImageId,
-          seed_image_id: mockup.isSeedMockup ? seedImageId : null,
           product_id: productId,
           printify_custom_product_id: mockup.printifyProductId,
           storage_path: fileName,

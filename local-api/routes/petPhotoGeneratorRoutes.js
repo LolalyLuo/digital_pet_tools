@@ -1,6 +1,6 @@
 import express from "express";
 import { generateWithGemini } from "../utils/imageUtils.js";
-import { getDragonSupabase } from "../config/database.js";
+import { getSupabase } from "../config/database.js";
 
 const router = express.Router();
 
@@ -32,67 +32,6 @@ Requirements:
 
   return finalPrompt;
 }
-
-// GET /api/pet-photo-generator/photos — list uploaded photos from Dragon DB
-router.get("/photos", async (req, res) => {
-  try {
-    const db = getDragonSupabase();
-    const { data, error } = await db
-      .from("uploaded_photos")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (error) throw error;
-
-    const photos = data.map((p) => ({
-      ...p,
-      url: `${process.env.DRAGON_SUPABASE_URL}/storage/v1/object/public/uploaded-photos/${p.file_path}`,
-    }));
-
-    res.json({ photos });
-  } catch (err) {
-    console.error("Failed to list photos:", err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// POST /api/pet-photo-generator/upload-photo — upload pet photo to Dragon DB
-router.post("/upload-photo", async (req, res) => {
-  try {
-    const { imageBase64, fileName } = req.body;
-    if (!imageBase64 || !fileName) {
-      return res.status(400).json({ error: "imageBase64 and fileName are required" });
-    }
-
-    const db = getDragonSupabase();
-    const buffer = Buffer.from(imageBase64, "base64");
-    const storagePath = `${Date.now()}_${fileName}`;
-
-    const { error: uploadError } = await db.storage
-      .from("uploaded-photos")
-      .upload(storagePath, buffer, {
-        contentType: "image/jpeg",
-        cacheControl: "3600",
-      });
-
-    if (uploadError) throw uploadError;
-
-    const { data: dbData, error: dbError } = await db
-      .from("uploaded_photos")
-      .insert({ file_path: storagePath, file_name: fileName })
-      .select()
-      .single();
-
-    if (dbError) throw dbError;
-
-    const url = `${process.env.DRAGON_SUPABASE_URL}/storage/v1/object/public/uploaded-photos/${storagePath}`;
-
-    res.json({ id: dbData.id, file_path: storagePath, file_name: fileName, url });
-  } catch (err) {
-    console.error("Failed to upload photo:", err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // POST /api/pet-photo-generator/generate-one
 // Generates a single image, saves to Dragon DB, returns result
@@ -215,7 +154,7 @@ router.post("/generate-one", async (req, res) => {
     // Upload generated image to Dragon DB
     let dbRecord = null;
     try {
-      const db = getDragonSupabase();
+      const db = getSupabase();
       const imageBuffer = Buffer.from(b64Image, "base64");
       const fileName = `generated_${photoId || "noid"}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.png`;
 

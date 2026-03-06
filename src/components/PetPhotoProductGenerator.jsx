@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { supabase } from "../utils/supabaseClient";
 
 const PRINTIFY_SHOPS = [
   { id: "24261029", label: "InstaMe (Manual)" },
@@ -73,10 +74,20 @@ export default function PetPhotoProductGenerator() {
       .then((data) => setAvailablePrompts(data.prompts || []))
       .catch((err) => console.error("Failed to load prompts:", err));
 
-    fetch("http://localhost:3001/api/pet-photo-generator/photos")
-      .then((r) => r.json())
-      .then((data) => setExistingPhotos(data.photos || []))
-      .catch((err) => console.error("Failed to load photos:", err));
+    // Load existing photos from same Supabase as Explore Ideas "My Photos"
+    supabase
+      .from("uploaded_photos")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .then(({ data, error }) => {
+        if (error) return console.error("Failed to load photos:", error);
+        setExistingPhotos(
+          data.map((p) => ({
+            ...p,
+            url: supabase.storage.from("uploaded-photos").getPublicUrl(p.file_path).data.publicUrl,
+          }))
+        );
+      });
   }, []);
 
   // Resolved values (dropdown or custom)
@@ -137,25 +148,42 @@ export default function PetPhotoProductGenerator() {
       const dataUrl = URL.createObjectURL(file);
       newPhotos.push({ id, file, dataUrl, petName: "" });
 
-      // Upload to Dragon DB in background
+      // Upload to same Supabase as Explore Ideas "My Photos" (same as LeftPanel)
       try {
-        const base64 = await fileToBase64(file);
-        const res = await fetch("http://localhost:3001/api/pet-photo-generator/upload-photo", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageBase64: base64, fileName: file.name }),
-        });
-        const data = await res.json();
-        if (res.ok) {
-          setPetPhotos((prev) =>
-            prev.map((p) => (p.id === id ? { ...p, dbId: data.id } : p))
-          );
-          // Refresh library
-          setExistingPhotos((prev) => [
-            { id: data.id, file_path: data.file_path, file_name: data.file_name, url: data.url },
-            ...prev,
-          ]);
+        const baseName = file.name.replace(/\.[^/.]+$/, "");
+        const storagePath = `${Date.now()}-${baseName}.jpg`;
+
+        const { error: uploadError } = await supabase.storage
+          .from("uploaded-photos")
+          .upload(storagePath, file, { contentType: file.type || "image/jpeg" });
+
+        if (uploadError) {
+          console.error("Storage upload error:", uploadError);
+          continue;
         }
+
+        const { data: urlData } = supabase.storage
+          .from("uploaded-photos")
+          .getPublicUrl(storagePath);
+
+        const { data: dbData, error: dbError } = await supabase
+          .from("uploaded_photos")
+          .insert({ file_path: storagePath, file_name: `${baseName}.jpg` })
+          .select()
+          .single();
+
+        if (dbError) {
+          console.error("DB insert error:", dbError);
+          continue;
+        }
+
+        setPetPhotos((prev) =>
+          prev.map((p) => (p.id === id ? { ...p, dbId: dbData.id } : p))
+        );
+        setExistingPhotos((prev) => [
+          { id: dbData.id, file_path: storagePath, file_name: `${baseName}.jpg`, url: urlData.publicUrl },
+          ...prev,
+        ]);
       } catch (err) {
         console.error("Failed to upload photo to DB:", err);
       }

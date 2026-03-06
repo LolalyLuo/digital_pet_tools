@@ -408,7 +408,8 @@ export async function generateWithGemini(
   background,
   size,
   geminiApiKey,
-  modelConfig = DEFAULT_MODEL_CONFIGS.gemini
+  modelConfig = DEFAULT_MODEL_CONFIGS.gemini,
+  additionalBuffers = undefined
 ) {
   const model = getGenAI().getGenerativeModel({
     model: "gemini-3-pro-image-preview",
@@ -463,7 +464,20 @@ export async function generateWithGemini(
     },
   };
 
-  const result = await model.generateContent([editingPrompt, imageData]);
+  // Build content parts: prompt + primary image + any additional pet images
+  const contentParts = [editingPrompt, imageData];
+  if (additionalBuffers && additionalBuffers.length > 0) {
+    for (const buf of additionalBuffers) {
+      contentParts.push({
+        inlineData: {
+          data: bufferToBase64(buf),
+          mimeType: "image/png",
+        },
+      });
+    }
+  }
+
+  const result = await model.generateContent(contentParts);
   const response = result.response;
 
   if (response.candidates && response.candidates[0]) {

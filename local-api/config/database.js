@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 let supabase = null;
 let prodSupabase = null;
 let instameshopSupabase = null;
+let dragonSupabase = null;
 
 // Initialize Supabase clients (called after dotenv.config())
 export function initializeClients() {
@@ -29,6 +30,14 @@ export function initializeClients() {
     process.env.INSTAME_SHOP_SERVICE_ROLE_KEY
   );
 
+  if (process.env.DRAGON_SUPABASE_URL && process.env.DRAGON_SUPABASE_SERVICE_ROLE_KEY) {
+    dragonSupabase = createClient(
+      process.env.DRAGON_SUPABASE_URL,
+      process.env.DRAGON_SUPABASE_SERVICE_ROLE_KEY
+    );
+    console.log("✅ Dragon Supabase client initialized");
+  }
+
   console.log("✅ Supabase client initialized");
   console.log("✅ Production Supabase client initialized");
   console.log("✅ InstaMeShop Supabase client initialized");
@@ -54,6 +63,13 @@ export function getInstameshopSupabase() {
     throw new Error("InstaMeShop Supabase client not initialized. Call initializeClients() first.");
   }
   return instameshopSupabase;
+}
+
+export function getDragonSupabase() {
+  if (!dragonSupabase) {
+    throw new Error("Dragon Supabase client not initialized. Add DRAGON_SUPABASE_URL and DRAGON_SUPABASE_SERVICE_ROLE_KEY to .env");
+  }
+  return dragonSupabase;
 }
 
 // Initialize database tables

@@ -1,41 +1,103 @@
 import express from "express";
 import { generateWithGemini } from "../utils/imageUtils.js";
+import { getDragonSupabase } from "../config/database.js";
 
 const router = express.Router();
 
-// Build the enhanced prompt based on pet name and background settings
-// (matches prompt enhancement logic in imageRoutes.js for consistency)
-function buildEnhancedPrompt(prompt, background, petName, needpetname) {
+// Build the enhanced prompt based on pet names and background settings
+function buildEnhancedPrompt(prompt, background, petNames, needpetname) {
   let finalPrompt = prompt;
 
-  if (needpetname && petName) {
-    finalPrompt = `${prompt} The pet's name is ${petName}. Include the pet's name in the image using the same style, color scheme, and texture. Keep the name subtle so it complements the image`;
+  if (needpetname && petNames.length > 0) {
+    const namesStr = petNames.join(", ");
+    finalPrompt = `${prompt} The pet${petNames.length > 1 ? "s'" : "'s"} name${petNames.length > 1 ? "s are" : " is"} ${namesStr}. Include the pet name${petNames.length > 1 ? "s" : ""} in the image using the same style, color scheme, and texture. Keep the name${petNames.length > 1 ? "s" : ""} subtle so ${petNames.length > 1 ? "they complement" : "it complements"} the image`;
   }
 
   if (background === "transparent") {
     finalPrompt += `
 Requirements:
-- Use the pet only and no other elements from the photo.
+- Use the pet${petNames.length > 1 ? "s" : ""} only and no other elements from the photo.
 - Background: Background must be transparent with a white/gray checkerboard pattern.
-- Elements: all elements must be connected and attached to the pet, like the pet name if provided.
-- Composition: Clean, centered design that works on different product formats. Ensure some empty space around the pet and nothing is cutoff.
+- Elements: all elements must be connected and attached to the pet${petNames.length > 1 ? "s" : ""}, like the pet name if provided.
+- Composition: Clean, centered design that works on different product formats. Ensure some empty space around the pet${petNames.length > 1 ? "s" : ""} and nothing is cutoff.
 - Quality: High quality designs that print well on merchandise.`;
   } else if (background === "opaque") {
     finalPrompt += `
 Requirements:
-- Use the pet only and no other elements from the photo.
+- Use the pet${petNames.length > 1 ? "s" : ""} only and no other elements from the photo.
 - Background: background should match the general theme and style.
 - Composition: Clean, centered design that works on different product formats.
-- Quality: High quality designs with beautiful pet and detailed background.`;
+- Quality: High quality designs with beautiful pet${petNames.length > 1 ? "s" : ""} and detailed background.`;
   }
 
   return finalPrompt;
 }
 
-// POST /api/pet-photo-generator/generate
-// Body: { photos: [{base64, mimeType, petName}], prompt, provider, size, background, needpetname, count }
-// Returns: { results: [{imageBase64, mimeType}] }
-router.post("/generate", async (req, res) => {
+// GET /api/pet-photo-generator/photos — list uploaded photos from Dragon DB
+router.get("/photos", async (req, res) => {
+  try {
+    const db = getDragonSupabase();
+    const { data, error } = await db
+      .from("uploaded_photos")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+
+    const photos = data.map((p) => ({
+      ...p,
+      url: `${process.env.DRAGON_SUPABASE_URL}/storage/v1/object/public/uploaded-photos/${p.file_path}`,
+    }));
+
+    res.json({ photos });
+  } catch (err) {
+    console.error("Failed to list photos:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/pet-photo-generator/upload-photo — upload pet photo to Dragon DB
+router.post("/upload-photo", async (req, res) => {
+  try {
+    const { imageBase64, fileName } = req.body;
+    if (!imageBase64 || !fileName) {
+      return res.status(400).json({ error: "imageBase64 and fileName are required" });
+    }
+
+    const db = getDragonSupabase();
+    const buffer = Buffer.from(imageBase64, "base64");
+    const storagePath = `${Date.now()}_${fileName}`;
+
+    const { error: uploadError } = await db.storage
+      .from("uploaded-photos")
+      .upload(storagePath, buffer, {
+        contentType: "image/jpeg",
+        cacheControl: "3600",
+      });
+
+    if (uploadError) throw uploadError;
+
+    const { data: dbData, error: dbError } = await db
+      .from("uploaded_photos")
+      .insert({ file_path: storagePath, file_name: fileName })
+      .select()
+      .single();
+
+    if (dbError) throw dbError;
+
+    const url = `${process.env.DRAGON_SUPABASE_URL}/storage/v1/object/public/uploaded-photos/${storagePath}`;
+
+    res.json({ id: dbData.id, file_path: storagePath, file_name: fileName, url });
+  } catch (err) {
+    console.error("Failed to upload photo:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/pet-photo-generator/generate-one
+// Generates a single image, saves to Dragon DB, returns result
+// Body: { photos: [{base64, mimeType, petName}], prompt, provider, size, background, needpetname }
+router.post("/generate-one", async (req, res) => {
   try {
     const {
       photos = [],
@@ -44,90 +106,164 @@ router.post("/generate", async (req, res) => {
       size = "1024x1024",
       background = "opaque",
       needpetname = false,
-      count = 3,
+      photoId = null, // optional: link to uploaded_photos record
     } = req.body;
 
     if (!photos.length || !prompt) {
       return res.status(400).json({ error: "photos and prompt are required" });
     }
 
-    // Use the first photo as the primary reference image
-    const primaryPhoto = photos[0];
-    const petName = primaryPhoto.petName || "";
-    const enhancedPrompt = buildEnhancedPrompt(prompt, background, petName, needpetname);
+    const petNames = photos.map((p) => p.petName).filter(Boolean);
+    const enhancedPrompt = buildEnhancedPrompt(prompt, background, petNames, needpetname);
 
-    // Convert base64 to Buffer for model calls
-    const petBuffer = Buffer.from(primaryPhoto.base64, "base64");
+    // Convert all photos to buffers
+    const photoBuffers = photos.map((p) => Buffer.from(p.base64, "base64"));
 
-    const results = [];
+    let b64Image, mimeType;
 
-    for (let i = 0; i < count; i++) {
-      try {
-        let b64Image, mimeType;
+    if (provider === "gemini") {
+      // Gemini supports multiple images natively via content parts
+      const geminiResult = await generateWithGemini(
+        photoBuffers[0], // primary image
+        enhancedPrompt,
+        background,
+        size,
+        process.env.GEMINI_API_KEY,
+        null, // modelConfig
+        photoBuffers.length > 1 ? photoBuffers.slice(1) : undefined // additional images
+      );
+      b64Image = geminiResult.imageBase64;
+      mimeType = geminiResult.mimeType;
+    } else if (provider === "seedream") {
+      // SeeDream via fal.ai
+      const parseSizeToDimensions = (sizeStr) => {
+        const normalized = sizeStr.replace(/x/gi, "\u00d7");
+        if (normalized === "1024\u00d71024") return { width: 1024, height: 1024 };
+        if (normalized === "1024\u00d71536") return { width: 1024, height: 1536 };
+        if (normalized === "1536\u00d71024") return { width: 1536, height: 1024 };
+        if (normalized === "1440\u00d72560") return { width: 1440, height: 2560 };
+        return { width: 1024, height: 1024 };
+      };
 
-        if (provider === "gemini") {
-          const geminiResult = await generateWithGemini(
-            petBuffer,
-            enhancedPrompt,
-            background,
-            size,
-            process.env.GEMINI_API_KEY
-          );
-          b64Image = geminiResult.imageBase64;
-          mimeType = geminiResult.mimeType;
-        } else {
-          // OpenAI (default) — same pattern as imageRoutes.js:388-450
-          const petFile = new File([petBuffer], "pet.png", { type: "image/png" });
-          const form = new FormData();
-          form.append("image", petFile);
-          form.append("model", "gpt-image-1");
-          form.append("prompt", enhancedPrompt);
-          form.append("size", size.replace("\u00d7", "x"));
-          form.append("background", background);
+      const imageSize = parseSizeToDimensions(size);
 
-          const openaiResponse = await fetch(
-            "https://api.openai.com/v1/images/edits",
-            {
-              method: "POST",
-              headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-              body: form,
-            }
-          );
+      // Convert all pet photos to data URLs
+      const imageDataUrls = photoBuffers.map(
+        (buf) => `data:image/png;base64,${buf.toString("base64")}`
+      );
 
-          if (!openaiResponse.ok) {
-            const errorText = await openaiResponse.text();
-            console.error(`❌ OpenAI error [${i}]:`, openaiResponse.status, errorText);
-            results.push(null);
-            continue;
-          }
+      const response = await fetch("https://fal.run/fal-ai/bytedance/seedream/v4/edit", {
+        method: "POST",
+        headers: {
+          Authorization: `Key ${process.env.FAL_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          prompt: enhancedPrompt,
+          image_urls: imageDataUrls,
+          image_size: imageSize,
+          num_images: 1,
+          enable_safety_checker: false,
+        }),
+      });
 
-          const openaiData = await openaiResponse.json();
-          b64Image = openaiData.data?.[0]?.b64_json;
-          mimeType = "image/png";
-
-          if (!b64Image) {
-            results.push(null);
-            continue;
-          }
-        }
-
-        results.push({ imageBase64: b64Image, mimeType: mimeType || "image/png" });
-      } catch (err) {
-        console.error(`❌ Error generating image [${i}]:`, err.message);
-        results.push(null);
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`SeeDream API error (${response.status}): ${errorText}`);
       }
+
+      const responseData = await response.json();
+      if (!responseData.images?.[0]) throw new Error("No image from SeeDream");
+
+      const imageResponse = await fetch(responseData.images[0].url);
+      const imageArrayBuffer = await imageResponse.arrayBuffer();
+      b64Image = Buffer.from(imageArrayBuffer).toString("base64");
+      mimeType = "image/png";
+    } else {
+      // OpenAI (default)
+      const form = new FormData();
+
+      // Append all pet photos — OpenAI gpt-image-1 supports multiple image[] fields
+      for (const buf of photoBuffers) {
+        const petFile = new File([buf], "pet.png", { type: "image/png" });
+        form.append("image[]", petFile);
+      }
+
+      form.append("model", "gpt-image-1");
+      form.append("prompt", enhancedPrompt);
+      form.append("size", size.replace("\u00d7", "x"));
+      form.append("background", background);
+
+      const openaiResponse = await fetch("https://api.openai.com/v1/images/edits", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+        body: form,
+      });
+
+      if (!openaiResponse.ok) {
+        const errorText = await openaiResponse.text();
+        throw new Error(`OpenAI error (${openaiResponse.status}): ${errorText}`);
+      }
+
+      const openaiData = await openaiResponse.json();
+      b64Image = openaiData.data?.[0]?.b64_json;
+      mimeType = "image/png";
+
+      if (!b64Image) throw new Error("No image returned from OpenAI");
     }
 
-    res.json({ results: results.filter(Boolean) });
+    // Upload generated image to Dragon DB
+    let dbRecord = null;
+    try {
+      const db = getDragonSupabase();
+      const imageBuffer = Buffer.from(b64Image, "base64");
+      const fileName = `generated_${photoId || "noid"}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.png`;
+
+      const { error: uploadError } = await db.storage
+        .from("generated-images")
+        .upload(fileName, imageBuffer, { contentType: "image/png", cacheControl: "3600" });
+
+      if (uploadError) {
+        console.error("Storage upload error:", uploadError.message);
+      } else {
+        const insertPayload = {
+          photo_id: photoId || null,
+          initial_prompt: prompt,
+          generated_prompt: enhancedPrompt,
+          image_url: fileName,
+          size: size === "auto" ? "auto" : size.replace("x", "\u00d7"),
+          background,
+          model: provider,
+        };
+
+        const { data: insertData, error: insertError } = await db
+          .from("generated_images")
+          .insert(insertPayload)
+          .select()
+          .single();
+
+        if (insertError) {
+          console.error("DB insert error:", insertError.message);
+        } else {
+          dbRecord = insertData;
+        }
+      }
+    } catch (dbErr) {
+      console.error("DB save error (non-fatal):", dbErr.message);
+    }
+
+    res.json({
+      imageBase64: b64Image,
+      mimeType: mimeType || "image/png",
+      dbRecord,
+    });
   } catch (err) {
-    console.error("❌ pet-photo-generator generate error:", err.message);
+    console.error("generate-one error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
 // POST /api/pet-photo-generator/remove-background
-// Body: { imageBase64: string, mimeType?: string }
-// Returns: { imageBase64: string }
 router.post("/remove-background", async (req, res) => {
   try {
     const { imageBase64, mimeType = "image/png" } = req.body;
@@ -158,7 +294,7 @@ router.post("/remove-background", async (req, res) => {
 
     res.json({ imageBase64: resultBase64 });
   } catch (err) {
-    console.error("❌ remove-background error:", err.message);
+    console.error("remove-background error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });

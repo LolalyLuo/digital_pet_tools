@@ -17,6 +17,8 @@ export default function InputsStep({ sessionData, updateSession, onNext, onBack 
   const [seedFile, setSeedFile] = useState(null);
   const [seedPreview, setSeedPreview] = useState(null);
   const [numberOfPets, setNumberOfPets] = useState(autoNumberOfPets || 1);
+  const [petPhotos, setPetPhotos] = useState([]); // [{file, preview}] — one per pet
+  const [petPhotoPreviews, setPetPhotoPreviews] = useState([]); // data URLs for preview
   const [shopifyUrl, setShopifyUrl] = useState(
     fromScrape && autoShopifyId
       ? `https://admin.shopify.com/store/instame-shop/products/${autoShopifyId}`
@@ -83,6 +85,58 @@ export default function InputsStep({ sessionData, updateSession, onNext, onBack 
     }
   };
 
+  const handlePetPhoto = async (index, file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setPetPhotoPreviews((prev) => {
+        const next = [...prev];
+        next[index] = e.target.result;
+        return next;
+      });
+    };
+    reader.readAsDataURL(file);
+    setPetPhotos((prev) => {
+      const next = [...prev];
+      next[index] = file;
+      return next;
+    });
+
+    // Also upload to uploaded_photos DB
+    try {
+      const baseName = file.name.replace(/\.[^/.]+$/, "");
+      const fileName = `${Date.now()}-${baseName}.jpg`;
+      const optimized = await new Promise((resolve) => {
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+        const img = new Image();
+        img.onload = () => {
+          const maxDim = 1200;
+          let { width, height } = img;
+          if (width > height) { if (width > maxDim) { height = (height * maxDim) / width; width = maxDim; } }
+          else { if (height > maxDim) { width = (width * maxDim) / height; height = maxDim; } }
+          canvas.width = width;
+          canvas.height = height;
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "high";
+          ctx.drawImage(img, 0, 0, width, height);
+          canvas.toBlob((blob) => resolve(new File([blob], file.name, { type: "image/jpeg" })), "image/jpeg", 0.85);
+        };
+        img.onerror = () => resolve(file);
+        img.src = URL.createObjectURL(file);
+      });
+      await supabase.storage.from("uploaded-photos").upload(fileName, optimized, { contentType: "image/jpeg" });
+      await supabase.from("uploaded_photos").insert({ file_path: fileName, file_name: `${baseName}.jpg` });
+    } catch (err) {
+      console.warn("Could not save pet photo to uploaded_photos:", err.message);
+    }
+  };
+
+  const removePetPhoto = (index) => {
+    setPetPhotos((prev) => { const next = [...prev]; next[index] = undefined; return next; });
+    setPetPhotoPreviews((prev) => { const next = [...prev]; next[index] = undefined; return next; });
+  };
+
   const extractShopifyId = (url) => {
     const match = url.match(/\/products\/(\d+)/);
     return match?.[1] || null;
@@ -145,7 +199,9 @@ export default function InputsStep({ sessionData, updateSession, onNext, onBack 
     }
   };
 
-  const canNext = seedFile && shopifyStatus === "ok" && printifyStatus === "ok" && !saving;
+  // Pet photos are optional for 1 pet, but required for multi-pet
+  const petPhotosReady = numberOfPets <= 1 || petPhotoPreviews.filter(Boolean).length === numberOfPets;
+  const canNext = seedFile && shopifyStatus === "ok" && printifyStatus === "ok" && petPhotosReady && !saving;
 
   const handleNext = async () => {
     setSaving(true);
@@ -168,6 +224,7 @@ export default function InputsStep({ sessionData, updateSession, onNext, onBack 
         seedImageId,
         seedImageUrl,
         seedFileDataUrl: seedPreview,
+        petPhotoDataUrls: petPhotoPreviews.filter(Boolean),
         numberOfPets,
         shopifyProduct: shopifyData,
         printifyTemplate: printifyData,
@@ -244,6 +301,54 @@ export default function InputsStep({ sessionData, updateSession, onNext, onBack 
           </span>
         </div>
       </div>
+
+      {/* Pet Reference Photos — shown when numberOfPets >= 2, optional for 1 */}
+      {numberOfPets >= 1 && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Pet Reference Photos
+            {numberOfPets >= 2 && <span className="text-red-400 ml-1">*</span>}
+            <span className="text-xs text-gray-400 font-normal ml-2">
+              {numberOfPets === 1 ? "(optional — helps AI match the real pet)" : `Upload ${numberOfPets} pet photos to combine`}
+            </span>
+          </label>
+          <div className="grid grid-cols-5 gap-3">
+            {Array.from({ length: numberOfPets }).map((_, i) => (
+              <div key={i} className="relative">
+                <div
+                  className={`border-2 border-dashed rounded-lg aspect-square flex items-center justify-center cursor-pointer transition-colors overflow-hidden ${
+                    petPhotoPreviews[i] ? "border-green-300 bg-green-50" : "border-gray-300 hover:border-blue-400"
+                  }`}
+                  onClick={() => document.getElementById(`pet-photo-${i}`).click()}
+                >
+                  {petPhotoPreviews[i] ? (
+                    <img src={petPhotoPreviews[i]} alt={`Pet ${i + 1}`} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="text-center p-2">
+                      <p className="text-gray-400 text-xs">Pet {i + 1}</p>
+                    </div>
+                  )}
+                </div>
+                {petPhotoPreviews[i] && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); removePetPhoto(i); }}
+                    className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-600"
+                  >
+                    x
+                  </button>
+                )}
+                <input
+                  id={`pet-photo-${i}`}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => handlePetPhoto(i, e.target.files[0])}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Shopify URL */}
       <div>

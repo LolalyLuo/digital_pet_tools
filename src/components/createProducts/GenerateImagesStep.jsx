@@ -7,7 +7,8 @@ function dataUrlToBase64(dataUrl) {
 }
 
 export default function GenerateImagesStep({ sessionData, updateSession, onNext, onBack }) {
-  const { seedFileDataUrl, hexCodes, seedColor, bgColors, numberOfPets = 1 } = sessionData;
+  const { seedFileDataUrl, hexCodes, seedColor, bgColors, numberOfPets = 1, petPhotoDataUrls = [] } = sessionData;
+  const hasPetPhotos = petPhotoDataUrls.length > 0;
   const nonSeedColors = (bgColors || []).filter((c) => c !== seedColor);
 
   const [cards, setCards] = useState(() =>
@@ -44,6 +45,11 @@ export default function GenerateImagesStep({ sessionData, updateSession, onNext,
       const seed = sourceBase64
         ? { imageBase64: sourceBase64, mimeType: sourceMimeType }
         : dataUrlToBase64(seedFileDataUrl);
+      // Include pet reference photos if available
+      const petPhotos = hasPetPhotos
+        ? petPhotoDataUrls.map((dataUrl) => dataUrlToBase64(dataUrl))
+        : [];
+
       const res = await fetch("http://localhost:3001/api/product-images/generate-variant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -57,6 +63,7 @@ export default function GenerateImagesStep({ sessionData, updateSession, onNext,
           numberOfPets,
           feedbackText: extraFeedback,
           refineMode,
+          ...(petPhotos.length > 0 && { petPhotos }),
         }),
       });
       if (!res.ok) throw new Error(await res.text());

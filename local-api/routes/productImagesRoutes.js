@@ -140,7 +140,8 @@ Respond with ONLY a valid JSON array of objects: [{"breed":"breed1","name":"name
 });
 
 // POST /api/product-images/generate-variant
-// Body: { seedImageBase64, seedImageMimeType, backgroundColor, colorName, breeds, petNames, numberOfPets, feedbackText, refineMode? }
+// Body: { seedImageBase64, seedImageMimeType, backgroundColor, colorName, breeds, petNames, numberOfPets, feedbackText, refineMode?, petPhotos? }
+// petPhotos: [{imageBase64, mimeType}] — optional reference photos of actual pets to recreate
 // Supports single pet (breed/petName strings) or multiple pets (breeds/petNames arrays)
 // refineMode: true — applies only feedbackText to the provided image, keeps everything else identical
 // Returns: { imageBase64, mimeType }
@@ -159,12 +160,14 @@ router.post("/generate-variant", async (req, res) => {
       numberOfPets = 1,
       feedbackText = "",
       refineMode = false,
+      petPhotos = [], // [{imageBase64, mimeType}] — actual pet reference photos
     } = req.body;
 
     // Normalize to arrays
     const breeds = breedsArray || (singleBreed ? [singleBreed] : []);
     const petNames = petNamesArray || (singlePetName ? [singlePetName] : []);
     const petCount = numberOfPets || breeds.length || 1;
+    const hasPetPhotos = petPhotos.length > 0;
 
     if (!seedImageBase64) {
       return res.status(400).json({ error: "seedImageBase64 required" });
@@ -205,7 +208,22 @@ CRITICAL — preserve EXACTLY:
       const expression = expressions[Math.floor(Math.random() * expressions.length)];
 
       if (petCount === 1) {
-        prompt = `Edit this image. Make ONLY these changes:
+        if (hasPetPhotos) {
+          // Single pet WITH reference photo — recreate the actual pet from the photo
+          prompt = `Edit the first image (the design template). Make ONLY these changes:
+1. Background: fill the ENTIRE background with a single pure flat color — ${colorName} (${backgroundColor}). No gradients, no textures, no patterns — just solid ${backgroundColor}.
+2. Replace the pet with the EXACT pet shown in the second image (the reference photo). Match its breed, markings, fur color, and features precisely. Use ${expression}. Keep the EXACT same pose, crop, and framing as the design template (headshot stays headshot, same zoom level, same scale).
+3. Change the name text to "${petNames[0]}" in ${nameColor} color
+
+CRITICAL — preserve EXACTLY:
+- The same artistic medium and rendering technique (watercolor wash, pencil strokes, paint texture — match it precisely)
+- The same crop, zoom level, and composition — do NOT change from headshot to full-body or vice versa
+- All decorative elements, borders, text placement, and layout
+- The same image dimensions and aspect ratio
+${feedbackText ? `\nAdditional adjustment: ${feedbackText}` : ""}`;
+        } else {
+          // Single pet WITHOUT reference photo — use breed name
+          prompt = `Edit this image. Make ONLY these changes:
 1. Background: fill the ENTIRE background with a single pure flat color — ${colorName} (${backgroundColor}). No gradients, no textures, no patterns — just solid ${backgroundColor}.
 2. Change the pet breed to a ${breeds[0]} ${expression} — but keep the EXACT same pose, crop, and framing as the original (headshot stays headshot, same zoom level, same scale)
 3. Change the name text to "${petNames[0]}" in ${nameColor} color
@@ -216,11 +234,32 @@ CRITICAL — preserve EXACTLY:
 - All decorative elements, borders, text placement, and layout
 - The same image dimensions and aspect ratio
 ${feedbackText ? `\nAdditional adjustment: ${feedbackText}` : ""}`;
+        }
       } else {
-        const petDescriptions = breeds.map((breed, i) => `  - A ${breed} ${expressions[Math.floor(Math.random() * expressions.length)]} named "${petNames[i]}"`).join("\n");
-        const namesList = petNames.map((n) => `"${n}"`).join(", ");
+        if (hasPetPhotos) {
+          // Multiple pets WITH reference photos — recreate each pet from its photo
+          const petDescriptions = petPhotos.map((_, i) => `  - Pet ${i + 1}: Recreate the EXACT pet from reference photo ${i + 2} (match breed, markings, fur color). Name: "${petNames[i]}". Expression: ${expressions[Math.floor(Math.random() * expressions.length)]}`).join("\n");
+          const namesList = petNames.map((n) => `"${n}"`).join(", ");
 
-        prompt = `Edit this image. Make ONLY these changes:
+          prompt = `Edit the first image (the design template). Make ONLY these changes:
+1. Background: fill the ENTIRE background with a single pure flat color — ${colorName} (${backgroundColor}). No gradients, no textures, no patterns — just solid ${backgroundColor}.
+2. Replace the pet(s) with ${petCount} pets from the reference photos, keeping the same framing and crop style (if original is headshots, keep headshots):
+${petDescriptions}
+   The pets should sit naturally together (side by side). Match each pet's appearance precisely from their reference photo. Keep realistic relative sizes.
+3. Show the names ${namesList} as text in the image in ${nameColor} color
+
+CRITICAL — preserve EXACTLY:
+- The same artistic medium and rendering technique (watercolor wash, pencil strokes, paint texture — match it precisely)
+- The same crop style and composition layout — if the original shows heads/shoulders, keep that framing
+- All decorative elements, borders, text placement, and layout
+- The same image dimensions and aspect ratio
+${feedbackText ? `\nAdditional adjustment: ${feedbackText}` : ""}`;
+        } else {
+          // Multiple pets WITHOUT reference photos — use breed names
+          const petDescriptions = breeds.map((breed, i) => `  - A ${breed} ${expressions[Math.floor(Math.random() * expressions.length)]} named "${petNames[i]}"`).join("\n");
+          const namesList = petNames.map((n) => `"${n}"`).join(", ");
+
+          prompt = `Edit this image. Make ONLY these changes:
 1. Background: fill the ENTIRE background with a single pure flat color — ${colorName} (${backgroundColor}). No gradients, no textures, no patterns — just solid ${backgroundColor}.
 2. Replace the pet(s) with ${petCount} pets, keeping the same framing and crop style (if original is headshots, keep headshots):
 ${petDescriptions}
@@ -233,16 +272,21 @@ CRITICAL — preserve EXACTLY:
 - All decorative elements, borders, text placement, and layout
 - The same image dimensions and aspect ratio
 ${feedbackText ? `\nAdditional adjustment: ${feedbackText}` : ""}`;
+        }
       }
     }
 
     const genAI = getGenAI();
     const model = genAI.getGenerativeModel({ model: "gemini-3-pro-image-preview" });
 
-    const result = await model.generateContent([
+    // Build Gemini content parts: prompt + seed image + optional pet reference photos
+    const contentParts = [
       prompt,
       { inlineData: { data: seedImageBase64, mimeType: seedImageMimeType } },
-    ]);
+      ...petPhotos.map((p) => ({ inlineData: { data: p.imageBase64, mimeType: p.mimeType || "image/jpeg" } })),
+    ];
+
+    const result = await model.generateContent(contentParts);
 
     const parts = result.response.candidates?.[0]?.content?.parts || [];
     const imagePart = parts.find((p) => p.inlineData?.mimeType?.startsWith("image/"));

@@ -817,19 +817,22 @@ router.post("/create-from-scrape", async (req, res) => {
 });
 
 // POST /api/product-images/poster-mockup
-// Body: { imageBase64, mimeType? , canvasSize? }
-// Composites the design image with the poster shadow on a transparent background.
+// Body: { imageBase64, mimeType?, canvasSize?, orientation? }
+// orientation: "vertical" (default) or "horizontal" — picks the matching shadow asset
+// Composites the design image with the poster shadow on a white background.
 // Used for "Poster-Only" variants that don't have a Printify frame mockup.
 // Returns: { imageBase64, mimeType: "image/png" }
 router.post("/poster-mockup", async (req, res) => {
   try {
-    const { imageBase64, mimeType = "image/png", canvasSize = 2000 } = req.body;
+    const { imageBase64, mimeType = "image/png", canvasSize = 2000, orientation = "vertical" } = req.body;
     if (!imageBase64) return res.status(400).json({ error: "imageBase64 required" });
 
     const designBuffer = Buffer.from(imageBase64, "base64");
+    const isHorizontal = orientation === "horizontal";
 
     // Load and resize shadow to canvas size
-    const shadowPath = join(__dirname, "..", "assets", "poster-shadow.png");
+    const shadowFile = isHorizontal ? "poster-shadow-horizontal.png" : "poster-shadow.png";
+    const shadowPath = join(__dirname, "..", "assets", shadowFile);
     const shadowResized = await sharp(shadowPath)
       .resize(canvasSize, canvasSize, { fit: "fill" })
       .toBuffer();
@@ -838,21 +841,28 @@ router.post("/poster-mockup", async (req, res) => {
     const designMeta = await sharp(designBuffer).metadata();
     const designAspect = designMeta.width / designMeta.height;
 
-    // Poster area within the canvas (from analysis of the Canva template)
-    // Poster sits at ~14.2% from left, ~10% from top, ~65.9% width, ~79.9% height
-    const posterAreaW = Math.round(canvasSize * 0.659);
-    const posterAreaH = Math.round(canvasSize * 0.799);
-    const posterX = Math.round(canvasSize * 0.142);
-    const posterY = Math.round(canvasSize * 0.100);
+    // Poster area within the canvas — different positioning per orientation
+    let posterAreaW, posterAreaH, posterX, posterY;
+    if (isHorizontal) {
+      // Horizontal: wider poster, shorter height
+      posterAreaW = Math.round(canvasSize * 0.84);
+      posterAreaH = Math.round(canvasSize * 0.68);
+      posterX = Math.round(canvasSize * 0.06);
+      posterY = Math.round(canvasSize * 0.04);
+    } else {
+      // Vertical: original positioning
+      posterAreaW = Math.round(canvasSize * 0.659);
+      posterAreaH = Math.round(canvasSize * 0.799);
+      posterX = Math.round(canvasSize * 0.142);
+      posterY = Math.round(canvasSize * 0.100);
+    }
 
     // Fit design into poster area while preserving aspect ratio
     let designW, designH;
     if (designAspect > posterAreaW / posterAreaH) {
-      // Design is wider — fit to width
       designW = posterAreaW;
       designH = Math.round(posterAreaW / designAspect);
     } else {
-      // Design is taller — fit to height
       designH = posterAreaH;
       designW = Math.round(posterAreaH * designAspect);
     }
@@ -865,7 +875,7 @@ router.post("/poster-mockup", async (req, res) => {
       .resize(designW, designH, { fit: "fill" })
       .toBuffer();
 
-    // Composite: transparent canvas → shadow → design
+    // Composite: white canvas → shadow → design
     const result = await sharp({
       create: {
         width: canvasSize,

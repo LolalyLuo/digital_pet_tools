@@ -100,29 +100,44 @@ export default function ConfirmUploadStep({ sessionData, onBack }) {
     if (posterGenerated.current) return;
     posterGenerated.current = true;
 
-    // Collect all unique bg colors that need poster mockups
+    // Collect all poster-only variants
     const posterVariants = variants.filter((v) => {
       const frame = v.selectedOptions?.find((o) => /frame/i.test(o.name))?.value;
       return normFC(frame) === normFC("Poster-Only");
     });
     if (posterVariants.length === 0) return;
 
-    const bgColors = [...new Set(posterVariants.map((v) =>
-      v.selectedOptions?.find((o) => /background.?color/i.test(o.name))?.value
-    ).filter(Boolean))];
+    // Detect orientation from variant size option (e.g. "8x10" → vertical, "10x8" → horizontal)
+    function getOrientation(variant) {
+      const sizeVal = variant.selectedOptions?.find((o) => /size/i.test(o.name))?.value || "";
+      const match = sizeVal.match(/(\d+)\D+(\d+)/);
+      if (!match) return "vertical";
+      const w = parseInt(match[1], 10);
+      const h = parseInt(match[2], 10);
+      return w > h ? "horizontal" : "vertical";
+    }
+
+    // Group by unique (bgColor, orientation) combos
+    const comboSet = new Set();
+    posterVariants.forEach((v) => {
+      const bgColor = v.selectedOptions?.find((o) => /background.?color/i.test(o.name))?.value;
+      if (bgColor) comboSet.add(`${bgColor}::${getOrientation(v)}`);
+    });
+    const combos = [...comboSet].map((key) => {
+      const [bgColor, orientation] = key.split("::");
+      return { bgColor, orientation };
+    });
 
     setStatus("generating-poster");
 
-    // For each bg color, find the design image and generate a poster mockup
+    // For each (bgColor, orientation) combo, generate a poster mockup
     const generateAll = async () => {
       const newMockups = [];
-      for (const bgColor of bgColors) {
+      for (const { bgColor, orientation } of combos) {
         const isSeed = bgColor === seedColor;
-        // Find the design image for this bg color
         let imageBase64 = null;
         let mimeType = "image/png";
         if (isSeed) {
-          // Use the seed image from sessionData
           const seedDataUrl = sessionData.seedFileDataUrl;
           if (seedDataUrl) {
             const [header, data] = seedDataUrl.split(",");
@@ -143,36 +158,37 @@ export default function ConfirmUploadStep({ sessionData, onBack }) {
           const res = await fetch("http://localhost:3001/api/product-images/poster-mockup", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ imageBase64, mimeType }),
+            body: JSON.stringify({ imageBase64, mimeType, orientation }),
           });
           if (!res.ok) continue;
           const { imageBase64: mockupBase64, mimeType: mockupMime } = await res.json();
           const dataUrl = `data:${mockupMime};base64,${mockupBase64}`;
 
-          const mockup = {
+          newMockups.push({
             src: dataUrl,
             imageBase64: mockupBase64,
             mimeType: mockupMime,
             isLocalUpload: true,
             position: 0,
             color: bgColor,
+            orientation,
             frameColor: "Poster-Only",
             printifyProductId: null,
-          };
-          newMockups.push(mockup);
+          });
         } catch (err) {
-          console.warn(`Poster mockup generation failed for ${bgColor}:`, err.message);
+          console.warn(`Poster mockup generation failed for ${bgColor} (${orientation}):`, err.message);
         }
       }
 
       if (newMockups.length > 0) {
         setPosterMockups(newMockups);
-        // Assign poster mockups to matching variants
+        // Assign poster mockups to matching variants by bgColor + orientation
         setVariantAssignments((prev) => {
           const updated = { ...prev };
           posterVariants.forEach((variant) => {
             const bgColor = variant.selectedOptions?.find((o) => /background.?color/i.test(o.name))?.value;
-            const matching = newMockups.filter((m) => m.color === bgColor);
+            const ori = getOrientation(variant);
+            const matching = newMockups.filter((m) => m.color === bgColor && m.orientation === ori);
             if (matching.length > 0) {
               updated[variant.id] = matching;
             }

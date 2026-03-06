@@ -14,6 +14,21 @@ function isFrameColorOption(name) {
   return /frame/i.test(name);
 }
 
+// Common Printify frame color names — used as dropdown options for alias mapping
+const PRINTIFY_FRAME_COLORS = [
+  "", // Same as Shopify (identity)
+  "Black",
+  "White",
+  "Brown",
+  "Natural",
+  "Walnut",
+  "Dark Brown",
+  "Honey",
+  "Barnwood",
+  "Cherry",
+  "Mahogany",
+];
+
 export default function ConfigureVariantsStep({ sessionData, updateSession, onNext, onBack }) {
   const options = sessionData.shopifyProduct?.options || [];
   const bgOption = options.find((o) => isBgColorOption(o.name));
@@ -164,18 +179,21 @@ export default function ConfigureVariantsStep({ sessionData, updateSession, onNe
               <div key={f} className="flex items-center gap-3">
                 <span className="text-sm text-gray-700 w-28 truncate">{f}</span>
                 <span className="text-gray-300 text-xs">→</span>
-                <input
-                  type="text"
-                  placeholder={`Printify name (default: "${f}")`}
+                <select
                   value={frameAliases[f] || ""}
                   onChange={(e) => setFrameAliases((prev) => ({ ...prev, [f]: e.target.value }))}
-                  className="w-44 border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
+                  className="w-44 border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                >
+                  <option value="">Same as Shopify ("{f}")</option>
+                  {PRINTIFY_FRAME_COLORS.filter((c) => c && c.toLowerCase() !== f.toLowerCase()).map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
               </div>
             ))}
           </div>
           <p className="text-xs text-gray-400 mt-2">
-            Leave blank if Shopify and Printify use the same name. Fill in when they differ (e.g. Shopify "Walnut" → Printify "Brown").
+            Select the Printify name when it differs from Shopify (e.g. Shopify "Walnut" → Printify "Brown").
           </p>
         </section>
       )}

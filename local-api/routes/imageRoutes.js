@@ -459,7 +459,6 @@ router.post("/generate-images", async (req, res) => {
                     : additionalPromptTransparent)
               );
               form.append("size", size.replace("×", "x"));
-              form.append("background", background);
 
               const openaiResponse = await fetch(
                 "https://api.openai.com/v1/images/edits",

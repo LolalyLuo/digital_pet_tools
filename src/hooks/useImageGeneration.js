@@ -31,27 +31,10 @@ export const useImageGeneration = () => {
         `Generating ${validatedCount} prompts for: "${initialPrompt}"`
       );
 
-      // Increase timeout for larger requests (more prompts = more time needed)
-      const timeoutDuration = Math.max(30000, validatedCount * 500); // 500ms per prompt minimum
-
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(
-          () =>
-            reject(
-              new Error(`Request timeout after ${timeoutDuration / 1000}s`)
-            ),
-          timeoutDuration
-        )
-      );
-
-      const functionPromise = supabase.functions.invoke("generate-prompts", {
+      // No timeout — let prompts generate naturally
+      const { data, error } = await supabase.functions.invoke("generate-prompts", {
         body: { initialPrompt, count: validatedCount },
       });
-
-      const { data, error } = await Promise.race([
-        functionPromise,
-        timeoutPromise,
-      ]);
 
       if (error) {
         console.error("Supabase function error:", error);
@@ -181,27 +164,10 @@ export const useImageGeneration = () => {
         `Generating images for ${photoIds.length} photos with ${prompts.length} prompts, size: ${size}, background: ${background}, model: ${model}`
       );
 
-      // Calculate timeout based on number of combinations - reduced for img2img
-      const totalPhotos = photoIds.length + (additionalParams.photoUrls?.length || 0);
-      const totalCombinations = totalPhotos * prompts.length;
-      const timeoutDuration = Math.max(30000, totalCombinations * 5000); // 5s per combination minimum
-
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(
-          () =>
-            reject(
-              new Error(
-                `Image generation timeout after ${timeoutDuration / 1000}s`
-              )
-            ),
-          timeoutDuration
-        )
-      );
-
-      // Call local API server instead of Supabase edge function
+      // Call local API server — no timeout, let images complete naturally
       const localApiUrl =
         import.meta.env.VITE_LOCAL_API_URL || "http://localhost:3001";
-      const functionPromise = fetch(`${localApiUrl}/api/generate-images`, {
+      const data = await fetch(`${localApiUrl}/api/generate-images`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -225,8 +191,6 @@ export const useImageGeneration = () => {
         }
         return response.json();
       });
-
-      const data = await Promise.race([functionPromise, timeoutPromise]);
 
       console.log("Image generation response:", data);
 

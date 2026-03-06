@@ -45,44 +45,12 @@ export default function InputsStep({ sessionData, updateSession, onNext, onBack 
     }
   }, [fromScrape, autoShopifyId]);
 
-  const handleSeedFile = async (file) => {
+  const handleSeedFile = (file) => {
     if (!file) return;
     setSeedFile(file);
     const reader = new FileReader();
     reader.onload = (e) => setSeedPreview(e.target.result);
     reader.readAsDataURL(file);
-
-    // Also upload to uploaded_photos DB so the photo is available across the app
-    try {
-      const baseName = file.name.replace(/\.[^/.]+$/, "");
-      const fileName = `${Date.now()}-${baseName}.jpg`;
-
-      // Optimize image before uploading (same as LeftPanel)
-      const optimized = await new Promise((resolve) => {
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d");
-        const img = new Image();
-        img.onload = () => {
-          const maxDim = 1200;
-          let { width, height } = img;
-          if (width > height) { if (width > maxDim) { height = (height * maxDim) / width; width = maxDim; } }
-          else { if (height > maxDim) { width = (width * maxDim) / height; height = maxDim; } }
-          canvas.width = width;
-          canvas.height = height;
-          ctx.imageSmoothingEnabled = true;
-          ctx.imageSmoothingQuality = "high";
-          ctx.drawImage(img, 0, 0, width, height);
-          canvas.toBlob((blob) => resolve(new File([blob], file.name, { type: "image/jpeg" })), "image/jpeg", 0.85);
-        };
-        img.onerror = () => resolve(file);
-        img.src = URL.createObjectURL(file);
-      });
-
-      await supabase.storage.from("uploaded-photos").upload(fileName, optimized, { contentType: "image/jpeg" });
-      await supabase.from("uploaded_photos").insert({ file_path: fileName, file_name: `${baseName}.jpg` });
-    } catch (err) {
-      console.warn("Could not save seed photo to uploaded_photos:", err.message);
-    }
   };
 
   const handlePetPhoto = async (index, file) => {

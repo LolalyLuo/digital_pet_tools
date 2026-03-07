@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 function AddValueInput({ onAdd, hasColorMap }) {
   const [value, setValue] = useState("");
@@ -41,6 +41,40 @@ export default function CompetitorScrapeStep({ updateSession, onNext }) {
   const [numberOfPets, setNumberOfPets] = useState(1);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState(null);
+
+  // Drag state for option cards
+  const dragOptionIdx = useRef(null);
+  const [dragOverOptionIdx, setDragOverOptionIdx] = useState(null);
+
+  // Drag state for values within an option
+  const dragValue = useRef(null); // { optIdx, valIdx }
+  const [dragOverValue, setDragOverValue] = useState(null); // { optIdx, valIdx }
+
+  const reorderOptions = (fromIdx, toIdx) => {
+    if (fromIdx === toIdx) return;
+    setConfig((prev) => {
+      const newOptions = [...prev.options];
+      const [moved] = newOptions.splice(fromIdx, 1);
+      newOptions.splice(toIdx, 0, moved);
+      const newConfig = { ...prev, options: newOptions };
+      newConfig.prices = rebuildPrices(newConfig.options, newConfig.prices);
+      return newConfig;
+    });
+  };
+
+  const reorderValues = (optIdx, fromValIdx, toValIdx) => {
+    if (fromValIdx === toValIdx) return;
+    setConfig((prev) => {
+      const newOptions = prev.options.map((o, i) => {
+        if (i !== optIdx) return o;
+        const newValues = [...o.values];
+        const [moved] = newValues.splice(fromValIdx, 1);
+        newValues.splice(toValIdx, 0, moved);
+        return { ...o, values: newValues };
+      });
+      return { ...prev, options: newOptions };
+    });
+  };
 
   // Fetch available personalization metaobjects on mount
   useEffect(() => {
@@ -441,14 +475,61 @@ export default function CompetitorScrapeStep({ updateSession, onNext }) {
               </button>
             </div>
             {config.options.map((opt, optIdx) => (
-              <div key={optIdx} className="border border-gray-200 rounded-lg p-4">
+              <div
+                key={optIdx}
+                draggable
+                onDragStart={(e) => {
+                  // Only allow card drag from the handle
+                  if (!e.target.closest("[data-drag-handle]")) {
+                    e.preventDefault();
+                    return;
+                  }
+                  dragOptionIdx.current = optIdx;
+                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData("text/plain", "option");
+                }}
+                onDragOver={(e) => {
+                  if (dragOptionIdx.current === null) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  setDragOverOptionIdx(optIdx);
+                }}
+                onDragLeave={() => {
+                  if (dragOverOptionIdx === optIdx) setDragOverOptionIdx(null);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (dragOptionIdx.current !== null) {
+                    reorderOptions(dragOptionIdx.current, optIdx);
+                    dragOptionIdx.current = null;
+                    setDragOverOptionIdx(null);
+                  }
+                }}
+                onDragEnd={() => {
+                  dragOptionIdx.current = null;
+                  setDragOverOptionIdx(null);
+                }}
+                className={`border rounded-lg p-4 transition-colors ${
+                  dragOverOptionIdx === optIdx
+                    ? "border-blue-400 bg-blue-50"
+                    : "border-gray-200"
+                }`}
+              >
                 <div className="flex items-center gap-2 mb-3">
+                  <span
+                    data-drag-handle
+                    className="cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 select-none"
+                    title="Drag to reorder"
+                  >
+                    ⠿
+                  </span>
                   <input
                     type="text"
                     value={opt.name}
                     onChange={(e) => updateOption(optIdx, { name: e.target.value })}
                     className="font-medium text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
+                  <span className="text-xs text-gray-400">Option {optIdx + 1}</span>
                   <button
                     onClick={() => removeOption(optIdx)}
                     className="ml-auto text-xs text-gray-400 hover:text-red-500"
@@ -458,8 +539,42 @@ export default function CompetitorScrapeStep({ updateSession, onNext }) {
                   </button>
                 </div>
                 <div className="flex flex-wrap gap-2 mb-2">
-                  {opt.values.map((val) => (
-                    <div key={val} className="flex items-center gap-1 bg-gray-100 rounded-full px-3 py-1">
+                  {opt.values.map((val, valIdx) => (
+                    <div
+                      key={val}
+                      draggable
+                      onDragStart={(e) => {
+                        e.stopPropagation();
+                        dragValue.current = { optIdx, valIdx };
+                        e.dataTransfer.effectAllowed = "move";
+                        e.dataTransfer.setData("text/plain", "value");
+                      }}
+                      onDragOver={(e) => {
+                        if (!dragValue.current || dragValue.current.optIdx !== optIdx) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        e.dataTransfer.dropEffect = "move";
+                        setDragOverValue({ optIdx, valIdx });
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (dragValue.current && dragValue.current.optIdx === optIdx) {
+                          reorderValues(optIdx, dragValue.current.valIdx, valIdx);
+                          dragValue.current = null;
+                          setDragOverValue(null);
+                        }
+                      }}
+                      onDragEnd={() => {
+                        dragValue.current = null;
+                        setDragOverValue(null);
+                      }}
+                      className={`flex items-center gap-1 rounded-full px-3 py-1 cursor-grab active:cursor-grabbing transition-colors ${
+                        dragOverValue?.optIdx === optIdx && dragOverValue?.valIdx === valIdx
+                          ? "bg-blue-100 ring-2 ring-blue-400"
+                          : "bg-gray-100"
+                      }`}
+                    >
                       {opt.colorMap !== undefined && (
                         <input
                           type="color"

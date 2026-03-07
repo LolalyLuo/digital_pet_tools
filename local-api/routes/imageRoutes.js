@@ -332,21 +332,16 @@ router.post("/generate-images", async (req, res) => {
 
               // Parse size string to width/height object for SeeDream API
               const parseSizeToDimensions = (sizeStr) => {
-                // Normalize to use × for comparison (handle both "x" and "×")
-                const normalized = sizeStr.replace(/x/gi, "×");
-                
-                if (normalized === "1024×1024") {
-                  return { width: 1024, height: 1024 };
-                } else if (normalized === "1024×1536") {
-                  return { width: 1024, height: 1536 };
-                } else if (normalized === "1536×1024") {
-                  return { width: 1536, height: 1024 };
-                } else if (normalized === "1440×2560") {
-                  return { width: 1440, height: 2560 };
-                } else {
-                  // Default to square for "auto" or unknown sizes
+                if (!sizeStr || sizeStr === "auto") {
                   return { width: 1024, height: 1024 };
                 }
+                // Match any "WxH" or "W×H" pattern
+                const match = sizeStr.match(/^(\d+)\s*[xX×]\s*(\d+)$/);
+                if (match) {
+                  return { width: parseInt(match[1]), height: parseInt(match[2]) };
+                }
+                // Default to square for unrecognized values
+                return { width: 1024, height: 1024 };
               };
 
               // Get target dimensions from user selection

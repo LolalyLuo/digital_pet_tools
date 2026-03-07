@@ -76,11 +76,13 @@ router.post("/generate-one", async (req, res) => {
     } else if (provider === "seedream") {
       // SeeDream via fal.ai
       const parseSizeToDimensions = (sizeStr) => {
-        const normalized = sizeStr.replace(/x/gi, "\u00d7");
-        if (normalized === "1024\u00d71024") return { width: 1024, height: 1024 };
-        if (normalized === "1024\u00d71536") return { width: 1024, height: 1536 };
-        if (normalized === "1536\u00d71024") return { width: 1536, height: 1024 };
-        if (normalized === "1440\u00d72560") return { width: 1440, height: 2560 };
+        if (!sizeStr || sizeStr === "auto") {
+          return { width: 1024, height: 1024 };
+        }
+        const match = sizeStr.match(/^(\d+)\s*[xX×]\s*(\d+)$/);
+        if (match) {
+          return { width: parseInt(match[1]), height: parseInt(match[2]) };
+        }
         return { width: 1024, height: 1024 };
       };
 

@@ -19,13 +19,35 @@ const MODEL_OPTIONS = [
   { value: "seedream", label: "SeeDream" },
 ];
 
-const SIZE_OPTIONS = [
+const DEFAULT_SIZE_OPTIONS = [
   { value: "auto", label: "Auto" },
   { value: "1024x1024", label: "1024\u00d71024" },
   { value: "1024x1536", label: "1024\u00d71536" },
   { value: "1536x1024", label: "1536\u00d71024" },
   { value: "1440x2560", label: "1440\u00d72560" },
 ];
+
+const CUSTOM_SIZES_KEY = "pet-generator-custom-sizes";
+
+const loadCustomSizes = () => {
+  try {
+    return JSON.parse(localStorage.getItem(CUSTOM_SIZES_KEY)) || [];
+  } catch { return []; }
+};
+
+const saveCustomSizes = (sizes) => {
+  localStorage.setItem(CUSTOM_SIZES_KEY, JSON.stringify(sizes));
+};
+
+// Normalize "1024x1536" or "1024X1536" → value "1024x1536", label "1024×1536"
+const parseSizeInput = (input) => {
+  const trimmed = input.trim();
+  const match = trimmed.match(/^(\d+)\s*[xX×]\s*(\d+)$/);
+  if (!match) return null;
+  const value = `${match[1]}x${match[2]}`;
+  const label = `${match[1]}\u00d7${match[2]}`;
+  return { value, label };
+};
 
 const BACKGROUND_OPTIONS = [
   { value: "opaque", label: "Opaque" },
@@ -48,6 +70,9 @@ export default function PetPhotoProductGenerator() {
   const [customProvider, setCustomProvider] = useState("");
   const [aspectRatio, setAspectRatio] = useState("1024x1024");
   const [customSize, setCustomSize] = useState("");
+  const [sizeOptions, setSizeOptions] = useState(() => [...DEFAULT_SIZE_OPTIONS, ...loadCustomSizes()]);
+  const [isAddingSize, setIsAddingSize] = useState(false);
+  const [newSizeInput, setNewSizeInput] = useState("");
   const [background, setBackground] = useState("opaque");
   const [customBackground, setCustomBackground] = useState("");
   const [needpetname, setNeedpetname] = useState(false);
@@ -112,12 +137,24 @@ export default function PetPhotoProductGenerator() {
     }
 
     // Set aspect ratio
-    const matchingSize = SIZE_OPTIONS.find((o) => o.value === p.aspectratio);
+    const matchingSize = sizeOptions.find((o) => o.value === p.aspectratio);
     if (matchingSize) {
       setAspectRatio(p.aspectratio);
     } else {
-      setAspectRatio("__custom__");
-      setCustomSize(p.aspectratio);
+      // Try to parse as a size and add it to options
+      const parsed = parseSizeInput(p.aspectratio);
+      if (parsed && !sizeOptions.some((o) => o.value === parsed.value)) {
+        const custom = { ...parsed, custom: true };
+        const updated = [...sizeOptions, custom];
+        setSizeOptions(updated);
+        saveCustomSizes(updated.filter((o) => o.custom));
+        setAspectRatio(parsed.value);
+      } else if (parsed) {
+        setAspectRatio(parsed.value);
+      } else {
+        setAspectRatio("__custom__");
+        setCustomSize(p.aspectratio);
+      }
     }
 
     // Set background
@@ -407,6 +444,25 @@ export default function PetPhotoProductGenerator() {
     setIsCreating(false);
   };
 
+  const handleAddCustomSize = () => {
+    const parsed = parseSizeInput(newSizeInput);
+    if (!parsed) {
+      setNewSizeInput("");
+      setIsAddingSize(false);
+      return;
+    }
+    // Don't add duplicates
+    if (!sizeOptions.some((o) => o.value === parsed.value)) {
+      const custom = { ...parsed, custom: true };
+      const updated = [...sizeOptions, custom];
+      setSizeOptions(updated);
+      saveCustomSizes(updated.filter((o) => o.custom));
+    }
+    setAspectRatio(parsed.value);
+    setNewSizeInput("");
+    setIsAddingSize(false);
+  };
+
   // Dropdown with custom option component
   const SelectWithCustom = ({ label, value, onChange, customValue, onCustomChange, options }) => (
     <div>
@@ -560,14 +616,56 @@ export default function PetPhotoProductGenerator() {
                 onCustomChange={setCustomProvider}
                 options={MODEL_OPTIONS}
               />
-              <SelectWithCustom
-                label="Size"
-                value={aspectRatio}
-                onChange={setAspectRatio}
-                customValue={customSize}
-                onCustomChange={setCustomSize}
-                options={SIZE_OPTIONS}
-              />
+              <div>
+                <label className="block text-sm font-medium mb-1">Size</label>
+                <select
+                  value={isAddingSize ? "__other__" : aspectRatio}
+                  onChange={(e) => {
+                    if (e.target.value === "__other__") {
+                      setIsAddingSize(true);
+                      setNewSizeInput("");
+                    } else {
+                      setIsAddingSize(false);
+                      setAspectRatio(e.target.value);
+                    }
+                  }}
+                  className="w-full border rounded px-3 py-2 text-sm"
+                >
+                  {sizeOptions.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                  <option value="__custom__">Custom...</option>
+                  <option value="__other__">Other</option>
+                </select>
+                {aspectRatio === "__custom__" && !isAddingSize && (
+                  <input
+                    type="text"
+                    value={customSize}
+                    onChange={(e) => setCustomSize(e.target.value)}
+                    placeholder="Enter custom value"
+                    className="w-full border rounded px-3 py-2 text-sm mt-1"
+                  />
+                )}
+                {isAddingSize && (
+                  <div className="flex gap-1 mt-1">
+                    <input
+                      type="text"
+                      value={newSizeInput}
+                      onChange={(e) => setNewSizeInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") handleAddCustomSize(); }}
+                      placeholder="e.g. 800x600"
+                      autoFocus
+                      className="flex-1 border rounded px-3 py-2 text-sm"
+                    />
+                    <button
+                      onClick={handleAddCustomSize}
+                      className="px-3 py-2 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700"
+                    >
+                      Add
+                    </button>
+                  </div>
+                )}
+              </div>
               <SelectWithCustom
                 label="Background"
                 value={background}

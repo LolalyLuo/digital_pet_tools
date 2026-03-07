@@ -1,6 +1,33 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Edit3, Sparkles, Image as ImageIcon, Plus, Trash2, Copy, Check } from 'lucide-react'
 import { useImageGeneration } from '../hooks/useImageGeneration'
+
+const DEFAULT_SIZES = [
+  { value: 'auto', label: 'Auto' },
+  { value: '1024×1024', label: '1024×1024' },
+  { value: '1024×1536', label: '1024×1536' },
+  { value: '1536×1024', label: '1536×1024' },
+  { value: '1440×2560', label: '1440×2560' },
+]
+
+const CUSTOM_SIZES_KEY = 'explore-ideas-custom-sizes'
+
+const loadCustomSizes = () => {
+  try { return JSON.parse(localStorage.getItem(CUSTOM_SIZES_KEY)) || [] }
+  catch { return [] }
+}
+
+const saveCustomSizes = (sizes) => {
+  localStorage.setItem(CUSTOM_SIZES_KEY, JSON.stringify(sizes))
+}
+
+// Normalize user input like "800x600" → { value: "800×600", label: "800×600" }
+const parseSizeInput = (input) => {
+  const match = input.trim().match(/^(\d+)\s*[xX×]\s*(\d+)$/)
+  if (!match) return null
+  const label = `${match[1]}×${match[2]}`
+  return { value: label, label }
+}
 
 export default function MiddlePanel({
   selectedPhotos,
@@ -17,6 +44,9 @@ export default function MiddlePanel({
   const [newPromptText, setNewPromptText] = useState('')
   const [copiedId, setCopiedId] = useState(null)
   const [selectedSize, setSelectedSize] = useState('auto')
+  const [sizeOptions, setSizeOptions] = useState(() => [...DEFAULT_SIZES, ...loadCustomSizes()])
+  const [isAddingSize, setIsAddingSize] = useState(false)
+  const [newSizeInput, setNewSizeInput] = useState('')
   const [selectedBackground, setSelectedBackground] = useState('transparent')
   const [selectedModel, setSelectedModel] = useState('seedream')
   const [templateNumbers, setTemplateNumbers] = useState('113, 202, 193, 303, 139, 205, 17, 280, 169, 543, 449, 266, 64, 307, 293, 157, 286, 61, 290, 294')
@@ -174,6 +204,24 @@ export default function MiddlePanel({
     } catch (err) {
       console.error('Failed to copy text: ', err)
     }
+  }
+
+  const handleAddCustomSize = () => {
+    const parsed = parseSizeInput(newSizeInput)
+    if (!parsed) {
+      setNewSizeInput('')
+      setIsAddingSize(false)
+      return
+    }
+    if (!sizeOptions.some(o => o.value === parsed.value)) {
+      const custom = { ...parsed, custom: true }
+      const updated = [...sizeOptions, custom]
+      setSizeOptions(updated)
+      saveCustomSizes(updated.filter(o => o.custom))
+    }
+    setSelectedSize(parsed.value)
+    setNewSizeInput('')
+    setIsAddingSize(false)
   }
 
   const hasAnyPhotos = selectedPhotos.length > 0 || selectedProdPhotoUrls.length > 0
@@ -439,16 +487,42 @@ export default function MiddlePanel({
             Image Size
           </label>
           <select
-            value={selectedSize}
-            onChange={(e) => setSelectedSize(e.target.value)}
+            value={isAddingSize ? '__other__' : selectedSize}
+            onChange={(e) => {
+              if (e.target.value === '__other__') {
+                setIsAddingSize(true)
+                setNewSizeInput('')
+              } else {
+                setIsAddingSize(false)
+                setSelectedSize(e.target.value)
+              }
+            }}
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
           >
-            <option value="auto">Auto</option>
-            <option value="1024×1024">1024×1024</option>
-            <option value="1024×1536">1024×1536</option>
-            <option value="1536×1024">1536×1024</option>
-            <option value="1440×2560">1440×2560</option>
+            {sizeOptions.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+            <option value="__other__">Other</option>
           </select>
+          {isAddingSize && (
+            <div className="flex gap-1 mt-1">
+              <input
+                type="text"
+                value={newSizeInput}
+                onChange={(e) => setNewSizeInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleAddCustomSize() }}
+                placeholder="e.g. 800x600"
+                autoFocus
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              />
+              <button
+                onClick={handleAddCustomSize}
+                className="px-3 py-2 bg-blue-500 text-white rounded-md text-sm font-medium hover:bg-blue-600"
+              >
+                Add
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Background Dropdown */}

@@ -10,6 +10,48 @@ import {
 } from "../config/ai.js";
 
 /**
+ * Converts a WxH size string to the nearest Gemini-supported aspect ratio.
+ * Supported: 1:1, 1:4, 1:8, 2:3, 3:2, 3:4, 4:1, 4:3, 4:5, 5:4, 8:1, 9:16, 16:9, 21:9
+ */
+function sizeToGeminiAspectRatio(sizeStr) {
+  if (!sizeStr || sizeStr === "auto") return undefined;
+
+  const match = sizeStr.match(/^(\d+)\s*[xX×]\s*(\d+)$/);
+  if (!match) return undefined;
+
+  const ratio = parseInt(match[1]) / parseInt(match[2]);
+
+  const supported = [
+    { ar: "1:8", r: 1 / 8 },
+    { ar: "1:4", r: 1 / 4 },
+    { ar: "9:16", r: 9 / 16 },
+    { ar: "2:3", r: 2 / 3 },
+    { ar: "3:4", r: 3 / 4 },
+    { ar: "4:5", r: 4 / 5 },
+    { ar: "1:1", r: 1 },
+    { ar: "5:4", r: 5 / 4 },
+    { ar: "4:3", r: 4 / 3 },
+    { ar: "3:2", r: 3 / 2 },
+    { ar: "16:9", r: 16 / 9 },
+    { ar: "21:9", r: 21 / 9 },
+    { ar: "4:1", r: 4 },
+    { ar: "8:1", r: 8 },
+  ];
+
+  let closest = supported[0];
+  let minDiff = Math.abs(ratio - closest.r);
+  for (const s of supported) {
+    const diff = Math.abs(ratio - s.r);
+    if (diff < minDiff) {
+      minDiff = diff;
+      closest = s;
+    }
+  }
+
+  return closest.ar;
+}
+
+/**
  * Fetches an image from a URL and returns it as a buffer
  * @param {string} url - The URL of the image to fetch
  * @returns {Promise<Buffer>} - The image data as a buffer
@@ -411,14 +453,25 @@ export async function generateWithGemini(
   modelConfig = DEFAULT_MODEL_CONFIGS.gemini,
   additionalBuffers = undefined
 ) {
+  // Convert size to Gemini aspect ratio
+  const aspectRatio = sizeToGeminiAspectRatio(size);
+  console.log(`🎨 [Gemini] Size: ${size} → aspect ratio: ${aspectRatio || "default"}`);
+
+  const generationConfig = {
+    temperature: modelConfig.temperature,
+    topP: modelConfig.topP,
+    topK: modelConfig.topK,
+    candidateCount: modelConfig.candidateCount,
+  };
+
+  if (aspectRatio) {
+    generationConfig.responseModalities = ["TEXT", "IMAGE"];
+    generationConfig.imageConfig = { aspectRatio };
+  }
+
   const model = getGenAI().getGenerativeModel({
     model: "gemini-3-pro-image-preview",
-    generationConfig: {
-      temperature: modelConfig.temperature,
-      topP: modelConfig.topP,
-      topK: modelConfig.topK,
-      candidateCount: modelConfig.candidateCount,
-    },
+    generationConfig,
   });
 
   // Build editing prompt for Gemini
@@ -441,17 +494,15 @@ export async function generateWithGemini(
           - Quality: High quality designs with beautiful pet and detailed background. `;
   }
 
-  // Add aspect ratio guidance
-  const aspectInstructions = {
-    auto: "Compose the image in a square format",
-    "1024x1024": "Compose the image in a square format",
-    "1024x1536": "Compose the image in a vertical portrait format",
-    "1536x1024": "Compose the image in a horizontal landscape format",
-  };
+  // Add aspect ratio guidance in the prompt text
+  const match = size ? size.match(/^(\d+)\s*[xX×]\s*(\d+)$/) : null;
+  const orientationHint = !match || match[1] === match[2]
+    ? "Compose the image in a square format"
+    : parseInt(match[1]) < parseInt(match[2])
+      ? "Compose the image in a vertical portrait format"
+      : "Compose the image in a horizontal landscape format";
 
-  editingPrompt += ` ${
-    aspectInstructions[size] || aspectInstructions["auto"]
-  }.`;
+  editingPrompt += ` ${orientationHint}.`;
   editingPrompt += ` Technical requirements: High-resolution output, sharp details, vibrant colors, professional quality. Ensure clean composition with the pet properly centered and sized within the frame. Nothing should be cut off at the edges. THE MOST IMPROTANT THING IS TO PRESERVE THE UNIQUE CHARACTER OF THE PET. Pay close attention to the color and texture of the fur, the eyes, nose, face, tail, ears and body. It should look just like the pet in the photo but with different styles depending on the prompt!`;
 
   // Convert image to base64
@@ -521,14 +572,25 @@ export async function generateWithGeminiImg2Img(
   templatePrompt,
   modelConfig = DEFAULT_MODEL_CONFIGS["gemini-img2img"]
 ) {
+  // Convert size to Gemini aspect ratio
+  const aspectRatio = sizeToGeminiAspectRatio(size);
+  console.log(`🎨 [Gemini img2img] Size: ${size} → aspect ratio: ${aspectRatio || "default"}`);
+
+  const generationConfig = {
+    temperature: modelConfig.temperature,
+    topP: modelConfig.topP,
+    topK: modelConfig.topK,
+    candidateCount: modelConfig.candidateCount,
+  };
+
+  if (aspectRatio) {
+    generationConfig.responseModalities = ["TEXT", "IMAGE"];
+    generationConfig.imageConfig = { aspectRatio };
+  }
+
   const model = getGenAI().getGenerativeModel({
     model: "gemini-3-pro-image-preview",
-    generationConfig: {
-      temperature: modelConfig.temperature,
-      topP: modelConfig.topP,
-      topK: modelConfig.topK,
-      candidateCount: modelConfig.candidateCount,
-    },
+    generationConfig,
   });
 
   // Build img2img prompt for Gemini with explicit image identification

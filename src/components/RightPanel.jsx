@@ -64,7 +64,9 @@ export default function RightPanel({ results, setResults }) {
           generated_prompt,
           initial_prompt,
           created_at,
-          photo_id
+          photo_id,
+          model,
+          size
         `)
         .order('created_at', { ascending: false })
 
@@ -598,6 +600,14 @@ export default function RightPanel({ results, setResults }) {
 
                 {/* Image Info */}
                 <div className="p-3">
+                  {/* Model & Size */}
+                  {(image.model || image.size) && (
+                    <div className="flex items-center gap-2 mb-2 text-xs text-gray-400">
+                      {image.model && <span className="bg-gray-100 px-1.5 py-0.5 rounded">{image.model}</span>}
+                      {image.size && <span className="bg-gray-100 px-1.5 py-0.5 rounded">{image.size}</span>}
+                    </div>
+                  )}
+
                   {/* Prompt */}
                   <div className="mb-3">
                     <div className="flex items-start gap-2">

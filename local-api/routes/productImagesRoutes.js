@@ -888,11 +888,12 @@ router.post("/poster-mockup", async (req, res) => {
     // Poster area within the canvas — different positioning per orientation
     let posterAreaW, posterAreaH, posterX, posterY;
     if (isHorizontal) {
-      // Horizontal: wider poster, shorter height
-      posterAreaW = Math.round(canvasSize * 0.84);
-      posterAreaH = Math.round(canvasSize * 0.68);
-      posterX = Math.round(canvasSize * 0.06);
-      posterY = Math.round(canvasSize * 0.04);
+      // Horizontal: aligned to shadow asset (poster-shadow-horizontal.png)
+      // Shadow inner edges at x=215, y=415, w=1985, h=1505 in 2380x2380
+      posterAreaW = Math.round(canvasSize * 0.834);
+      posterAreaH = Math.round(canvasSize * 0.632);
+      posterX = Math.round(canvasSize * 0.0875);
+      posterY = Math.round(canvasSize * 0.1865);
     } else {
       // Vertical: original positioning
       posterAreaW = Math.round(canvasSize * 0.659);

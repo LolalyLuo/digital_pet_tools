@@ -1,5 +1,34 @@
 import { useState, useEffect } from "react";
 
+function AddValueInput({ onAdd, hasColorMap }) {
+  const [value, setValue] = useState("");
+  const handleAdd = () => {
+    if (value.trim()) {
+      onAdd(value.trim());
+      setValue("");
+    }
+  };
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+        placeholder={hasColorMap ? "Add color..." : "Add value..."}
+        className="border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 w-40"
+      />
+      <button
+        onClick={handleAdd}
+        disabled={!value.trim()}
+        className="text-sm text-blue-600 hover:text-blue-800 disabled:text-gray-300"
+      >
+        + Add
+      </button>
+    </div>
+  );
+}
+
 export default function CompetitorScrapeStep({ updateSession, onNext }) {
   const [url, setUrl] = useState("");
   const [scraping, setScraping] = useState(false);
@@ -91,8 +120,100 @@ export default function CompetitorScrapeStep({ updateSession, onNext }) {
           : undefined;
         return { ...o, values: newValues, ...(newColorMap !== undefined ? { colorMap: newColorMap } : {}) };
       });
+      const newConfig = { ...prev, options: newOptions };
+      newConfig.prices = rebuildPrices(newConfig.options, newConfig.prices);
+      return newConfig;
+    });
+  };
+
+  const addOptionValue = (optIdx, value) => {
+    if (!value.trim()) return;
+    setConfig((prev) => {
+      const newOptions = prev.options.map((o, i) => {
+        if (i !== optIdx) return o;
+        if (o.values.includes(value.trim())) return o;
+        return { ...o, values: [...o.values, value.trim()] };
+      });
+      const newConfig = { ...prev, options: newOptions };
+      newConfig.prices = rebuildPrices(newConfig.options, newConfig.prices);
+      return newConfig;
+    });
+  };
+
+  const addNewOption = () => {
+    setConfig((prev) => {
+      const newOptions = [...prev.options, { name: "New Option", values: [] }];
       return { ...prev, options: newOptions };
     });
+  };
+
+  const removeOption = (optIdx) => {
+    setConfig((prev) => {
+      const newOptions = prev.options.filter((_, i) => i !== optIdx);
+      const newConfig = { ...prev, options: newOptions };
+      newConfig.prices = rebuildPrices(newConfig.options, newConfig.prices);
+      return newConfig;
+    });
+  };
+
+  // Rebuild the prices map when options change.
+  // Price-affecting options = all non-color options (color typically doesn't affect price).
+  // Preserves existing prices for combinations that still exist.
+  const rebuildPrices = (options, oldPrices) => {
+    const priceOptions = options.filter(
+      (o) => !/color|background|colour/i.test(o.name)
+    );
+
+    if (priceOptions.length === 0) return {};
+
+    // Find a default price from existing prices
+    const findDefaultPrice = (obj) => {
+      if (Array.isArray(obj)) return obj;
+      if (typeof obj === "object" && obj !== null) {
+        for (const val of Object.values(obj)) {
+          const found = findDefaultPrice(val);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    const defaultPrice = findDefaultPrice(oldPrices) || ["0.00", null];
+
+    // Lookup existing price in old structure (try multiple key orderings)
+    const lookupPrice = (...keys) => {
+      const validKeys = keys.filter(Boolean);
+      if (validKeys.length === 0) return null;
+      if (validKeys.length === 1) {
+        const val = oldPrices?.[validKeys[0]];
+        return Array.isArray(val) ? val : null;
+      }
+      if (validKeys.length === 2) {
+        // Try both orderings
+        const a = oldPrices?.[validKeys[0]]?.[validKeys[1]];
+        if (Array.isArray(a)) return a;
+        const b = oldPrices?.[validKeys[1]]?.[validKeys[0]];
+        if (Array.isArray(b)) return b;
+        return null;
+      }
+      return null;
+    };
+
+    const newPrices = {};
+
+    if (priceOptions.length === 1) {
+      for (const v of priceOptions[0].values) {
+        newPrices[v] = lookupPrice(v) || [...defaultPrice];
+      }
+    } else if (priceOptions.length >= 2) {
+      for (const v1 of priceOptions[0].values) {
+        newPrices[v1] = {};
+        for (const v2 of priceOptions[1].values) {
+          newPrices[v1][v2] = lookupPrice(v1, v2) || [...defaultPrice];
+        }
+      }
+    }
+
+    return newPrices;
   };
 
   const updateColorMap = (optIdx, colorName, hex) => {
@@ -310,7 +431,15 @@ export default function CompetitorScrapeStep({ updateSession, onNext }) {
 
           {/* Options */}
           <div className="space-y-4">
-            <label className="block text-sm font-medium text-gray-700">Options</label>
+            <div className="flex items-center justify-between">
+              <label className="block text-sm font-medium text-gray-700">Options</label>
+              <button
+                onClick={addNewOption}
+                className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+              >
+                + Add Option
+              </button>
+            </div>
             {config.options.map((opt, optIdx) => (
               <div key={optIdx} className="border border-gray-200 rounded-lg p-4">
                 <div className="flex items-center gap-2 mb-3">
@@ -320,8 +449,15 @@ export default function CompetitorScrapeStep({ updateSession, onNext }) {
                     onChange={(e) => updateOption(optIdx, { name: e.target.value })}
                     className="font-medium text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
+                  <button
+                    onClick={() => removeOption(optIdx)}
+                    className="ml-auto text-xs text-gray-400 hover:text-red-500"
+                    title="Remove option"
+                  >
+                    Remove
+                  </button>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 mb-2">
                   {opt.values.map((val) => (
                     <div key={val} className="flex items-center gap-1 bg-gray-100 rounded-full px-3 py-1">
                       {opt.colorMap !== undefined && (
@@ -346,6 +482,7 @@ export default function CompetitorScrapeStep({ updateSession, onNext }) {
                     </div>
                   ))}
                 </div>
+                <AddValueInput onAdd={(val) => addOptionValue(optIdx, val)} hasColorMap={opt.colorMap !== undefined} />
               </div>
             ))}
           </div>
